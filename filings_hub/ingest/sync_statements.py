@@ -702,15 +702,30 @@ def build_fallback_rows(
     return stmt_rows, check_rows
 
 
+TEMPLATE_FORMS = {
+    "annual": ("10-K", "10-KT", "10-K405", "10-KSB", "20-F", "40-F"),
+    "quarter": ("10-Q", "10-QT", "10-QSB"),
+}
+
+
 def _template_for(duck: Duck, cik: int, family: str) -> list[dict[str, Any]] | None:
+    """The company's most recent FSDS-covered filing of the same kind, used for line order and labels.
+
+    Matched on the form itself. Selecting the quarterly template as "any filing that is not annual" let
+    an S-1, S-4 or 424B through -- the FSDS covers those too -- so a provisional 10-Q could inherit a
+    prospectus's line order and labels instead of the company's last 10-Q.
+    """
     if not duck.view("statements", f"{layout.statements_cik_dir(cik)}/*.parquet"):
         return None
-    annual = family == "annual"
+    forms = TEMPLATE_FORMS.get(family)
+    if not forms:
+        return None
+    placeholders = ", ".join("?" for _ in forms)
     rows = duck.fetch_dicts(
-        """
+        f"""
         WITH latest AS (
             SELECT accession FROM statements
-            WHERE source = 'fsds' AND (form LIKE '10-K%' OR form LIKE '20-F%' OR form LIKE '40-F%') = ?
+            WHERE source = 'fsds' AND replace(upper(form), '/A', '') IN ({placeholders})
             ORDER BY filed_date DESC LIMIT 1
         )
         SELECT DISTINCT statement, is_parenthetical, line_order, concept, label, negating, is_abstract,
@@ -718,7 +733,7 @@ def _template_for(duck: Duck, cik: int, family: str) -> list[dict[str, Any]] | N
         FROM statements WHERE accession = (SELECT accession FROM latest)
         ORDER BY statement, is_parenthetical, line_order
         """,
-        [annual],
+        list(forms),
     )
     return rows or None
 

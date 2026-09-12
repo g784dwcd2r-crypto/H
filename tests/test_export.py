@@ -88,3 +88,44 @@ def test_workbook_with_no_statements():
     g = Grid(cik=1, company_name="Empty Co", ticker=None, periods=[], statements=[])
     wb = workbook_from_grid(g)
     assert wb.sheetnames == ["No statements", "Source"]
+
+
+def test_repeated_concepts_key_on_their_label(db: Database):
+    """A concept presented twice -- "beginning balances" and "ending balances" carry the same concept --
+    must key on what distinguishes the lines. Keying by position alone meant that when one filing
+    presented fewer occurrences than another, every later occurrence shifted up and the values landed on
+    the wrong row."""
+    from filings_hub.export.grid import _keyed_lines
+
+    rows = [
+        {"concept": "Cash", "label": "Cash, beginning balances"},
+        {"concept": "Ops", "label": "Operating activities"},
+        {"concept": "Cash", "label": "Cash, ending balances"},
+    ]
+    keys = [k for k, _ in _keyed_lines(rows)]
+    assert len(set(keys)) == 3
+    # dropping the opening line must not rename the closing one
+    without_opening = [k for k, _ in _keyed_lines(rows[1:])]
+    assert without_opening[-1] == keys[-1]
+    # a genuinely identical line (same concept and label) still gets a distinct key
+    twice = [k for k, _ in _keyed_lines([rows[0], rows[0]])]
+    assert twice[0] != twice[1]
+
+
+def test_grid_aligns_opening_and_closing_cash_across_filings(db: Database):
+    """The cash flow statement's opening and closing balances share one concept: each must keep its own
+    row across every period column."""
+    g = build_grid(db, fx.APPLE, ["FY2025", "Q1 2026", "Q2 2026"])
+    cf = next(s for s in g.statements if s.code == "CF")
+    cash = [ln for ln in cf.lines if ln.concept == fx.CASH_CONCEPT]
+    assert len(cash) == 2
+    opening, closing = cash
+    assert "beginning" in opening.label and "ending" in closing.label
+    for label, key in (("FY2025", fx.P_FY2025), ("Q1 2026", fx.P_Q1_2026), ("Q2 2026", fx.P_H1_2026)):
+        want_open, want_close = fx.APPLE_CASH[key]
+        assert opening.values[label] == float(want_open), (label, "opening")
+        assert closing.values[label] == float(want_close), (label, "closing")
+    # and each column reconciles against its own change line
+    change = next(ln for ln in cf.lines if ln.label.startswith("Increase/(Decrease)"))
+    for label in ("FY2025", "Q1 2026", "Q2 2026"):
+        assert opening.values[label] + change.values[label] == closing.values[label], label

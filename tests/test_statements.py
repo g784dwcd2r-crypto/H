@@ -521,3 +521,45 @@ def test_balance_sheet_comparative_column_is_not_primary(built_lake: Storage):
         ("2025-09-27", False),
         ("2026-03-28", True),
     ]
+
+
+def test_template_comes_from_the_same_kind_of_filing(lake_copy: Storage):
+    """The FSDS also covers S-1, S-4 and 424B filings. Selecting the quarterly template as "anything
+    that is not annual" let a prospectus become the template for every provisional 10-Q."""
+    import pyarrow as pa
+
+    from filings_hub.lake.duck import Duck
+
+    # an S-1 filed after the last 10-Q, with its own line order and labels
+    s1 = pa.Table.from_pylist(
+        [
+            {
+                **row,
+                "accession": "0000320193-26-000900",
+                "form": "S-1",
+                "filed_date": date(2026, 6, 15),
+                "label": "Revenue, net (S-1 prospectus)",
+                "concept": "RevenueFromContractWithCustomerExcludingAssessedTax",
+                "line_order": 1,
+                "source": "fsds",
+            }
+            for row in lake_copy.read_parquet(
+                sorted(lake_copy.glob(f"{layout.statements_cik_dir(fx.APPLE)}/fsds_*.parquet"))[0]
+            ).to_pylist()[:1]
+        ],
+        schema=S.STATEMENTS_SCHEMA,
+    )
+    lake_copy.write_parquet(f"{layout.statements_cik_dir(fx.APPLE)}/fsds_2026q2_s1.parquet", s1)
+
+    duck = Duck(lake_copy)
+    try:
+        duck.create_views()
+        quarterly = S._template_for(duck, fx.APPLE, "quarter")
+        annual = S._template_for(duck, fx.APPLE, "annual")
+    finally:
+        duck.close()
+    assert quarterly is not None and annual is not None
+    assert all("S-1 prospectus" not in (r["label"] or "") for r in quarterly)
+    assert all("S-1 prospectus" not in (r["label"] or "") for r in annual)
+    # the quarterly template is the last 10-Q's structure
+    assert [r["concept"] for r in quarterly if r["statement"] == "IS"] == [t[3] for t in fx.APPLE_PRE if t[0] == "IS"]

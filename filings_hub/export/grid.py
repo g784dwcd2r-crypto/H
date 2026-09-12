@@ -164,14 +164,23 @@ def _statement_rows(
 
 
 def _keyed_lines(rows: list[dict[str, Any]]) -> list[tuple[str, dict[str, Any]]]:
-    """Assign a stable key per line: concept, with #n suffix for repeats within the statement."""
-    seen: dict[str, int] = {}
+    """A stable key per line, used to match the same line across filings.
+
+    The concept alone is not enough: a cash flow statement presents one cash concept twice, as opening
+    and closing balances, and an equity statement repeats a concept on every movement line. The
+    as-reported label is what distinguishes them and the company keeps it stable between filings, so the
+    key is (concept, label). A positional suffix is added only when a filing repeats both, which leaves
+    it out of the common case -- keying by position alone meant that a filing presenting one occurrence
+    fewer shifted every later occurrence onto the wrong row.
+    """
+    seen: dict[tuple[str, str], int] = {}
     out = []
     for r in rows:
-        n = seen.get(r["concept"], 0)
-        seen[r["concept"]] = n + 1
-        key = r["concept"] if n == 0 else f"{r['concept']}#{n + 1}"
-        out.append((key, r))
+        label = (r.get("label") or "").strip().casefold()
+        base = f"{r['concept']}|{label}" if label else r["concept"]
+        n = seen.get((r["concept"], label), 0)
+        seen[(r["concept"], label)] = n + 1
+        out.append((base if n == 0 else f"{base}#{n + 1}", r))
     return out
 
 
