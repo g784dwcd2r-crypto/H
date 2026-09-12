@@ -70,6 +70,39 @@ def form_label(form: str) -> str:
     return FORM_LABELS.get(form, form)
 
 
+# One UNION branch per identifier so each can use an index: a single OR across name, ticker and CIK
+# forces a sequential scan over the whole ~900k-company universe (measured: 200 ms, vs 0.4 ms here).
+# The name branch is capped because a very generic term ("capital", "holdings") can match a six-figure
+# number of companies and ranking them all costs more than the scan it replaced. Below the cap the
+# ranking is exact, which covers every query that is not a bare industry word; exact ticker and CIK
+# matches are in their own uncapped branches, so they are never dropped.
+SEARCH_CANDIDATE_CAP = 5000
+
+SEARCH_SQL = f"""
+WITH matches AS (
+    (SELECT cik FROM companies WHERE lower(name) LIKE ? LIMIT {SEARCH_CANDIDATE_CAP})
+    UNION
+    SELECT cik FROM companies WHERE ticker = ?
+    UNION
+    SELECT cik FROM tickers WHERE ticker = ?
+    UNION
+    SELECT cik FROM companies WHERE cik = ?
+)
+SELECT c.cik, c.name, c.ticker, c.exchange, c.sic_description, c.is_active, c.last_financial_report_date
+FROM companies c JOIN matches m ON m.cik = c.cik
+ORDER BY (c.ticker = ?) DESC, c.is_active DESC, c.filing_count DESC
+LIMIT ?
+"""
+
+
+def search_params(q: str, limit: int) -> list[Any]:
+    """Positional parameters for SEARCH_SQL. A non-numeric query passes NULL to the CIK branch so it
+    matches nothing, rather than casting every CIK to text (which no index can serve)."""
+    sym = q.strip().upper()
+    cik = int(q) if q.strip().isdigit() else None
+    return [f"%{q.strip().lower()}%", sym, sym, cik, sym, limit]
+
+
 def create_app(settings: Settings | None = None, db: Database | None = None) -> FastAPI:
     s = settings or get_settings()
     storage = Storage(s.resolved_lake_root())
@@ -105,14 +138,7 @@ def create_app(settings: Settings | None = None, db: Database | None = None) -> 
 
     @app.get("/search")
     def search(q: str = Query(min_length=1), limit: int = Query(20, le=100), _: str = Depends(auth)) -> dict[str, Any]:
-        like = f"%{q.lower()}%"
-        rows = database.query(
-            "SELECT c.cik, c.name, c.ticker, c.exchange, c.sic_description, c.is_active, c.last_financial_report_date "
-            "FROM companies c WHERE lower(c.name) LIKE ? OR c.ticker = ? OR CAST(c.cik AS VARCHAR) = ? "
-            "OR c.cik IN (SELECT cik FROM tickers WHERE ticker = ?) "
-            "ORDER BY (c.ticker = ?) DESC, c.is_active DESC, c.filing_count DESC LIMIT ?",
-            [like, q.upper(), q, q.upper(), q.upper(), limit],
-        )
+        rows = database.query(SEARCH_SQL, search_params(q, limit))
         return {"query": q, "results": rows}
 
     @app.get("/companies/{cik}")

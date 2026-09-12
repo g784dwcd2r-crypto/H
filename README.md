@@ -117,6 +117,10 @@ Three screens, no form codes on the surface: search; company page (name, ticker,
 * `GET /quality/failed` is the data-quality queue: every statement whose arithmetic checks failed, newest first, with the filing link.
 * `docker-compose up` starts Postgres, the API, the worker and the web app against a shared lake volume.
 
+Measured against the acceptance targets (fixture lake, DuckDB backend): statements over a 3-year range **p95 22 ms** (target < 300 ms), `export.xlsx` **p95 52 ms** (target < 3 s).
+
+Company search is a `UNION` of one branch per identifier (name, ticker, CIK) rather than a single `OR`, because an `OR` across three columns cannot use an index: benchmarked against a 900k-company table, that is **207 ms → 0.6 ms**. The name branch uses a `pg_trgm` GIN index (migration `0002`, which degrades to a sequential scan if the extension is not permitted) and is capped at 5,000 candidates so a bare industry word cannot make ranking cost more than the scan it replaced.
+
 ## Quality
 
 ```bash

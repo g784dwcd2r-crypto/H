@@ -119,3 +119,27 @@ def test_metrics_and_quality_queue(client):
     )
     assert q["failed"][0]["name"] == "Broken Books Ltd" and q["failed"][0]["form"] == "10-K"
     assert client.get("/quality/failed?limit=1&offset=5", headers=H).json()["failed"] == []
+
+
+def test_search_resolves_every_identifier(client):
+    """Each identifier has its own indexable branch: name substring, primary ticker, secondary ticker, CIK."""
+
+    def ciks(q):
+        return [r["cik"] for r in client.get(f"/search?q={q}", headers=H).json()["results"]]
+
+    assert ciks("apple") == [fx.APPLE]  # name substring
+    assert ciks("aapl") == [fx.APPLE]  # primary ticker, case-insensitive
+    assert ciks("AAP") == []  # tickers match exactly, never by prefix
+    assert ciks("GOOG") == [fx.TWO_TICKER]  # secondary ticker, only in the tickers table
+    assert ciks("320193") == [fx.APPLE]  # CIK
+    assert ciks("  Apple  ") == [fx.APPLE]  # trimmed
+    assert ciks("JPMORGAN") == [fx.JPM]  # name match is case-insensitive
+    assert fx.OLD in ciks("old co")  # inactive companies are still findable
+    assert ciks("zzzz") == []
+
+
+def test_search_ranks_exact_ticker_first(client):
+    # "Two Ticker Holdings" and "Broken Books" both exist; an exact ticker hit outranks a name hit.
+    rows = client.get("/search?q=BRKN", headers=H).json()["results"]
+    assert rows[0]["cik"] == fx.BROKEN
+    assert client.get("/search?q=holdings", headers=H).json()["results"][0]["cik"] == fx.TWO_TICKER

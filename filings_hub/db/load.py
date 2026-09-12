@@ -163,6 +163,24 @@ TABLE_COLUMNS: dict[str, list[str]] = {
 # ---------------------------------------------------------------------------------------------
 # Schema / migrations
 # ---------------------------------------------------------------------------------------------
+SCHEMA_SQL = Path(__file__).parent / "schema.sql"
+SCHEMA_HEADER = (
+    "-- Serving schema (Postgres). GENERATED from migrations/ by `make schema` -- do not edit by hand.\n"
+    "-- Apply with `filings-hub load` (which runs the migrations) or `psql -f filings_hub/db/schema.sql`.\n"
+)
+
+
+def render_schema_sql() -> str:
+    """The full schema as the concatenation of every migration, in order."""
+    body = "\n".join(f"-- ==== {p.name} ====\n{p.read_text().strip()}\n" for p in sorted(MIGRATIONS_DIR.glob("*.sql")))
+    return SCHEMA_HEADER + "\n" + body
+
+
+def write_schema_sql() -> str:
+    SCHEMA_SQL.write_text(render_schema_sql())
+    return str(SCHEMA_SQL)
+
+
 def apply_migrations(conn: psycopg.Connection) -> list[str]:
     with conn.cursor() as cur:
         cur.execute(

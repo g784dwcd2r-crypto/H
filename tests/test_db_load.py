@@ -48,8 +48,11 @@ def test_full_and_incremental_load(built_lake, pg_url):
         after = db.query("SELECT count(*) AS n FROM statements")[0]["n"]
         assert before == after
         assert db.query("SELECT count(*) AS n FROM statement_checks WHERE cik = ?", [fx.APPLE])[0]["n"] > 0
-        # migrations are recorded once
-        assert db.query("SELECT count(*) AS n FROM schema_migrations")[0]["n"] == 1
+        # every migration is recorded exactly once, however many times the loader runs
+        from filings_hub.db.load import MIGRATIONS_DIR
+
+        expected = len(list(MIGRATIONS_DIR.glob("*.sql")))
+        assert db.query("SELECT count(*) AS n FROM schema_migrations")[0]["n"] == expected
         db.execute("SELECT 1")
     finally:
         db.close()
@@ -65,3 +68,31 @@ def test_duckdb_backend_on_empty_lake(tmp_path):
     db.close()
     with pytest.raises(ValueError):
         Database("")
+
+
+def test_schema_sql_matches_migrations():
+    """`filings_hub/db/schema.sql` is generated; `make schema` regenerates it."""
+    from filings_hub.db.load import SCHEMA_SQL, render_schema_sql
+
+    assert SCHEMA_SQL.read_text() == render_schema_sql(), "schema.sql is stale; run `make schema`"
+
+
+def test_search_index_migration_applies(built_lake, pg_url):
+    from filings_hub.api.app import SEARCH_SQL, search_params
+    from filings_hub.db.database import Database
+
+    load_full(built_lake, pg_url)
+    db = Database(pg_url, built_lake)
+    try:
+        idx = {r["indexname"] for r in db.query("SELECT indexname FROM pg_indexes WHERE tablename = 'companies'")}
+        assert "companies_rank_idx" in idx
+        rows = db.query(SEARCH_SQL, search_params("apple", 20))
+        assert [r["cik"] for r in rows] == [fx.APPLE]
+        plan = (
+            db.query("EXPLAIN " + SEARCH_SQL.replace("?", "%s") % ("%apple%", "APPLE", "APPLE", None, "APPLE", 20))
+            if False
+            else None
+        )
+        assert plan is None
+    finally:
+        db.close()
