@@ -32,6 +32,9 @@ class Settings(BaseSettings):
     edgar_requests_per_second: float = 10.0
     edgar_max_retries: int = 5
     edgar_timeout_seconds: float = 60.0
+    # SEC throttling (HTTP 403/429) blocks an IP for ~10 minutes; these rounds wait it out (30 s doubling to the cap).
+    edgar_throttle_retries: int = 8
+    edgar_throttle_max_wait_seconds: float = 600.0
 
     # AWS credentials for DuckDB httpfs when the lake is on S3 (also read by s3fs from env).
     aws_access_key_id: str = ""
