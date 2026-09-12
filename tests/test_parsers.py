@@ -122,3 +122,61 @@ def test_build_companies_without_stats():
     companies = sync_universe.build_companies(headers, tickers, None)
     assert companies.num_rows == 1 and companies.to_pylist()[0]["filing_count"] == 0
     assert isinstance(companies, pa.Table)
+
+
+def test_upsert_keys_on_cik_and_accession_for_cofiled_documents(tmp_path):
+    """One EDGAR accession can belong to several CIKs: a parent and its operating partnership file a
+    combined 10-K under a single accession, and the daily index lists one line per co-filer. Keying the
+    merge on accession alone made each co-filer's row delete the other's."""
+    st = Storage(str(tmp_path))
+    parent, op_unit = 1063761, 1022344
+    accession = "0001063761-26-000010"
+    fx.COMPANIES[parent] = {**fx.COMPANIES[fx.APPLE], "name": "Simon Property Group Inc", "filings": []}
+    fx.COMPANIES[op_unit] = {**fx.COMPANIES[fx.APPLE], "name": "Simon Property Group LP", "filings": []}
+    try:
+        text = fx.daily_index_text(date(2026, 2, 20), [(parent, "10-K", accession), (op_unit, "10-K", accession)])
+        rows = sync_filings.parse_daily_index(text)
+        assert len(rows) == 2
+        assert sync_filings.upsert_filings(st, rows) == 2
+
+        stored = {(r["cik"], r["accession"]) for r in _all_filings(st)}
+        assert stored == {(parent, accession), (op_unit, accession)}
+
+        # refreshing one co-filer from the API must not remove the other's row
+        api_row = dict(rows[0], source="submissions_api", report_date=date(2025, 12, 31))
+        sync_filings.upsert_filings(st, [api_row], replace_ciks=[parent])
+        after = {(r["cik"], r["accession"], r["source"]) for r in _all_filings(st)}
+        assert after == {
+            (parent, accession, "submissions_api"),
+            (op_unit, accession, "daily_index"),
+        }
+    finally:
+        del fx.COMPANIES[parent], fx.COMPANIES[op_unit]
+
+
+def test_daily_index_stub_does_not_downgrade_only_its_own_cik(tmp_path):
+    st = Storage(str(tmp_path))
+    accession = "0000000001-26-000001"
+    rich = [
+        {**r, "cik": cik, "source": "submissions_api"}
+        for cik, r in (
+            (
+                11,
+                sync_filings.parse_daily_index(fx.daily_index_text(date(2026, 2, 20), [(fx.APPLE, "10-K", accession)]))[
+                    0
+                ],
+            ),
+        )
+    ]
+    sync_filings.upsert_filings(st, rich)
+    stub = sync_filings.parse_daily_index(fx.daily_index_text(date(2026, 2, 20), [(fx.APPLE, "10-K", accession)]))
+    stub[0]["cik"] = 11
+    assert sync_filings.upsert_filings(st, stub) == 0  # same (cik, accession) and poorer: not written
+    assert [r["source"] for r in _all_filings(st)] == ["submissions_api"]
+
+
+def _all_filings(storage: Storage) -> list[dict]:
+    rows = []
+    for f in storage.glob(f"{layout.FILINGS}/*/*.parquet"):
+        rows.extend(storage.read_parquet(f).to_pylist())
+    return rows

@@ -133,8 +133,8 @@ def _read_year(storage: Storage, year: int) -> pa.Table:
 
 
 def upsert_filings(storage: Storage, rows: list[dict[str, Any]], replace_ciks: Iterable[int] = ()) -> int:
-    """Insert/replace filings by accession. For `replace_ciks`, all existing rows of those CIKs in the
-    touched years are dropped first (so a refreshed submissions API response is authoritative).
+    """Insert/replace filings by (cik, accession). For `replace_ciks`, all existing rows of those CIKs
+    in the touched years are dropped first (so a refreshed submissions API response is authoritative).
 
     Rows with `source='daily_index'` never overwrite richer rows for the same accession."""
     if not rows:
@@ -148,7 +148,11 @@ def upsert_filings(storage: Storage, rows: list[dict[str, Any]], replace_ciks: I
     written = 0
     for year, new_rows in by_year.items():
         existing = _read_year(storage, year)
-        new_by_acc = {r["accession"]: r for r in new_rows}
+        # Keyed on (cik, accession), not accession alone: one accession can belong to several CIKs.
+        # A parent and its operating partnership file a combined 10-K under a single accession and the
+        # daily index lists one line per co-filer, so an accession-only key made each co-filer's row
+        # delete the other's.
+        new_by_key = {(r["cik"], r["accession"]): r for r in new_rows}
         keep_mask = []
         ex_acc = existing.column("accession").to_pylist()
         ex_cik = existing.column("cik").to_pylist()
@@ -157,19 +161,20 @@ def upsert_filings(storage: Storage, rows: list[dict[str, Any]], replace_ciks: I
             if cik in replace:
                 keep_mask.append(False)
                 continue
-            if acc in new_by_acc:
-                if new_by_acc[acc]["source"] == "daily_index" and src != "daily_index":
-                    del new_by_acc[acc]  # keep the richer existing row
+            key = (cik, acc)
+            if key in new_by_key:
+                if new_by_key[key]["source"] == "daily_index" and src != "daily_index":
+                    del new_by_key[key]  # keep the richer existing row
                     keep_mask.append(True)
                 else:
                     keep_mask.append(False)
                 continue
             keep_mask.append(True)
         kept = existing.filter(pa.array(keep_mask, type=pa.bool_())) if len(keep_mask) else existing
-        merged = pa.concat_tables([kept, filings_table(list(new_by_acc.values()))])
+        merged = pa.concat_tables([kept, filings_table(list(new_by_key.values()))])
         merged = merged.sort_by([("cik", "ascending"), ("filed_date", "ascending"), ("accession", "ascending")])
         storage.replace_dir_with_parquet(layout.filings_year_dir(year), merged)
-        written += len(new_by_acc)
+        written += len(new_by_key)
     return written
 
 

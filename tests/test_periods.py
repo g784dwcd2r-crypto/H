@@ -171,3 +171,50 @@ def test_periods_table_schema():
     rows = P.build_periods_for_company(1, [f("k", "10-K", "2025-02-01", "2024-12-31")], "1231")
     t = P.periods_table(rows)
     assert t.num_rows == 1 and t.schema == P.PERIODS_SCHEMA
+
+
+def test_52_53_week_year_ending_just_after_new_year():
+    """Snap-on's fiscal 2021 ended 2022-01-01 and its fiscal 2022 ended 2022-12-31. Naming the fiscal
+    year after the calendar year of the period end collapsed both into FY2022, so a whole year vanished
+    from the spine and its filings were reclassified as amendments of the next one."""
+    fye = (12, 31)
+    assert P.fiscal_year_of(date(2022, 1, 1), fye) == 2021
+    assert P.fiscal_year_of(date(2022, 12, 31), fye) == 2022
+    assert P.fiscal_year_of(date(2023, 12, 30), fye) == 2023
+    assert P.fiscal_period_for(date(2022, 1, 1), "annual", fye).key == (2021, 4)
+    assert P.fiscal_period_for(date(2022, 12, 31), "annual", fye).key == (2022, 4)
+
+    filings = [
+        f("f2021-q1", "10-Q", "2021-04-29", "2021-04-02"),
+        f("f2021-q2", "10-Q", "2021-07-29", "2021-07-03"),
+        f("f2021-q3", "10-Q", "2021-10-28", "2021-10-02"),
+        f("f2021-10k", "10-K", "2022-02-10", "2022-01-01"),
+        f("f2022-q1", "10-Q", "2022-04-28", "2022-04-02"),
+        f("f2022-q2", "10-Q", "2022-07-28", "2022-07-02"),
+        f("f2022-q3", "10-Q", "2022-10-27", "2022-10-01"),
+        f("f2022-10k", "10-K", "2023-02-09", "2022-12-31"),
+    ]
+    rows = P.build_periods_for_company(55785, filings, "1231")
+    assert len(rows) == 8, [r["period_label"] for r in rows]
+    by_label = {r["period_label"]: r["results_accession"] for r in rows}
+    assert by_label == {
+        "Q1 2021": "f2021-q1",
+        "Q2 2021": "f2021-q2",
+        "Q3 2021": "f2021-q3",
+        "FY2021": "f2021-10k",
+        "Q1 2022": "f2022-q1",
+        "Q2 2022": "f2022-q2",
+        "Q3 2022": "f2022-q3",
+        "FY2022": "f2022-10k",
+    }
+    assert all(not r["amendment_accessions"] for r in rows)
+
+
+def test_fiscal_year_falls_back_when_the_year_end_moved():
+    """A company that changed its fiscal year end must not have old periods pulled toward the new one."""
+    # nominal FYE is now December, but this annual report ended in June: name it for the year it ended
+    assert P.fiscal_year_of(date(2019, 6, 30), (12, 31)) == 2019
+    assert P.fiscal_year_of(date(2019, 6, 30), None) == 2019
+    # a 53-week year ending a few days *before* the nominal date still belongs to that year
+    assert P.fiscal_year_of(date(2025, 9, 27), (9, 30)) == 2025
+    assert P.fiscal_year_of(date(2024, 2, 3), (1, 31)) == 2024

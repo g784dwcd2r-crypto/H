@@ -97,6 +97,26 @@ def nominal_fye_after(report_date: date, fye: tuple[int, int]) -> date:
     return end
 
 
+def fiscal_year_of(end: date, fye: tuple[int, int] | None) -> int:
+    """The fiscal year a period ending on `end` belongs to.
+
+    Normally that is the calendar year the period ends in, but a 52/53-week year pinned to a weekday can
+    end a few days either side of its nominal date and so cross New Year: Snap-on's fiscal 2021 ended
+    2022-01-01 and its fiscal 2022 ended 2022-12-31. Naming both FY2022 collapses two years into one.
+    So when `end` sits within the 52/53-week drift of a nominal year end, that nominal year names it.
+
+    The drift window also keeps a company that *changed* its year end honest: an annual report ending
+    2019-06-30 for a filer whose year end is now December is nowhere near a nominal date, so it keeps
+    the calendar year it ended in.
+    """
+    if fye is None:
+        return end.year
+    for year in (end.year - 1, end.year, end.year + 1):
+        if abs((safe_date(year, *fye) - end).days) <= FYE_DRIFT_DAYS:
+            return year
+    return end.year
+
+
 def months_between(start: date, end: date) -> int:
     return round((end - start).days / 30.4375)
 
@@ -129,7 +149,7 @@ def fiscal_period_for(
     year after this report date, the quarter is measured against it (52/53-week and FYE-change proof).
     """
     if family == "annual":
-        return FiscalPeriod(report_date.year, 4, "period_end")
+        return FiscalPeriod(fiscal_year_of(report_date, fye), 4, "period_end")
 
     # 1. real anchor: the next annual report date
     for anchor in annual_anchors or []:
@@ -138,7 +158,7 @@ def fiscal_period_for(
             if gap <= 330:
                 q = quarter_from_months_to_fye(months_between(report_date, anchor))
                 if q is not None and q != 4:
-                    return FiscalPeriod(anchor.year, q, "anchor")
+                    return FiscalPeriod(fiscal_year_of(anchor, fye), q, "anchor")
             break
 
     # 2. nominal FYE
@@ -146,7 +166,7 @@ def fiscal_period_for(
         end = nominal_fye_after(report_date, fye)
         q = quarter_from_months_to_fye(months_between(report_date, end))
         if q is not None and q != 4:
-            return FiscalPeriod(end.year, q, "nominal_fye")
+            return FiscalPeriod(fiscal_year_of(end, fye), q, "nominal_fye")
 
     # 3. fallback: calendar quarters
     cal_q = (report_date.month - 1) // 3 + 1

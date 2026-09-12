@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import io
 import zipfile
-from datetime import date
+from datetime import date, timedelta
 from typing import Any
 
 import orjson
@@ -567,9 +567,26 @@ def _bs(cash, assets_current, assets, liab_current, liab, equity):
     }
 
 
-def _cf(ops, inv, repurchase, dividends, other_fin, begin):
-    fin = -(repurchase + dividends) + other_fin
-    change = ops + inv + fin
+CASH_CONCEPT = "CashCashEquivalentsRestrictedCashAndRestrictedCashEquivalents"
+# Concepts reported as a point in time even when presented on a duration statement.
+INSTANT_CONCEPTS = frozenset({CASH_CONCEPT, "CashAndCashEquivalentsAtCarryingValue"})
+
+# Opening and closing cash per period. In real SEC data these are *instants* (tag.iord = 'I',
+# num.qtrs = 0) presented on the cash flow statement, on two lines carrying the same concept --
+# "beginning balances" and "ending balances". APPLE_CASH[key] = (opening, closing).
+APPLE_CASH: dict[tuple, tuple[float, float]] = {}
+
+
+def _cf(ops, inv, repurchase, dividends, opening, closing):
+    """Duration lines of the cash flow statement.
+
+    Opening and closing cash come from the balance sheet, so the three statements agree and the cash
+    chains from one period to the next; "other financing activities" absorbs the difference, which keeps
+    operating + investing + financing exactly equal to the change in cash.
+    """
+    change = closing - opening
+    fin = change - ops - inv
+    other_fin = fin + repurchase + dividends
     return {
         "NetCashProvidedByUsedInOperatingActivities": ops,
         "NetCashProvidedByUsedInInvestingActivities": inv,
@@ -578,7 +595,6 @@ def _cf(ops, inv, repurchase, dividends, other_fin, begin):
         "ProceedsFromPaymentsForOtherFinancingActivities": other_fin,
         "NetCashProvidedByUsedInFinancingActivities": fin,
         "CashCashEquivalentsRestrictedCashAndRestrictedCashEquivalentsPeriodIncreaseDecreaseIncludingExchangeRateEffect": change,
-        "CashCashEquivalentsRestrictedCashAndRestrictedCashEquivalents": begin + change,
     }
 
 
@@ -620,15 +636,34 @@ APPLE_BS = {
     "2025-12-27": _bs(32_000 * M, 155_000 * M, 370_000 * M, 172_000 * M, 295_000 * M, 75_000 * M),
     "2026-03-28": _bs(33_000 * M, 156_000 * M, 372_000 * M, 173_000 * M, 296_000 * M, 76_000 * M),
     "2026-06-27": _bs(34_000 * M, 157_000 * M, 374_000 * M, 174_000 * M, 297_000 * M, 77_000 * M),
+    "2023-09-30": _bs(30_737 * M, 143_566 * M, 352_583 * M, 145_308 * M, 290_437 * M, 62_146 * M),
+    "2024-12-28": _bs(30_299 * M, 133_240 * M, 344_085 * M, 144_365 * M, 277_327 * M, 66_758 * M),
+    "2025-03-29": _bs(28_162 * M, 129_000 * M, 331_233 * M, 143_000 * M, 264_437 * M, 66_796 * M),
 }
-APPLE_CF = {
-    P_FY2024: _cf(118_254 * M, 2_935 * M, 94_949 * M, 15_234 * M, -13_000 * M, 30_737 * M),
-    P_FY2025: _cf(120_000 * M, 5_000 * M, 95_000 * M, 15_000 * M, -14_000 * M, 29_943 * M),
-    P_Q1_2025: _cf(29_935 * M, -1_445 * M, 23_600 * M, 3_860 * M, -1_000 * M, 29_943 * M),
-    P_Q1_2026: _cf(30_000 * M, -2_000 * M, 24_000 * M, 4_000 * M, 2_000 * M, 30_000 * M),
-    P_H1_2026: _cf(60_000 * M, -3_000 * M, 48_000 * M, 8_000 * M, 2_000 * M, 30_000 * M),
-    P_H1_2025: _cf(53_912 * M, 1_500 * M, 47_000 * M, 7_700 * M, -1_600 * M, 29_943 * M),
+# operating, investing, buybacks, dividends -- the rest of financing is plugged from the balance sheet
+_CF_INPUTS = {
+    P_FY2024: (118_254 * M, 2_935 * M, 94_949 * M, 15_234 * M),
+    P_FY2025: (120_000 * M, 5_000 * M, 95_000 * M, 15_000 * M),
+    P_Q1_2025: (29_935 * M, -1_445 * M, 23_600 * M, 3_860 * M),
+    P_Q1_2026: (30_000 * M, -2_000 * M, 24_000 * M, 4_000 * M),
+    P_H1_2026: (60_000 * M, -3_000 * M, 48_000 * M, 8_000 * M),
+    P_H1_2025: (53_912 * M, 1_500 * M, 47_000 * M, 7_700 * M),
 }
+
+
+def _cash_at(day: str) -> float:
+    return APPLE_BS[day]["CashAndCashEquivalentsAtCarryingValue"]
+
+
+def _opening_day(period_start: str) -> str:
+    return (date.fromisoformat(period_start) - timedelta(days=1)).isoformat()
+
+
+APPLE_CF = {}
+for _key, _args in _CF_INPUTS.items():
+    _open, _close = _cash_at(_opening_day(_key[-2])), _cash_at(_key[-1])
+    APPLE_CF[_key] = _cf(*_args, _open, _close)
+    APPLE_CASH[_key] = (_open, _close)
 
 JPM_IS_FY2025 = {
     "InterestAndDividendIncomeOperating": 180 * BILLION,
@@ -746,6 +781,10 @@ def _apple_facts() -> dict[str, Any]:
             if key in APPLE_CF:
                 for concept, val in APPLE_CF[key].items():
                     add(concept, "USD", _fact(start, end, val, accn, fy, fp, form, filed))
+                opening, closing = APPLE_CASH[key]
+                prior = (date.fromisoformat(start) - timedelta(days=1)).isoformat()
+                for when, val in ((prior, opening), (end, closing)):
+                    add(CASH_CONCEPT, "USD", _fact(None, when, val, accn, fy, fp, form, filed))
     bs_reported = {
         APPLE_10K_FY2024: ["2024-09-28"],
         APPLE_10K_FY2025: ["2025-09-27", "2024-09-28"],
@@ -754,8 +793,6 @@ def _apple_facts() -> dict[str, Any]:
         _acc(APPLE, 2025, 42): ["2025-03-29", "2024-09-28"],
         APPLE_10Q_Q2_2026: ["2026-03-28", "2025-09-27"],
     }
-    APPLE_BS["2024-12-28"] = _bs(30_299 * M, 133_240 * M, 344_085 * M, 144_365 * M, 277_327 * M, 66_758 * M)
-    APPLE_BS["2025-03-29"] = _bs(28_162 * M, 129_000 * M, 331_233 * M, 143_000 * M, 264_437 * M, 66_796 * M)
     for accn, ends in bs_reported.items():
         fy, fp, form, filed = filings[accn]
         for end in ends:
@@ -971,56 +1008,50 @@ APPLE_PRE: list[tuple[str, int, int, str, str, int, int]] = [
         0,
     ),
     ("CF", 7, 1, "StatementOfCashFlowsAbstract", "CONSOLIDATED STATEMENTS OF CASH FLOWS", 0, 1),
+    # The opening and closing cash lines carry the SAME concept and differ only by label, exactly as
+    # real filings present them, and both are instants (tag.iord = 'I', num.qtrs = 0).
+    ("CF", 7, 2, CASH_CONCEPT, "Cash, cash equivalents and restricted cash, beginning balances", 0, 0),
+    ("CF", 7, 3, "NetCashProvidedByUsedInOperatingActivities", "Cash generated by operating activities", 0, 0),
     (
         "CF",
         7,
-        2,
-        "NetCashProvidedByUsedInOperatingActivities",
-        "Cash generated by operating activities",
-        0,
-        0,
-    ),
-    (
-        "CF",
-        7,
-        3,
+        4,
         "NetCashProvidedByUsedInInvestingActivities",
         "Cash generated by/(used in) investing activities",
         0,
         0,
     ),
-    ("CF", 7, 4, "PaymentsForRepurchaseOfCommonStock", "Repurchases of common stock", 1, 0),
-    ("CF", 7, 5, "PaymentsOfDividends", "Payments for dividends and dividend equivalents", 1, 0),
-    ("CF", 7, 6, "ProceedsFromPaymentsForOtherFinancingActivities", "Other", 0, 0),
+    ("CF", 7, 5, "PaymentsForRepurchaseOfCommonStock", "Repurchases of common stock", 1, 0),
+    ("CF", 7, 6, "PaymentsOfDividends", "Payments for dividends and dividend equivalents", 1, 0),
+    ("CF", 7, 7, "ProceedsFromPaymentsForOtherFinancingActivities", "Other", 0, 0),
+    ("CF", 7, 8, "NetCashProvidedByUsedInFinancingActivities", "Cash used in financing activities", 0, 0),
     (
         "CF",
         7,
-        7,
-        "NetCashProvidedByUsedInFinancingActivities",
-        "Cash used in financing activities",
-        0,
-        0,
-    ),
-    (
-        "CF",
-        7,
-        8,
+        9,
         "CashCashEquivalentsRestrictedCashAndRestrictedCashEquivalentsPeriodIncreaseDecreaseIncludingExchangeRateEffect",
         "Increase/(Decrease) in cash, cash equivalents and restricted cash",
         0,
         0,
     ),
-    (
-        "CF",
-        7,
-        9,
-        "CashCashEquivalentsRestrictedCashAndRestrictedCashEquivalents",
-        "Cash, cash equivalents and restricted cash, ending balances",
-        0,
-        0,
-    ),
+    ("CF", 7, 10, CASH_CONCEPT, "Cash, cash equivalents and restricted cash, ending balances", 0, 0),
 ]
 APPLE_TAGS = {t[3]: (t[6], "duration" if t[0] in ("IS", "CF") else "instant") for t in APPLE_PRE}
+
+
+def _dedupe_num(rows: list[str]) -> list[str]:
+    """`num` is keyed by (adsh, tag, version, coreg, ddate, qtrs), so the SEC can publish only one value
+    per key. A period's opening balance and the previous period's closing balance are the same fact, so
+    generating both would produce a row real data cannot contain."""
+    seen: set[tuple[str, ...]] = set()
+    out = []
+    for row in rows:
+        key = tuple(row.split("\t")[:6])
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(row)
+    return out
 
 
 def _fsds_row(cols: list[str], **kw: Any) -> str:
@@ -1127,22 +1158,22 @@ def _apple_num(adsh: str, is_keys: list, bs_ends: list[str], cf_keys: list) -> l
             )
     for key in cf_keys:
         start, end = key
-        qtrs = (
-            4
-            if (date.fromisoformat(end) - date.fromisoformat(start)).days > 300
-            else max(1, round((date.fromisoformat(end) - date.fromisoformat(start)).days / 91))
-        )
+        days = (date.fromisoformat(end) - date.fromisoformat(start)).days
+        qtrs = 4 if days > 300 else max(1, round(days / 91))
         for concept, val in APPLE_CF[key].items():
             rows.append(
                 _fsds_row(
-                    NUM_COLS,
-                    adsh=adsh,
-                    tag=concept,
-                    version=V,
-                    ddate=_ddate(end),
-                    qtrs=qtrs,
-                    uom="USD",
-                    value=val,
+                    NUM_COLS, adsh=adsh, tag=concept, version=V, ddate=_ddate(end), qtrs=qtrs, uom="USD", value=val
+                )
+            )
+        # opening and closing cash are instants: qtrs = 0, dated the day before the period starts and
+        # the day the period ends
+        opening, closing = APPLE_CASH[key]
+        prior = (date.fromisoformat(start) - timedelta(days=1)).isoformat()
+        for when, val in ((prior, opening), (end, closing)):
+            rows.append(
+                _fsds_row(
+                    NUM_COLS, adsh=adsh, tag=CASH_CONCEPT, version=V, ddate=_ddate(when), qtrs=0, uom="USD", value=val
                 )
             )
     # a co-registrant row that must be ignored
@@ -1188,7 +1219,7 @@ def _tags_for(pre_defs: list[tuple], version: str = V) -> list[str]:
         if tag in seen:
             continue
         seen.add(tag)
-        iord = "I" if s == "BS" else "D"
+        iord = "I" if (s == "BS" or tag in INSTANT_CONCEPTS) else "D"
         datatype = "" if abstract else ("perShare" if "PerShare" in tag else "monetary")
         rows.append(
             _fsds_row(
@@ -1357,6 +1388,7 @@ def fsds_quarters() -> dict[str, dict[str, str]]:
     }
     out = {}
     for name, tables in (("2025q4", q4), ("2026q1", q1)):
+        tables["num"] = _dedupe_num(tables["num"])
         cols = {"sub": SUB_COLS, "num": NUM_COLS, "pre": PRE_COLS, "tag": TAG_COLS}
         out[name] = {t: "\t".join(cols[t]) + "\n" + "\n".join(rows) + "\n" for t, rows in tables.items()}
     return out
@@ -1414,7 +1446,9 @@ APPLE_FY2026_FILINGS = [
 APPLE_IS[P_FY2026] = _is(450_000 * M, 235_000 * M, 36_000 * M, 28_000 * M, 500 * M, 24_000 * M)
 APPLE_EPS[P_FY2026] = (8.40, 8.35)
 APPLE_BS["2026-09-26"] = _bs(35_000 * M, 158_000 * M, 380_000 * M, 175_000 * M, 300_000 * M, 80_000 * M)
-APPLE_CF[P_FY2026] = _cf(125_000 * M, 4_000 * M, 96_000 * M, 16_000 * M, -12_000 * M, 30_000 * M)
+_open_fy2026, _close_fy2026 = _cash_at(_opening_day(P_FY2026[0])), _cash_at(P_FY2026[1])
+APPLE_CF[P_FY2026] = _cf(125_000 * M, 4_000 * M, 96_000 * M, 16_000 * M, _open_fy2026, _close_fy2026)
+APPLE_CASH[P_FY2026] = (_open_fy2026, _close_fy2026)
 
 
 def apple_companyfacts_with_fy2026() -> dict[str, Any]:

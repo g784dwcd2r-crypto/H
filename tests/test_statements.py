@@ -370,9 +370,12 @@ def test_helpers():
     assert S.expected_qtrs(2, "10-Q") == {1, 2} and S.expected_qtrs(4, "10-K") == {4}
     assert S.expected_qtrs(4, "10-KT") is None and S.expected_qtrs(None, "10-Q") is None
     assert S._qtrs_est(None) == 0 and S._qtrs_est(91) == 1 and S._qtrs_est(182) == 2 and S._qtrs_est(365) == 4
+    # instants belong on every statement (opening and closing balances are points in time); only the
+    # balance sheet refuses durations, and a duration must match the filing's own fiscal period
     assert S._keep_period("BS", 0, {4}) and not S._keep_period("BS", 4, {4})
     assert S._keep_period("IS", 4, {4}) and not S._keep_period("IS", 1, {4}) and S._keep_period("IS", 1, None)
-    assert S._keep_period("EQ", 0, {4}) and S._keep_period("CP", 7, {4})
+    assert S._keep_period("CF", 0, {4}) and S._keep_period("EQ", 0, {4}) and S._keep_period("CP", 0, {4})
+    assert not S._keep_period("CP", 7, {4}) and S._keep_period("CP", 7, None)
 
 
 def test_sql_and_python_subtotal_rules_agree(built_lake: Storage):
@@ -464,3 +467,57 @@ def test_rebuild_periods_subset_keeps_other_companies(lake_copy: Storage):
     assert {r["cik"] for r in rows} > {fx.APPLE, fx.JPM}
     lake_copy.delete(layout.FILINGS)
     assert rebuild_periods(lake_copy) == 0
+
+
+def test_instants_presented_on_the_cash_flow_statement_survive(built_lake: Storage):
+    """Opening and closing cash are instants (tag.iord = 'I', num.qtrs = 0) presented on a duration
+    statement. Choosing values by statement rather than by concept dropped them, leaving the cash
+    reconciliation blank; and the same concept on two lines made both show the closing balance."""
+    for accession, key, source in (
+        (fx.APPLE_10K_FY2025, fx.P_FY2025, "fsds"),
+        (fx.APPLE_10Q_Q2_2026, fx.P_H1_2026, "facts_fallback"),
+    ):
+        rows = _rows(
+            built_lake,
+            "SELECT line_order, label, qtrs, value, source FROM statements WHERE accession = ? "
+            "AND statement = 'CF' AND is_primary_period ORDER BY line_order",
+            [accession],
+        )
+        assert {r["source"] for r in rows} == {source}
+        by_label = {r["label"]: r for r in rows}
+        opening = next(r for lbl, r in by_label.items() if "beginning" in lbl)
+        closing = next(r for lbl, r in by_label.items() if "ending" in lbl)
+        expected_open, expected_close = fx.APPLE_CASH[key]
+        assert (opening["value"], opening["qtrs"]) == (float(expected_open), 0), accession
+        assert (closing["value"], closing["qtrs"]) == (float(expected_close), 0), accession
+        assert opening["line_order"] < closing["line_order"]
+        # the statement reconciles: opening + change = closing
+        change = next(r["value"] for lbl, r in by_label.items() if lbl.startswith("Increase/(Decrease)"))
+        assert opening["value"] + change == closing["value"], accession
+        # and the activity lines are still there, one column each
+        assert len([r for r in rows if r["qtrs"] and r["qtrs"] > 0]) == 7
+
+
+def test_one_primary_row_per_line(built_lake: Storage):
+    """A line must contribute exactly one value to the filing's own column: an instant alongside a
+    duration on the same line (an equity balance and the year's movement) produced two."""
+    dupes = _rows(
+        built_lake,
+        "SELECT accession, statement, line_order, count(*) AS n FROM statements "
+        "WHERE is_primary_period AND NOT is_abstract GROUP BY ALL HAVING n > 1",
+    )
+    assert dupes == []
+
+
+def test_balance_sheet_comparative_column_is_not_primary(built_lake: Storage):
+    """Both the current and prior period end are instants; only the filing's own date is its column."""
+    rows = _rows(
+        built_lake,
+        "SELECT period_end, is_primary_period, value FROM statements WHERE accession = ? "
+        "AND concept = 'Assets' AND statement = 'BS' ORDER BY period_end",
+        [fx.APPLE_10Q_Q2_2026],
+    )
+    assert [(r["period_end"].isoformat(), r["is_primary_period"]) for r in rows] == [
+        ("2025-09-27", False),
+        ("2026-03-28", True),
+    ]

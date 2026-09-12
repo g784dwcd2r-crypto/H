@@ -96,3 +96,33 @@ def test_search_index_migration_applies(built_lake, pg_url):
         assert plan is None
     finally:
         db.close()
+
+
+def test_cofiled_accession_loads_for_every_filer(built_lake, pg_url, tmp_path):
+    """A combined filing belongs to several CIKs; the serving table must hold one row per filer."""
+    import datetime
+    import shutil
+
+    from filings_hub.db.database import Database
+    from filings_hub.ingest import sync_filings
+    from filings_hub.lake.storage import Storage
+
+    lake = Storage(str(tmp_path / "lake"))
+    shutil.copytree(built_lake.root, lake.root, dirs_exist_ok=True)
+    accession = "0001063761-26-000010"
+    rows = [
+        {**r, "cik": cik}
+        for cik in (1063761, 1022344)
+        for r in sync_filings.parse_daily_index(
+            fx.daily_index_text(datetime.date(2026, 2, 20), [(fx.APPLE, "10-K", accession)])
+        )
+    ]
+    assert sync_filings.upsert_filings(lake, rows) == 2
+
+    load_full(lake, pg_url)
+    db = Database(pg_url, lake)
+    try:
+        got = db.query("SELECT cik FROM filings WHERE accession = ? ORDER BY cik", [accession])
+        assert [r["cik"] for r in got] == [1022344, 1063761]
+    finally:
+        db.close()

@@ -167,12 +167,21 @@ def _stage_fsds_quarter(duck: Duck, quarter: str, enrich: bool) -> int:
             LEFT JOIN n ON n.adsh = p.adsh AND n.tag = p.tag AND n.version = p.version
         ),
         kept AS (
+            -- Which value belongs on a line is decided by the concept, not by the statement it sits on:
+            -- `tag.iord` says whether it is an instant ('I', reported with qtrs = 0) or a duration
+            -- ('D', qtrs > 0). Selecting by statement instead dropped every instant presented on the
+            -- cash flow statement -- the cash reconciliation lines are instants -- and let an equity
+            -- line take both its closing balance and the year's movement as "the" value.
+            -- A custom tag with no `tag` row (iord IS NULL) falls back to what the statement expects.
             SELECT * FROM base
             WHERE period_end_rounded IS NULL
-               OR (statement = 'BS' AND qtrs = 0)
-               OR (statement IN ('IS', 'CF', 'CI') AND qtrs > 0 AND (exp_q IS NULL OR list_contains(exp_q, qtrs)))
-               OR (statement = 'EQ' AND (qtrs = 0 OR exp_q IS NULL OR list_contains(exp_q, qtrs)))
-               OR statement NOT IN ('BS', 'IS', 'CF', 'CI', 'EQ')
+               OR (iord = 'I' AND qtrs = 0)
+               OR (iord = 'D' AND qtrs > 0 AND (exp_q IS NULL OR list_contains(exp_q, qtrs)))
+               OR (iord IS NULL AND (
+                       (statement = 'BS' AND qtrs = 0)
+                    OR (statement <> 'BS' AND qtrs = 0)
+                    OR (statement <> 'BS' AND qtrs > 0 AND (exp_q IS NULL OR list_contains(exp_q, qtrs)))
+               ))
         ),
         missing AS (
             -- lines whose only values were filtered out keep an empty row so the structure stays intact
@@ -198,17 +207,37 @@ def _stage_fsds_quarter(duck: Duck, quarter: str, enrich: bool) -> int:
             SELECT *,
                 dense_rank() OVER (
                     PARTITION BY accession, statement, is_parenthetical ORDER BY report, line) AS line_order,
-                min(CASE WHEN period_end_rounded = filing_period THEN qtrs END)
+                -- the filing's own column is the shortest duration it reports at the balance-sheet
+                -- date (the quarter on a Q2 income statement, not the year to date); instants are
+                -- excluded from the minimum so they cannot drag it to zero
+                min(CASE WHEN period_end_rounded = filing_period AND qtrs > 0 THEN qtrs END)
                     OVER (PARTITION BY accession, statement, is_parenthetical) AS primary_qtrs,
                 {_subtotal_sql("concept", "coalesce(label, '')", "is_abstract")} AS is_subtotal
             FROM enriched
         ),
+        paired AS (
+            -- `pre` gives no dates, so a concept presented twice as an instant -- the "beginning
+            -- balances" and "ending balances" lines of a cash flow or equity statement -- joins to
+            -- every instant value the filing reports, and both lines would then show the closing
+            -- balance. Pair them by position instead: the first such line takes the opening instant
+            -- (the filing's own period start), the rest take the period end.
+            SELECT *,
+                count(DISTINCT CASE WHEN qtrs = 0 THEN line_order END) OVER concept_lines AS instant_lines,
+                dense_rank() OVER (
+                    PARTITION BY accession, statement, is_parenthetical, concept, qtrs ORDER BY line_order
+                ) AS instant_line_rank,
+                last_day(filing_period - to_months(coalesce(primary_qtrs, 4) * 3)) AS opening_period
+            FROM derived
+            WINDOW concept_lines AS (PARTITION BY accession, statement, is_parenthetical, concept)
+        ),
         with_primary AS (
             SELECT *,
                 CASE WHEN period_end_rounded IS NULL THEN TRUE
-                     WHEN statement = 'EQ' THEN period_end_rounded = filing_period
+                     WHEN qtrs = 0 AND instant_lines > 1 AND instant_line_rank = 1
+                         THEN period_end_rounded = opening_period
+                     WHEN qtrs = 0 THEN period_end_rounded = filing_period
                      ELSE period_end_rounded = filing_period AND qtrs = primary_qtrs END AS is_primary_period
-            FROM derived
+            FROM paired
         ),
         line_keys AS (
             SELECT DISTINCT accession, statement, is_parenthetical, line_order, concept, is_subtotal FROM with_primary
@@ -429,13 +458,16 @@ def _qtrs_est(duration_days: int | None) -> int:
 
 
 def _keep_period(statement: str, qtrs: int, exp: set[int] | None) -> bool:
+    """Whether a fact of this duration belongs on this statement.
+
+    An instant (qtrs == 0) is kept on every statement: the cash flow and equity statements present
+    opening and closing balances, which are points in time. Only the balance sheet is instants-only.
+    """
+    if qtrs == 0:
+        return True
     if statement == "BS":
-        return qtrs == 0
-    if statement in ("IS", "CF", "CI"):
-        return qtrs > 0 and (exp is None or qtrs in exp)
-    if statement == "EQ":
-        return qtrs == 0 or exp is None or qtrs in exp
-    return True
+        return False
+    return exp is None or qtrs in exp
 
 
 def build_fallback_rows(
@@ -484,16 +516,35 @@ def build_fallback_rows(
     lines: dict[tuple[str, bool], list[dict[str, Any]]] = defaultdict(list)
     used: set[str] = set()
     if template:
-        for t in sorted(template, key=lambda t: (t["statement"], t["is_parenthetical"], t["line_order"])):
+        ordered = sorted(template, key=lambda t: (t["statement"], t["is_parenthetical"], t["line_order"]))
+        # How many lines of a statement carry each concept. A cash flow or equity statement presents the
+        # same concept twice, as opening and closing balances, and each line takes its own instant --
+        # filling both from the whole fact set would print the closing balance on the opening line.
+        repeats: dict[tuple[str, bool, str], int] = defaultdict(int)
+        for t in ordered:
+            if not t["is_abstract"]:
+                repeats[(t["statement"], bool(t["is_parenthetical"]), t["concept"])] += 1
+        seen: dict[tuple[str, bool, str], int] = defaultdict(int)
+        for t in ordered:
             key = (t["statement"], bool(t["is_parenthetical"]))
             if t["is_abstract"]:
                 lines[key].append({**t, "values": []})
                 continue
             vals = fact_rows(t["concept"], t["statement"])
+            concept_key = (*key, t["concept"])
+            pinned = False
+            if repeats[concept_key] > 1:
+                instants = sorted((v for v in vals if v["qtrs"] == 0), key=lambda v: v["period_end"])
+                if len(instants) >= repeats[concept_key]:
+                    # oldest instant to the first line, newest to the last
+                    offset = len(instants) - repeats[concept_key]
+                    vals = [instants[offset + seen[concept_key]]]
+                    pinned = True
+            seen[concept_key] += 1
             if not vals:
                 continue
             used.add(t["concept"])
-            lines[key].append({**t, "values": vals})
+            lines[key].append({**t, "values": vals, "pinned": pinned})
     # concepts reported in this filing but not in the template
     extras: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for concept, fs in by_concept.items():
@@ -536,8 +587,15 @@ def build_fallback_rows(
             it["line_order"] = order
             it["is_subtotal"] = chk.is_subtotal(it["concept"], it.get("label"), it["is_abstract"])
         chk.assign_parents(cleaned)
+        # the filing's own column is the shortest *duration* it reports at the balance-sheet date;
+        # instants are excluded so they cannot drag the minimum to zero and unset every duration row
         primary_qtrs = min(
-            (v["qtrs"] for it in cleaned for v in it["values"] if v["period_end_rounded"] == filing_period),
+            (
+                v["qtrs"]
+                for it in cleaned
+                for v in it["values"]
+                if v["period_end_rounded"] == filing_period and v["qtrs"] > 0
+            ),
             default=None,
         )
         primary_values: dict[str, float] = {}
@@ -584,8 +642,11 @@ def build_fallback_rows(
                 )
                 continue
             for v in sorted(it["values"], key=lambda v: (v["period_end"], v["qtrs"])):
-                if statement == "EQ":
-                    primary = v["period_end_rounded"] == filing_period
+                if v["qtrs"] == 0:
+                    # a line narrowed to one instant above (an opening-balance line) shows that
+                    # instant; any other line shows the instant at its own period end, so a balance
+                    # sheet's comparative column stays a comparative
+                    primary = it.get("pinned", False) or v["period_end_rounded"] == filing_period
                 else:
                     primary = v["period_end_rounded"] == filing_period and v["qtrs"] == primary_qtrs
                 if (

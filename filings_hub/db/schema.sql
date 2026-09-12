@@ -176,3 +176,13 @@ END $$;
 
 -- Ranking columns for the candidate set.
 CREATE INDEX IF NOT EXISTS companies_rank_idx ON companies (is_active DESC, filing_count DESC);
+
+-- ==== 0003_filings_cofiler_key.sql ====
+-- 0003: one EDGAR accession can belong to several CIKs.
+--
+-- A parent and its operating partnership file a combined 10-K under a single accession number, and the
+-- daily index lists one line per co-filer. `accession` alone is therefore not a key: loading both rows
+-- violated filings_pkey. The key is (cik, accession); a plain index keeps accession lookups fast.
+ALTER TABLE filings DROP CONSTRAINT IF EXISTS filings_pkey;
+ALTER TABLE filings ADD CONSTRAINT filings_pkey PRIMARY KEY (cik, accession);
+CREATE INDEX IF NOT EXISTS filings_accession_idx ON filings (accession);
