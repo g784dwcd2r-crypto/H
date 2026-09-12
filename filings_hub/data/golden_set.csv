@@ -1,0 +1,21 @@
+ticker,covers
+AAPL,52/53-week fiscal year ending in September; quarters must not be calendar quarters
+MSFT,June fiscal year end
+JPM,bank: no gross profit line; interest income presentation
+XOM,large integrated energy filer
+BRK.B,holding company with an insurance segment and a very long balance sheet
+WMT,January fiscal year end; 52/53-week retailer
+GOOGL,two share classes on one CIK
+AMZN,large filer with a substantial cash flow statement
+JNJ,healthcare filer with segment detail
+PG,June fiscal year end; consumer staples
+SPG,REIT co-filing a combined 10-K with its operating partnership
+PLD,REIT
+MET,insurer
+PGR,insurer with a non-standard income statement
+MRNA,biotech: revenue can be absent or negative in some periods
+COST,52/53-week fiscal year ending in late August/September
+NKE,May fiscal year end
+KO,calendar year end; long-standing filer
+TSLA,recent large filer with rapid line-item change
+RY,foreign private issuer filing 40-F under IFRS

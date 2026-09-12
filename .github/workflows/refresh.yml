@@ -1,0 +1,47 @@
+name: daily-refresh
+# 06:00 America/New_York. GitHub cron is UTC, so fire at both 10:00 (EDT) and 11:00 (EST) and let the job
+# skip the one that is not 06:00 local. Move to a proper worker (Phase 4) once the lake outgrows a runner.
+on:
+  schedule:
+    - cron: "0 10 * * 1-5"
+    - cron: "0 11 * * 1-5"
+  workflow_dispatch:
+    inputs:
+      index_date:
+        description: "daily index date (YYYY-MM-DD); empty = catch up to yesterday"
+        required: false
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - name: only run at 06:00 New York time
+        id: gate
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] || [ "$(TZ=America/New_York date +%H)" = "06" ]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: actions/checkout@v4
+        if: steps.gate.outputs.run == 'true'
+      - uses: astral-sh/setup-uv@v3
+        if: steps.gate.outputs.run == 'true'
+      - run: uv venv --python 3.12 && uv pip install -e ".[s3]"
+        if: steps.gate.outputs.run == 'true'
+      - name: refresh
+        if: steps.gate.outputs.run == 'true'
+        env:
+          SEC_USER_AGENT: ${{ secrets.SEC_USER_AGENT }}
+          LAKE_ROOT: ${{ secrets.LAKE_ROOT }}
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_REGION: ${{ secrets.AWS_REGION }}
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+        run: |
+          if [ -n "${{ github.event.inputs.index_date }}" ]; then
+            .venv/bin/filings-hub refresh --date "${{ github.event.inputs.index_date }}"
+          else
+            .venv/bin/filings-hub refresh
+          fi

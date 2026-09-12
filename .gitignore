@@ -1,0 +1,13 @@
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+/data/
+.env
+*.xlsx
+!tests/fixtures/*.xlsx
+notebooks/.ipynb_checkpoints/
+dist/
