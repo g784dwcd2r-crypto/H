@@ -207,3 +207,45 @@ def test_client_from_settings_reads_throttle_settings(monkeypatch):
         assert (c.throttle_retries, c.throttle_max_wait) == (2, 45.0)
     finally:
         get_settings.cache_clear()
+
+
+S3_DENIED = (
+    b'<?xml version="1.0" encoding="UTF-8"?><Error><Code>AccessDenied</Code>'
+    b"<Message>Access Denied</Message><RequestId>Q5</RequestId></Error>"
+)
+
+
+def test_s3_access_denied_is_missing_not_a_throttle(monkeypatch, tmp_path):
+    """The SEC origin bucket answers 403 AccessDenied for an object that is not there (nightly rebuild)."""
+    from filings_hub.ingest.edgar_client import EdgarMissing
+
+    slept: list[float] = []
+    monkeypatch.setattr("filings_hub.ingest.edgar_client.time.sleep", slept.append)
+    hits = {"n": 0}
+
+    def handler(request):
+        hits["n"] += 1
+        return httpx.Response(403, content=S3_DENIED, headers={"content-type": "application/xml"})
+
+    c = EdgarClient("Test test@example.com", transport=httpx.MockTransport(handler))
+    assert c.get_optional("https://www.sec.gov/x") is None
+    with pytest.raises(EdgarMissing, match="AccessDenied"):
+        c.get("https://www.sec.gov/x")
+    with pytest.raises(EdgarMissing), c.stream("https://www.sec.gov/x"):
+        pass
+    assert slept == [] and hits["n"] == 3  # never retried
+
+    st = Storage(str(tmp_path))
+    assert bulk.download_companyfacts(st, c, date(2026, 9, 13)) is None
+    assert not st.exists(layout.raw_companyfacts_zip(date(2026, 9, 13)) + ".part")
+    assert bulk.latest_raw(st, "companyfacts") is None
+
+    # a real block (HTML 403 without the S3 body) still follows the throttle schedule
+    c2 = EdgarClient(
+        "Test test@example.com",
+        throttle_retries=1,
+        transport=httpx.MockTransport(lambda r: httpx.Response(403, text="<html>Undeclared Automated Tool</html>")),
+    )
+    with pytest.raises(EdgarError) as ei:
+        c2.get("https://www.sec.gov/y")
+    assert not isinstance(ei.value, EdgarMissing) and slept == [30.0]

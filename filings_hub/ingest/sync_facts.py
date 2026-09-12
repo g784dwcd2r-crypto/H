@@ -9,7 +9,7 @@ from __future__ import annotations
 import logging
 import re
 import zipfile
-from concurrent.futures import ProcessPoolExecutor, as_completed
+from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_completed
 from datetime import date
 from typing import Any
 
@@ -221,6 +221,41 @@ def load_bulk_companyfacts(storage: Storage, zip_rel: str, workers: int = 4, bat
                     log.info("facts: %d companies, %d rows", total_ciks, total_rows)
     if failures:
         log.warning("facts: %d companies failed: %s", len(failures), failures[:5])
+    return {"companies": total_ciks, "rows": total_rows, "failures": failures}
+
+
+def load_api_companyfacts(storage: Storage, client, ciks: list[int], day: date, workers: int = 4) -> dict[str, Any]:
+    """Fallback for a missing companyfacts.zip: fetch every company from the per-company API.
+
+    The client's rate limiter (10 req/s) is the bottleneck, so threads are enough; each fetch also
+    stores the raw response like the refresh path does. Returns the same shape as the bulk loader.
+    """
+    total_rows = total_ciks = 0
+    failures: list[str] = []
+    done = 0
+
+    def one(cik: int) -> int:
+        try:
+            return refresh_cik_facts(storage, client, cik, day)
+        except Exception as e:  # one company must not sink the run
+            raise RuntimeError(f"CIK {cik}: {e}") from e
+
+    log.info("facts: companyfacts.zip unavailable; fetching %d companies from the API", len(ciks))
+    with ThreadPoolExecutor(max_workers=max(1, workers)) as pool:
+        for fut in as_completed([pool.submit(one, cik) for cik in ciks]):
+            done += 1
+            try:
+                rows = fut.result()
+            except Exception as e:
+                failures.append(f"companyfacts api: {e}")
+                continue
+            if rows:
+                total_ciks += 1
+                total_rows += rows
+            if done % 500 == 0 or done == len(ciks):
+                log.info("facts (api): %d/%d companies fetched, %d rows", done, len(ciks), total_rows)
+    if failures:
+        log.warning("facts (api): %d companies failed: %s", len(failures), failures[:5])
     return {"companies": total_ciks, "rows": total_rows, "failures": failures}
 
 
