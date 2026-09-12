@@ -28,3 +28,18 @@ def test_cli_demo_export_quality_golden(tmp_path, monkeypatch):
     r = runner.invoke(app, ["load"])
     assert r.exit_code == 2  # no DATABASE_URL
     reset_settings_cache()
+
+
+def test_api_command_honours_port_env(monkeypatch):
+    """Render and friends hand the listening port over as $PORT."""
+    seen: dict = {}
+
+    def fake_run(*a, **kw):
+        seen.update(kw)
+
+    monkeypatch.setattr("uvicorn.run", fake_run)
+    monkeypatch.setenv("PORT", "10000")
+    assert runner.invoke(app, ["api"]).exit_code == 0 and seen["port"] == 10000
+    assert runner.invoke(app, ["api", "--port", "8001"]).exit_code == 0 and seen["port"] == 8001
+    monkeypatch.delenv("PORT")
+    assert runner.invoke(app, ["api"]).exit_code == 0 and seen["port"] == 8000

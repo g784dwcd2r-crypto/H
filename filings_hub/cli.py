@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import sys
 from datetime import date
 from pathlib import Path
@@ -146,10 +147,15 @@ def load(
 
 
 @app.command()
-def api(host: str = "0.0.0.0", port: int = 8000, reload: bool = False) -> None:
+def api(
+    host: str = "0.0.0.0",
+    port: int | None = typer.Option(None, help="default: $PORT if set (Render, Heroku), else 8000"),
+    reload: bool = False,
+) -> None:
     """Run the Phase 2 API (uvicorn)."""
     import uvicorn
 
+    port = port if port is not None else int(os.environ.get("PORT") or 8000)
     uvicorn.run("filings_hub.api.app:app_factory", host=host, port=port, reload=reload, factory=True)
 
 

@@ -1,6 +1,8 @@
 // Server-side client for the Filings Hub API. The API key stays on the server.
 
-const BASE = (process.env.FILINGS_API_URL || "http://localhost:8000").replace(/\/$/, "");
+const RAW_BASE = process.env.FILINGS_API_URL || "http://localhost:8000";
+// Render's Blueprint hands over the API as a bare host:port on the private network; add the scheme.
+const BASE = (/^https?:\/\//.test(RAW_BASE) ? RAW_BASE : `http://${RAW_BASE}`).replace(/\/$/, "");
 const KEY = process.env.FILINGS_API_KEY || "";
 
 export type Company = {

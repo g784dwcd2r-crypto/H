@@ -16,7 +16,7 @@ services:
 
   api:
     build: .
-    command: ["api", "--host", "0.0.0.0", "--port", "8000"]
+    command: ["filings-hub", "api", "--host", "0.0.0.0", "--port", "8000"]
     environment: &env
       SEC_USER_AGENT: ${SEC_USER_AGENT}
       LAKE_ROOT: /data
@@ -30,7 +30,7 @@ services:
 
   worker:
     build: .
-    command: ["worker", "--at", "06:00", "--tz", "America/New_York"]
+    command: ["filings-hub", "worker", "--at", "06:00", "--tz", "America/New_York"]
     environment: *env
     volumes: ["lake:/data"]
     depends_on:
