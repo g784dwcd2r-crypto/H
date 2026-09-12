@@ -154,6 +154,27 @@ def api(host: str = "0.0.0.0", port: int = 8000, reload: bool = False) -> None:
 
 
 @app.command()
+def worker(
+    at: str = typer.Option("06:00", help="local time HH:MM"),
+    tz: str = typer.Option("America/New_York", help="IANA timezone"),
+    weekends: bool = typer.Option(False, help="also run on Saturday/Sunday"),
+    verbose: bool = False,
+) -> None:
+    """Phase 4 worker: run the daily refresh on a schedule, in-process (replaces the GitHub Actions cron)."""
+    _setup_logging(verbose)
+    from filings_hub.ingest.edgar_client import client_from_settings
+    from filings_hub.ingest.refresh import run_refresh
+    from filings_hub.ingest.worker import run_forever
+
+    def job() -> None:
+        with client_from_settings() as client:
+            run = run_refresh(_storage(), client)
+            typer.echo(run.summary())
+
+    run_forever(job, at=at, tz=tz, weekdays_only=not weekends)
+
+
+@app.command()
 def demo(verbose: bool = False) -> None:
     """Seed the lake with synthetic EDGAR data and run the whole pipeline offline (no SEC access needed)."""
     _setup_logging(verbose)

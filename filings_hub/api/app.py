@@ -237,6 +237,56 @@ def create_app(settings: Settings | None = None, db: Database | None = None) -> 
         sql += " ORDER BY period_end, period_start NULLS FIRST, filed"
         return {"cik": c, "concept": concept, "facts": duck.fetch_dicts(sql, params)}
 
+    @app.get("/metrics")
+    def metrics(days: int = Query(30, le=365), _: str = Depends(auth)) -> dict[str, Any]:
+        """Phase 4 dashboard feed: filings/day, refresh runs, checks pass rate."""
+        filings_per_day = database.query(
+            "SELECT filed_date, count(*) AS filings FROM filings "
+            "WHERE filed_date >= (SELECT max(filed_date) FROM filings) - ? "
+            "GROUP BY filed_date ORDER BY filed_date",
+            [days],
+        )
+        runs = database.query(
+            "SELECT run_id, kind, status, started_at, duration_seconds, index_dates, new_filings, ciks_refreshed, "
+            "facts_rows, statements_built, fsds_quarters_loaded, db_loaded "
+            "FROM run_log ORDER BY started_at DESC LIMIT ?",
+            [days],
+        )
+        checks = database.query(
+            f"SELECT fiscal_year, count(*) AS periods, "
+            f"sum(CASE WHEN checks_passed THEN 1 ELSE 0 END) AS passed, "
+            f"sum(CASE WHEN checks_passed IS NOT NULL THEN 1 ELSE 0 END) AS applicable, "
+            f"sum(CASE WHEN statements_source = 'facts_fallback' THEN 1 ELSE 0 END) AS provisional "
+            f"FROM {database.periods_table} GROUP BY fiscal_year ORDER BY fiscal_year DESC LIMIT 10"
+        )
+        for c in checks:
+            c["pass_rate"] = (c["passed"] / c["applicable"]) if c["applicable"] else None
+        totals = database.query(
+            "SELECT (SELECT count(*) FROM companies) AS companies, (SELECT count(*) FROM filings) AS filings, "
+            f"(SELECT count(*) FROM {database.periods_table}) AS periods, "
+            "(SELECT count(DISTINCT accession) FROM statements) AS filings_with_statements"
+        )
+        return {
+            "totals": totals[0] if totals else {},
+            "filings_per_day": filings_per_day,
+            "runs": runs,
+            "checks_by_fiscal_year": checks,
+        }
+
+    @app.get("/quality/failed")
+    def quality_failed(limit: int = Query(100, le=1000), offset: int = 0, _: str = Depends(auth)) -> dict[str, Any]:
+        """Phase 4 data-quality queue: statements whose arithmetic checks failed, newest first."""
+        rows = database.query(
+            "SELECT k.accession, k.cik, c.name, c.ticker, k.statement, k.check_name, k.lhs, k.rhs, k.difference, "
+            "k.detail, k.source, f.form, f.filed_date, f.filing_index_url "
+            "FROM statement_checks k LEFT JOIN companies c ON c.cik = k.cik "
+            "LEFT JOIN filings f ON f.accession = k.accession "
+            "WHERE NOT k.passed ORDER BY f.filed_date DESC NULLS LAST, k.accession, k.statement LIMIT ? OFFSET ?",
+            [limit, offset],
+        )
+        total = database.query("SELECT count(*) AS n FROM statement_checks WHERE NOT passed")[0]["n"]
+        return {"total": total, "limit": limit, "offset": offset, "failed": rows}
+
     return app
 
 

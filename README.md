@@ -2,7 +2,7 @@
 
 Any SEC-registered company → clean, period-organised filing hub → as-reported financial statements → Excel. Refreshed daily.
 
-This repository is **Layer 1** of the plan in [`docs/layer1_execution_plan.md`](docs/layer1_execution_plan.md): the data foundation (Phase 1) and the API (Phase 2). No user accounts, no NLP, no non-US filers.
+This repository is **Layer 1** of the plan in [`docs/layer1_execution_plan.md`](docs/layer1_execution_plan.md): the data foundation (Phase 1), the API (Phase 2), the three-screen web app (Phase 3, [`web/`](web/)) and the scale/harden pieces that live in code (Phase 4: metrics, data-quality queue, scheduler worker). No user accounts, no NLP, no non-US filers.
 
 ## Three commands
 
@@ -86,7 +86,7 @@ $LAKE_ROOT/
 
 ## API (Phase 2)
 
-`filings-hub api` (uvicorn, `X-API-Key` header, 60 requests/minute per key):
+`filings-hub api` (uvicorn, `X-API-Key` header, 60 requests/minute per key; interactive docs at `/docs`):
 
 | Endpoint | Returns |
 | --- | --- |
@@ -97,7 +97,25 @@ $LAKE_ROOT/
 | `GET /companies/{cik}/statements?periods=FY2025,Q1 2026` | as-reported lines, periods as columns |
 | `GET /companies/{cik}/export.xlsx?periods=` | the workbook |
 | `GET /companies/{cik}/facts?concept=&history=true` | XBRL fact history from the lake |
+| `GET /metrics` | dashboard feed (Phase 4) |
+| `GET /quality/failed` | failed arithmetic checks queue (Phase 4) |
 | `GET /health` | backend and last run |
+
+## Web app (Phase 3)
+
+```bash
+cd web && npm install && cp .env.example .env.local   # FILINGS_API_URL, FILINGS_API_KEY (server-side only)
+npm run dev                                           # http://localhost:3000
+```
+
+Three screens, no form codes on the surface: search; company page (name, ticker, next expected results date, one row per period with the results filing, the earnings release, "View statements" and "Download", plus a collapsed "Other filings" list with plain-English labels); statements view (Income Statement / Balance Sheet / Cash Flow tabs, periods as columns, scale selector, Excel download). Deploys to Vercel with `web/` as the project root.
+
+## Scale and harden (Phase 4)
+
+* `filings-hub worker --at 06:00 --tz America/New_York` runs the refresh on a schedule in-process (the GitHub Actions cron is the starter option).
+* `GET /metrics` feeds a dashboard: filings/day, refresh runs with durations, checks pass rate by fiscal year, totals.
+* `GET /quality/failed` is the data-quality queue: every statement whose arithmetic checks failed, newest first, with the filing link.
+* `docker-compose up` starts Postgres, the API, the worker and the web app against a shared lake volume.
 
 ## Quality
 
@@ -124,5 +142,5 @@ pre-commit install
 | 20-company golden set checked by a human | `filings-hub golden` prints the sheet; human check pending |
 | `checks_passed` ≥ 95 % on S&P 500 filings since 2020 | `filings-hub quality --tickers-file --since 2020` |
 | Every golden-set period has correct label, results filing and 8-K | covered by tests on the fixture universe; real-data pass pending |
-| `pytest` green, coverage on `periods.py` and `sync_statements.py` ≥ 80 % | 79 tests, 97 % / 96 % |
+| `pytest` green, coverage on `periods.py` and `sync_statements.py` ≥ 80 % | 85 tests, 97 % / 96 % |
 | README explains backfill, refresh and export in three commands | above |

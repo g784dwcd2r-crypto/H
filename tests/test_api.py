@@ -102,3 +102,20 @@ def test_rate_limit(built_lake):
     app.state.db.close()
     rl = RateLimiter(1)
     assert rl.check("x") == (True, 0) and rl.check("x")[0] is False
+
+
+def test_metrics_and_quality_queue(client):
+    m = client.get("/metrics", headers=H).json()
+    assert m["totals"]["companies"] == len(fx.COMPANIES) and m["totals"]["filings_with_statements"] > 0
+    assert m["runs"][0]["kind"] == "backfill" and m["runs"][0]["status"] == "ok"
+    assert m["filings_per_day"] and all("filings" in d for d in m["filings_per_day"])
+    fy = {c["fiscal_year"]: c for c in m["checks_by_fiscal_year"]}
+    assert fy[2025]["pass_rate"] is not None and 0 < fy[2025]["pass_rate"] < 1  # Broken Books drags FY2025 down
+    q = client.get("/quality/failed", headers=H).json()
+    assert (
+        q["total"] == 1
+        and q["failed"][0]["cik"] == fx.BROKEN
+        and q["failed"][0]["check_name"] == "assets_eq_liabilities_and_equity"
+    )
+    assert q["failed"][0]["name"] == "Broken Books Ltd" and q["failed"][0]["form"] == "10-K"
+    assert client.get("/quality/failed?limit=1&offset=5", headers=H).json()["failed"] == []

@@ -1,0 +1,49 @@
+# Local / small-scale production stack: Postgres + API + scheduled worker + web.
+# The lake lives in the `lake` volume (or point LAKE_ROOT at S3 and drop the volume).
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: filings
+      POSTGRES_PASSWORD: filings
+      POSTGRES_DB: filings_hub
+    volumes: ["pgdata:/var/lib/postgresql/data"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U filings"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  api:
+    build: .
+    command: ["api", "--host", "0.0.0.0", "--port", "8000"]
+    environment: &env
+      SEC_USER_AGENT: ${SEC_USER_AGENT}
+      LAKE_ROOT: /data
+      DATABASE_URL: postgresql://filings:filings@postgres:5432/filings_hub
+      API_KEY: ${API_KEY:-change-me}
+      SLACK_WEBHOOK_URL: ${SLACK_WEBHOOK_URL:-}
+    volumes: ["lake:/data"]
+    ports: ["8000:8000"]
+    depends_on:
+      postgres: { condition: service_healthy }
+
+  worker:
+    build: .
+    command: ["worker", "--at", "06:00", "--tz", "America/New_York"]
+    environment: *env
+    volumes: ["lake:/data"]
+    depends_on:
+      postgres: { condition: service_healthy }
+
+  web:
+    build: ./web
+    environment:
+      FILINGS_API_URL: http://api:8000
+      FILINGS_API_KEY: ${API_KEY:-change-me}
+    ports: ["3000:3000"]
+    depends_on: [api]
+
+volumes:
+  pgdata:
+  lake:
