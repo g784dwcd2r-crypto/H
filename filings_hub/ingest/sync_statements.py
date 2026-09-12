@@ -1,0 +1,773 @@
+"""As-reported statements.
+
+Primary path (source='fsds'): join FSDS `pre` (structure) x `num` (values) x `tag` (labels/attributes) per
+filing, keep the company's own line order and labels, flag the filing's primary period column, detect
+subtotals, run arithmetic checks and write `statements/cik={cik}/fsds_{quarter}_*.parquet`.
+
+Fallback path (source='facts_fallback'): for filings the FSDS has not covered yet (it lags up to ~3
+months), build the same rows from `facts`, using the company's latest FSDS-covered filing of the same
+kind as a template for line order/labels, and taxonomy hints for anything new.
+"""
+
+from __future__ import annotations
+
+import logging
+from collections import defaultdict
+from datetime import date
+from typing import Any
+
+import pyarrow as pa
+
+from filings_hub.ingest import checks as chk
+from filings_hub.ingest.periods import form_family, is_amendment
+from filings_hub.ingest.sync_universe import FINANCIAL_REPORT_FORMS
+from filings_hub.ingest.taxonomy_hints import classify_concept, default_order
+from filings_hub.lake import layout
+from filings_hub.lake.duck import Duck
+from filings_hub.lake.storage import Storage
+
+log = logging.getLogger(__name__)
+
+STATEMENT_NAMES = {
+    "IS": "Income Statement",
+    "BS": "Balance Sheet",
+    "CF": "Cash Flow",
+    "EQ": "Equity",
+    "CI": "Comprehensive Income",
+    "CP": "Cover Page",
+    "UN": "Unclassified",
+    "SI": "Schedule of Investments",
+}
+CORE_STATEMENTS = ("IS", "BS", "CF", "EQ", "CI")
+
+STATEMENTS_SCHEMA = pa.schema(
+    [
+        ("accession", pa.string()),
+        ("cik", pa.int64()),
+        ("statement", pa.string()),
+        ("report", pa.int32()),
+        ("line", pa.int32()),
+        ("line_order", pa.int32()),
+        ("is_parenthetical", pa.bool_()),
+        ("concept", pa.string()),
+        ("taxonomy", pa.string()),
+        ("label", pa.string()),
+        ("standard_label", pa.string()),
+        ("negating", pa.bool_()),
+        ("is_abstract", pa.bool_()),
+        ("is_custom", pa.bool_()),
+        ("iord", pa.string()),
+        ("crdr", pa.string()),
+        ("datatype", pa.string()),
+        ("period_start", pa.date32()),
+        ("period_end", pa.date32()),
+        ("period_end_rounded", pa.date32()),
+        ("qtrs", pa.int32()),
+        ("unit", pa.string()),
+        ("value", pa.float64()),
+        ("value_presented", pa.float64()),
+        ("is_primary_period", pa.bool_()),
+        ("is_subtotal", pa.bool_()),
+        ("parent_concept", pa.string()),
+        ("source", pa.string()),
+        ("fsds_quarter", pa.string()),
+        ("form", pa.string()),
+        ("filed_date", pa.date32()),
+        ("checks_passed", pa.bool_()),
+    ]
+)
+
+CHECKS_SCHEMA = pa.schema(
+    [
+        ("accession", pa.string()),
+        ("cik", pa.int64()),
+        ("statement", pa.string()),
+        ("check_name", pa.string()),
+        ("passed", pa.bool_()),
+        ("lhs", pa.float64()),
+        ("rhs", pa.float64()),
+        ("difference", pa.float64()),
+        ("detail", pa.string()),
+        ("source", pa.string()),
+    ]
+)
+
+MACROS = """
+CREATE OR REPLACE MACRO month_end_round(d) AS
+  CASE WHEN d IS NULL THEN NULL
+       WHEN day(d) <= 15 THEN (d - to_days(day(d)))::DATE
+       ELSE last_day(d) END;
+CREATE OR REPLACE MACRO expected_qtrs(fp, form) AS
+  CASE WHEN form LIKE '10-KT%' OR form LIKE '10-QT%' THEN NULL
+       WHEN fp = 'FY' THEN [4] WHEN fp = 'Q1' THEN [1] WHEN fp = 'Q2' THEN [1, 2] WHEN fp = 'Q3' THEN [1, 3]
+       ELSE NULL END;
+"""
+
+
+def _sql_list(values) -> str:
+    return ", ".join("'" + str(v).replace("'", "''") + "'" for v in values)
+
+
+def _subtotal_sql(concept: str, label: str, is_abstract: str) -> str:
+    return (
+        f"(NOT {is_abstract} AND ({concept} IN ({_sql_list(sorted(chk.SUBTOTAL_CONCEPTS))}) "
+        f"OR regexp_matches({label}, '{chk.SUBTOTAL_LABEL_REGEX}', 'i')))"
+    )
+
+
+# ---------------------------------------------------------------------------------------------
+# FSDS path
+# ---------------------------------------------------------------------------------------------
+def _stage_fsds_quarter(duck: Duck, quarter: str, enrich: bool) -> int:
+    """Stage one FSDS quarter into temp table `stg` with every derived column except checks_passed."""
+    duck.sql(MACROS)
+    has_facts = enrich and duck.view("facts", f"{layout.FACTS}/*/*.parquet")
+    if has_facts:
+        duck.sql(
+            """
+            CREATE OR REPLACE TEMP TABLE fx AS
+            SELECT accession, concept, unit, month_end_round(period_end) AS pe_r, period_start, period_end,
+                   CASE WHEN period_start IS NULL THEN 0
+                        ELSE greatest(1, round(duration_days / 91.0)::INTEGER) END AS qtrs_est
+            FROM facts
+            WHERE accession IN (SELECT adsh FROM fsds_sub WHERE quarter = ?)
+            QUALIFY row_number() OVER (PARTITION BY accession, concept, unit, pe_r, qtrs_est ORDER BY filed DESC) = 1
+            """,
+            [quarter],
+        )
+    else:
+        duck.sql(
+            "CREATE OR REPLACE TEMP TABLE fx (accession VARCHAR, concept VARCHAR, unit VARCHAR, pe_r DATE, "
+            "period_start DATE, period_end DATE, qtrs_est INTEGER)"
+        )
+
+    duck.sql(
+        f"""
+        CREATE OR REPLACE TEMP TABLE stg AS
+        WITH s AS (
+            SELECT adsh, cik, form, period, fy, fp, filed, expected_qtrs(fp, form) AS exp_q
+            FROM fsds_sub WHERE quarter = ?
+        ),
+        p AS (SELECT * FROM fsds_pre WHERE quarter = ?),
+        t AS (
+            SELECT * FROM fsds_tag WHERE quarter = ?
+            QUALIFY row_number() OVER (PARTITION BY tag, version ORDER BY abstract DESC NULLS LAST, tlabel) = 1
+        ),
+        n AS (SELECT * FROM fsds_num WHERE quarter = ? AND coreg IS NULL),
+        base AS (
+            SELECT p.adsh AS accession, s.cik, p.stmt AS statement, p.report, p.line,
+                   coalesce(p.inpth, 0) = 1 AS is_parenthetical,
+                   p.tag AS concept, p.version AS taxonomy, p.plabel AS label, t.tlabel AS standard_label,
+                   coalesce(p.negating, 0) = 1 AS negating, coalesce(t.abstract, 0) = 1 AS is_abstract,
+                   coalesce(t.custom, 0) = 1 AS is_custom, t.iord, t.crdr, t.datatype,
+                   n.ddate AS period_end_rounded, n.qtrs, n.uom AS unit, n.value,
+                   s.period AS filing_period, s.form, s.filed AS filed_date, s.exp_q
+            FROM p JOIN s USING (adsh)
+            LEFT JOIN t ON t.tag = p.tag AND t.version = p.version
+            LEFT JOIN n ON n.adsh = p.adsh AND n.tag = p.tag AND n.version = p.version
+        ),
+        kept AS (
+            SELECT * FROM base
+            WHERE period_end_rounded IS NULL
+               OR (statement = 'BS' AND qtrs = 0)
+               OR (statement IN ('IS', 'CF', 'CI') AND qtrs > 0 AND (exp_q IS NULL OR list_contains(exp_q, qtrs)))
+               OR (statement = 'EQ' AND (qtrs = 0 OR exp_q IS NULL OR list_contains(exp_q, qtrs)))
+               OR statement NOT IN ('BS', 'IS', 'CF', 'CI', 'EQ')
+        ),
+        missing AS (
+            -- lines whose only values were filtered out keep an empty row so the structure stays intact
+            SELECT accession, cik, statement, report, line, is_parenthetical, concept, taxonomy, label,
+                   standard_label, negating, is_abstract, is_custom, iord, crdr, datatype,
+                   NULL::DATE AS period_end_rounded, NULL::INTEGER AS qtrs, NULL::VARCHAR AS unit,
+                   NULL::DOUBLE AS value, filing_period, form, filed_date, exp_q
+            FROM base b
+            WHERE NOT EXISTS (
+                SELECT 1 FROM kept k WHERE k.accession = b.accession AND k.statement = b.statement
+                  AND k.report = b.report AND k.line = b.line
+            )
+            QUALIFY row_number() OVER (PARTITION BY accession, statement, report, line ORDER BY period_end_rounded) = 1
+        ),
+        rows_ AS (SELECT * FROM kept UNION ALL SELECT * FROM missing),
+        enriched AS (
+            SELECT r.*, fx.period_start AS fact_start, fx.period_end AS fact_end
+            FROM rows_ r
+            LEFT JOIN fx ON fx.accession = r.accession AND fx.concept = r.concept AND fx.unit = r.unit
+                        AND fx.pe_r = r.period_end_rounded AND fx.qtrs_est = coalesce(r.qtrs, 0)
+        ),
+        derived AS (
+            SELECT *,
+                dense_rank() OVER (
+                    PARTITION BY accession, statement, is_parenthetical ORDER BY report, line) AS line_order,
+                min(CASE WHEN period_end_rounded = filing_period THEN qtrs END)
+                    OVER (PARTITION BY accession, statement, is_parenthetical) AS primary_qtrs,
+                {_subtotal_sql("concept", "coalesce(label, '')", "is_abstract")} AS is_subtotal
+            FROM enriched
+        ),
+        with_primary AS (
+            SELECT *,
+                CASE WHEN period_end_rounded IS NULL THEN TRUE
+                     WHEN statement = 'EQ' THEN period_end_rounded = filing_period
+                     ELSE period_end_rounded = filing_period AND qtrs = primary_qtrs END AS is_primary_period
+            FROM derived
+        ),
+        line_keys AS (
+            SELECT DISTINCT accession, statement, is_parenthetical, line_order, concept, is_subtotal FROM with_primary
+        ),
+        parents AS (
+            SELECT accession, statement, is_parenthetical, line_order,
+                   min(CASE WHEN is_subtotal THEN line_order END) OVER (
+                       PARTITION BY accession, statement, is_parenthetical ORDER BY line_order
+                       ROWS BETWEEN 1 FOLLOWING AND UNBOUNDED FOLLOWING) AS parent_order
+            FROM line_keys
+        ),
+        parent_concepts AS (
+            SELECT p.accession, p.statement, p.is_parenthetical, p.line_order, k.concept AS parent_concept
+            FROM parents p
+            LEFT JOIN line_keys k ON k.accession = p.accession AND k.statement = p.statement
+                 AND k.is_parenthetical = p.is_parenthetical AND k.line_order = p.parent_order
+        )
+        SELECT w.accession, w.cik, w.statement, w.report::INTEGER AS report, w.line::INTEGER AS line,
+               w.line_order::INTEGER AS line_order, w.is_parenthetical, w.concept, w.taxonomy, w.label,
+               w.standard_label, w.negating, w.is_abstract, w.is_custom, w.iord, w.crdr, w.datatype,
+               coalesce(w.fact_start,
+                        CASE WHEN w.qtrs > 0
+                             THEN (date_trunc('month', w.period_end_rounded) - to_months(w.qtrs * 3 - 1))::DATE END
+               ) AS period_start,
+               coalesce(w.fact_end, w.period_end_rounded) AS period_end,
+               w.period_end_rounded, w.qtrs::INTEGER AS qtrs, w.unit, w.value,
+               CASE WHEN w.negating THEN -w.value ELSE w.value END AS value_presented,
+               w.is_primary_period, w.is_subtotal, pc.parent_concept,
+               'fsds' AS source, ? AS fsds_quarter, w.form, w.filed_date
+        FROM with_primary w
+        LEFT JOIN parent_concepts pc ON pc.accession = w.accession AND pc.statement = w.statement
+             AND pc.is_parenthetical = w.is_parenthetical AND pc.line_order = w.line_order
+        """,
+        [quarter, quarter, quarter, quarter, quarter],
+    )
+    return duck.sql("SELECT count(*) FROM stg").fetchone()[0]
+
+
+def _checks_from_staged(duck: Duck, source: str) -> pa.Table:
+    """Run Python arithmetic checks on the primary-period values in `stg`."""
+    pivot = duck.fetch_arrow(
+        f"""
+        SELECT accession, cik, statement, concept, any_value(value) AS value
+        FROM stg
+        WHERE is_primary_period AND NOT is_parenthetical AND value IS NOT NULL
+          AND statement IN ('BS', 'IS', 'CF') AND concept IN ({_sql_list(sorted(chk.CHECK_CONCEPTS))})
+        GROUP BY 1, 2, 3, 4
+        """
+    )
+    groups: dict[tuple[str, int, str], dict[str, float]] = defaultdict(dict)
+    for r in pivot.to_pylist():
+        groups[(r["accession"], r["cik"], r["statement"])][r["concept"]] = r["value"]
+    rows = []
+    for (acc, cik, stmt), values in groups.items():
+        for res in chk.run_checks(stmt, values):
+            rows.append(
+                {
+                    "accession": acc,
+                    "cik": cik,
+                    "statement": stmt,
+                    "check_name": res.check_name,
+                    "passed": res.passed,
+                    "lhs": res.lhs,
+                    "rhs": res.rhs,
+                    "difference": res.difference,
+                    "detail": res.detail,
+                    "source": source,
+                }
+            )
+    return pa.Table.from_pylist(rows, schema=CHECKS_SCHEMA)
+
+
+def _delete_glob(storage: Storage, pattern: str) -> int:
+    n = 0
+    for p in storage.glob(pattern):
+        storage.delete(p)
+        n += 1
+    return n
+
+
+def existing_fallbacks(storage: Storage) -> list[str]:
+    """Lake paths of every provisional (fallback) statements/checks file."""
+    return storage.glob(f"{layout.STATEMENTS}/*/fallback_*.parquet") + storage.glob(
+        f"{layout.STATEMENT_CHECKS}/*/fallback_*.parquet"
+    )
+
+
+def build_fsds_quarter(
+    storage: Storage,
+    quarter: str,
+    duck: Duck | None = None,
+    enrich: bool = True,
+    fallbacks: list[str] | None = None,
+) -> dict[str, int]:
+    """Build statements for every filing in one FSDS quarter (idempotent per quarter).
+
+    `fallbacks`: pre-listed provisional files (see `existing_fallbacks`); listed here when None."""
+    own = duck is None
+    duck = duck or Duck(storage)
+    try:
+        for t in ("sub", "num", "pre", "tag"):
+            if not duck.view(f"fsds_{t}", f"{layout.FSDS}/{t}/*/*.parquet"):
+                raise RuntimeError(f"FSDS table {t} not loaded")
+        n_rows = _stage_fsds_quarter(duck, quarter, enrich)
+        checks = _checks_from_staged(duck, "fsds")
+        duck.register("chk", checks)
+        duck.sql(
+            """
+            CREATE OR REPLACE TEMP TABLE chk_summary AS
+            SELECT accession, statement, bool_and(passed) AS checks_passed FROM chk GROUP BY 1, 2
+            """
+        )
+        # remove the previous build of this quarter and the fallbacks it supersedes
+        _delete_glob(storage, f"{layout.STATEMENTS}/*/fsds_{quarter}_*.parquet")
+        _delete_glob(storage, f"{layout.STATEMENT_CHECKS}/*/fsds_{quarter}_*.parquet")
+        covered = {r[0] for r in duck.sql("SELECT DISTINCT accession FROM stg").fetchall()}
+        removed = 0
+        for p in existing_fallbacks(storage) if fallbacks is None else fallbacks:
+            acc = p.rsplit("/", 1)[-1][len("fallback_") : -len(".parquet")]
+            if acc in covered and storage.exists(p):
+                storage.delete(p)
+                removed += 1
+
+        storage.mkdirs(layout.STATEMENTS)
+        storage.mkdirs(layout.STATEMENT_CHECKS)
+        duck.sql(
+            f"""
+            COPY (
+                SELECT s.*, c.checks_passed
+                FROM stg s LEFT JOIN chk_summary c USING (accession, statement)
+                ORDER BY cik, accession, statement, is_parenthetical, line_order, period_end, qtrs
+            ) TO '{duck.path(layout.STATEMENTS)}'
+            (FORMAT PARQUET, COMPRESSION ZSTD, PARTITION_BY (cik), APPEND, FILENAME_PATTERN 'fsds_{quarter}_{{uuid}}')
+            """
+        )
+        if checks.num_rows:
+            duck.sql(
+                f"""
+                COPY (SELECT * FROM chk ORDER BY cik, accession, statement, check_name)
+                TO '{duck.path(layout.STATEMENT_CHECKS)}'
+                (FORMAT PARQUET, COMPRESSION ZSTD, PARTITION_BY (cik), APPEND,
+                 FILENAME_PATTERN 'fsds_{quarter}_{{uuid}}')
+                """
+            )
+        duck.con.unregister("chk")
+        n_filings = len(covered)
+        log.info(
+            "statements %s: %d rows, %d filings, %d checks, %d fallbacks superseded",
+            quarter,
+            n_rows,
+            n_filings,
+            checks.num_rows,
+            removed,
+        )
+        return {
+            "rows": n_rows,
+            "filings": n_filings,
+            "checks": checks.num_rows,
+            "fallbacks_removed": removed,
+        }
+    finally:
+        if own:
+            duck.close()
+
+
+def built_quarters(storage: Storage) -> set[str]:
+    out = set()
+    for p in storage.glob(f"{layout.STATEMENTS}/*/fsds_*.parquet"):
+        name = p.rsplit("/", 1)[-1]
+        out.add(name.split("_")[1])
+    return out
+
+
+def build_all_fsds(
+    storage: Storage, quarters: list[str] | None = None, force: bool = False, enrich: bool = True
+) -> list[str]:
+    from filings_hub.ingest.fsds import loaded_quarters
+
+    have = loaded_quarters(storage)
+    done = built_quarters(storage)
+    todo = [q for q in (quarters or have) if q in have and (force or q not in done)]
+    duck = Duck(storage)
+    fallbacks = existing_fallbacks(storage) if todo else []
+    try:
+        for q in todo:
+            build_fsds_quarter(storage, q, duck, enrich, fallbacks)
+    finally:
+        duck.close()
+    return todo
+
+
+# ---------------------------------------------------------------------------------------------
+# Fallback path (facts -> provisional statements)
+# ---------------------------------------------------------------------------------------------
+def month_end_round(d: date | None) -> date | None:
+    if d is None:
+        return None
+    if d.day <= 15:
+        first = d.replace(day=1)
+        from datetime import timedelta
+
+        return first - timedelta(days=1)
+    import calendar
+
+    return d.replace(day=calendar.monthrange(d.year, d.month)[1])
+
+
+def expected_qtrs(fiscal_quarter: int | None, form: str) -> set[int] | None:
+    if form.upper().startswith(("10-KT", "10-QT")) or fiscal_quarter is None:
+        return None
+    return {4: {4}, 1: {1}, 2: {1, 2}, 3: {1, 3}}.get(fiscal_quarter)
+
+
+def _qtrs_est(duration_days: int | None) -> int:
+    if duration_days is None:
+        return 0
+    return max(1, round(duration_days / 91.0))
+
+
+def _keep_period(statement: str, qtrs: int, exp: set[int] | None) -> bool:
+    if statement == "BS":
+        return qtrs == 0
+    if statement in ("IS", "CF", "CI"):
+        return qtrs > 0 and (exp is None or qtrs in exp)
+    if statement == "EQ":
+        return qtrs == 0 or exp is None or qtrs in exp
+    return True
+
+
+def build_fallback_rows(
+    cik: int,
+    accession: str,
+    form: str,
+    filed_date: date,
+    report_date: date,
+    fiscal_quarter: int | None,
+    facts: list[dict[str, Any]],
+    template: list[dict[str, Any]] | None,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Pure function: (statement rows, check rows) for one filing from its facts.
+
+    `template`: distinct lines (statement, is_parenthetical, line_order, concept, label, negating,
+    is_abstract, standard_label, taxonomy) of the company's latest FSDS-covered filing of the same kind.
+    """
+    filing_period = month_end_round(report_date)
+    exp = expected_qtrs(fiscal_quarter, form)
+    by_concept: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for f in facts:
+        if f["taxonomy"] == "dei":
+            continue
+        by_concept[f["concept"]].append(f)
+
+    def fact_rows(concept: str, statement: str) -> list[dict[str, Any]]:
+        out = []
+        for f in by_concept.get(concept, []):
+            q = _qtrs_est(f.get("duration_days"))
+            if not _keep_period(statement, q, exp):
+                continue
+            out.append(
+                {
+                    "period_start": f["period_start"],
+                    "period_end": f["period_end"],
+                    "period_end_rounded": month_end_round(f["period_end"]),
+                    "qtrs": q,
+                    "unit": f["unit"],
+                    "value": f["value"],
+                    "fact_label": f.get("label"),
+                    "taxonomy": f["taxonomy"],
+                }
+            )
+        return out
+
+    lines: dict[tuple[str, bool], list[dict[str, Any]]] = defaultdict(list)
+    used: set[str] = set()
+    if template:
+        for t in sorted(template, key=lambda t: (t["statement"], t["is_parenthetical"], t["line_order"])):
+            key = (t["statement"], bool(t["is_parenthetical"]))
+            if t["is_abstract"]:
+                lines[key].append({**t, "values": []})
+                continue
+            vals = fact_rows(t["concept"], t["statement"])
+            if not vals:
+                continue
+            used.add(t["concept"])
+            lines[key].append({**t, "values": vals})
+    # concepts reported in this filing but not in the template
+    extras: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for concept, fs in by_concept.items():
+        if concept in used:
+            continue
+        is_instant = all(f["period_start"] is None for f in fs)
+        statement = classify_concept(concept, is_instant)
+        vals = fact_rows(concept, statement)
+        if not vals:
+            continue
+        extras[statement].append(
+            {
+                "statement": statement,
+                "is_parenthetical": False,
+                "concept": concept,
+                "label": fs[0].get("label") or concept,
+                "standard_label": fs[0].get("label"),
+                "negating": False,
+                "is_abstract": False,
+                "taxonomy": fs[0]["taxonomy"],
+                "values": vals,
+            }
+        )
+    for statement, items in extras.items():
+        items.sort(key=lambda i: default_order(statement, i["concept"]))
+        lines[(statement, False)].extend(items)
+
+    stmt_rows: list[dict[str, Any]] = []
+    check_rows: list[dict[str, Any]] = []
+    for (statement, parenthetical), items in lines.items():
+        # drop trailing/leading abstract headers with nothing under them
+        cleaned: list[dict[str, Any]] = []
+        for i, it in enumerate(items):
+            if it["is_abstract"]:
+                nxt = items[i + 1] if i + 1 < len(items) else None
+                if nxt is None or nxt["is_abstract"]:
+                    continue
+            cleaned.append(it)
+        for order, it in enumerate(cleaned, 1):
+            it["line_order"] = order
+            it["is_subtotal"] = chk.is_subtotal(it["concept"], it.get("label"), it["is_abstract"])
+        chk.assign_parents(cleaned)
+        primary_qtrs = min(
+            (v["qtrs"] for it in cleaned for v in it["values"] if v["period_end_rounded"] == filing_period),
+            default=None,
+        )
+        primary_values: dict[str, float] = {}
+        for it in cleaned:
+            base = {
+                "accession": accession,
+                "cik": cik,
+                "statement": statement,
+                "report": None,
+                "line": it["line_order"],
+                "line_order": it["line_order"],
+                "is_parenthetical": parenthetical,
+                "concept": it["concept"],
+                "taxonomy": it.get("taxonomy"),
+                "label": it.get("label") or it["concept"],
+                "standard_label": it.get("standard_label"),
+                "negating": bool(it.get("negating")),
+                "is_abstract": bool(it["is_abstract"]),
+                "is_custom": False,
+                "iord": None,
+                "crdr": None,
+                "datatype": None,
+                "is_subtotal": it["is_subtotal"],
+                "parent_concept": it.get("parent_concept"),
+                "source": "facts_fallback",
+                "fsds_quarter": None,
+                "form": form,
+                "filed_date": filed_date,
+                "checks_passed": None,
+            }
+            if not it["values"]:
+                stmt_rows.append(
+                    {
+                        **base,
+                        "period_start": None,
+                        "period_end": None,
+                        "period_end_rounded": None,
+                        "qtrs": None,
+                        "unit": None,
+                        "value": None,
+                        "value_presented": None,
+                        "is_primary_period": True,
+                    }
+                )
+                continue
+            for v in sorted(it["values"], key=lambda v: (v["period_end"], v["qtrs"])):
+                if statement == "EQ":
+                    primary = v["period_end_rounded"] == filing_period
+                else:
+                    primary = v["period_end_rounded"] == filing_period and v["qtrs"] == primary_qtrs
+                if (
+                    primary
+                    and not parenthetical
+                    and it["concept"] in chk.CHECK_CONCEPTS
+                    and it["concept"] not in primary_values
+                ):
+                    primary_values[it["concept"]] = v["value"]
+                stmt_rows.append(
+                    {
+                        **base,
+                        "period_start": v["period_start"],
+                        "period_end": v["period_end"],
+                        "period_end_rounded": v["period_end_rounded"],
+                        "qtrs": v["qtrs"],
+                        "unit": v["unit"],
+                        "value": v["value"],
+                        "value_presented": -v["value"] if base["negating"] else v["value"],
+                        "is_primary_period": primary,
+                    }
+                )
+        if not parenthetical:
+            results = chk.run_checks(statement, primary_values)
+            passed = chk.checks_passed(results)
+            for r in stmt_rows:
+                if r["statement"] == statement and r["is_parenthetical"] == parenthetical:
+                    r["checks_passed"] = passed
+            for res in results:
+                check_rows.append(
+                    {
+                        "accession": accession,
+                        "cik": cik,
+                        "statement": statement,
+                        "check_name": res.check_name,
+                        "passed": res.passed,
+                        "lhs": res.lhs,
+                        "rhs": res.rhs,
+                        "difference": res.difference,
+                        "detail": res.detail,
+                        "source": "facts_fallback",
+                    }
+                )
+    stmt_rows.sort(
+        key=lambda r: (
+            r["statement"],
+            r["is_parenthetical"],
+            r["line_order"],
+            r["period_end"] or date.min,
+            r["qtrs"] or 0,
+        )
+    )
+    return stmt_rows, check_rows
+
+
+def _template_for(duck: Duck, cik: int, family: str) -> list[dict[str, Any]] | None:
+    if not duck.view("statements", f"{layout.statements_cik_dir(cik)}/*.parquet"):
+        return None
+    annual = family == "annual"
+    rows = duck.fetch_dicts(
+        """
+        WITH latest AS (
+            SELECT accession FROM statements
+            WHERE source = 'fsds' AND (form LIKE '10-K%' OR form LIKE '20-F%' OR form LIKE '40-F%') = ?
+            ORDER BY filed_date DESC LIMIT 1
+        )
+        SELECT DISTINCT statement, is_parenthetical, line_order, concept, label, negating, is_abstract,
+               standard_label, taxonomy
+        FROM statements WHERE accession = (SELECT accession FROM latest)
+        ORDER BY statement, is_parenthetical, line_order
+        """,
+        [annual],
+    )
+    return rows or None
+
+
+def _facts_for(duck: Duck, cik: int, accession: str) -> list[dict[str, Any]]:
+    if not duck.view("cik_facts", f"{layout.facts_cik_dir(cik)}/*.parquet"):
+        return []
+    return duck.fetch_dicts(
+        "SELECT taxonomy, concept, unit, period_start, period_end, value, duration_days, label "
+        "FROM cik_facts WHERE accession = ?",
+        [accession],
+    )
+
+
+def accessions_with_statements(storage: Storage, cik: int) -> set[str]:
+    duck = Duck(storage)
+    try:
+        if not duck.view("statements", f"{layout.statements_cik_dir(cik)}/*.parquet"):
+            return set()
+        return {r[0] for r in duck.sql("SELECT DISTINCT accession FROM statements").fetchall()}
+    finally:
+        duck.close()
+
+
+def write_fallback(
+    storage: Storage,
+    cik: int,
+    accession: str,
+    rows: list[dict[str, Any]],
+    checks: list[dict[str, Any]],
+) -> None:
+    if not rows:
+        return
+    storage.write_parquet(
+        f"{layout.statements_cik_dir(cik)}/fallback_{accession}.parquet",
+        pa.Table.from_pylist(rows, schema=STATEMENTS_SCHEMA),
+    )
+    storage.delete(f"{layout.statement_checks_cik_dir(cik)}/fallback_{accession}.parquet")
+    if checks:
+        storage.write_parquet(
+            f"{layout.statement_checks_cik_dir(cik)}/fallback_{accession}.parquet",
+            pa.Table.from_pylist(checks, schema=CHECKS_SCHEMA),
+        )
+
+
+def fill_fallbacks_for_cik(storage: Storage, cik: int, duck: Duck | None = None) -> int:
+    """Build provisional statements for this CIK's XBRL results filings that have none yet."""
+    own = duck is None
+    duck = duck or Duck(storage)
+    try:
+        if not duck.view("filings", f"{layout.FILINGS}/*/*.parquet"):
+            return 0
+        forms = _sql_list(FINANCIAL_REPORT_FORMS)
+        filings = duck.fetch_dicts(
+            f"SELECT accession, form, filed_date, report_date FROM filings WHERE cik = ? AND is_xbrl "
+            f"AND (form IN ({forms}) OR replace(form, '/A', '') IN ({forms})) AND report_date IS NOT NULL",
+            [cik],
+        )
+        if not filings:
+            return 0
+        have = accessions_with_statements(storage, cik)
+        periods: dict[str, int] = {}
+        if duck.view("periods", layout.PERIODS, hive=False):
+            for r in duck.fetch_dicts("SELECT results_accession, fiscal_quarter FROM periods WHERE cik = ?", [cik]):
+                periods[r["results_accession"]] = r["fiscal_quarter"]
+        built = 0
+        templates: dict[str, list[dict[str, Any]] | None] = {}
+        for f in filings:
+            if f["accession"] in have or is_amendment(f["form"]):
+                continue
+            family = form_family(f["form"]) or "annual"
+            if family not in templates:
+                templates[family] = _template_for(duck, cik, family)
+            facts = _facts_for(duck, cik, f["accession"])
+            if not facts:
+                continue
+            rows, checks = build_fallback_rows(
+                cik,
+                f["accession"],
+                f["form"],
+                f["filed_date"],
+                f["report_date"],
+                periods.get(f["accession"]),
+                facts,
+                templates[family],
+            )
+            write_fallback(storage, cik, f["accession"], rows, checks)
+            built += 1
+        return built
+    finally:
+        if own:
+            duck.close()
+
+
+def fill_all_fallbacks(storage: Storage, ciks: list[int] | None = None) -> int:
+    duck = Duck(storage)
+    try:
+        if ciks is None:
+            if not duck.view("filings", f"{layout.FILINGS}/*/*.parquet"):
+                return 0
+            forms = _sql_list(FINANCIAL_REPORT_FORMS)
+            ciks = [
+                r[0]
+                for r in duck.sql(f"SELECT DISTINCT cik FROM filings WHERE is_xbrl AND form IN ({forms})").fetchall()
+            ]
+        total = 0
+        for i, cik in enumerate(ciks, 1):
+            total += fill_fallbacks_for_cik(storage, cik, duck)
+            if i % 500 == 0:
+                log.info("fallbacks: %d/%d companies, %d built", i, len(ciks), total)
+        return total
+    finally:
+        duck.close()
