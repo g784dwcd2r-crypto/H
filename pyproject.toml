@@ -41,6 +41,11 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["filings_hub"]
+# reference data read at runtime by `filings-hub verify`
+artifacts = ["filings_hub/data/*.csv", "filings_hub/data/*.md"]
+
+[tool.hatch.build.targets.sdist]
+include = ["filings_hub", "tests", "README.md", "pyproject.toml"]
 
 [tool.ruff]
 line-length = 120
