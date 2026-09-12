@@ -140,12 +140,30 @@ pre-commit install
 
 ## Phase 1 definition of done
 
-| Item | Status |
-| --- | --- |
-| Bulk backfill runs end-to-end from empty lake to loaded Postgres | implemented (`filings-hub backfill`); wall-clock < 4 h to be measured on the first real run |
-| Daily refresh 5 consecutive weekdays without intervention | workflow + run log + alerts in place; needs 5 real days |
-| 20-company golden set checked by a human | `filings-hub golden` prints the sheet; human check pending |
-| `checks_passed` ≥ 95 % on S&P 500 filings since 2020 | `filings-hub quality --tickers-file --since 2020` |
-| Every golden-set period has correct label, results filing and 8-K | covered by tests on the fixture universe; real-data pass pending |
-| `pytest` green, coverage on `periods.py` and `sync_statements.py` ≥ 80 % | 109 tests, 97 % / 96 % (92 % overall) |
-| README explains backfill, refresh and export in three commands | above |
+Run the whole checklist as one command against a lake built from real SEC data:
+
+```bash
+filings-hub verify                              # pass/fail per criterion; exits non-zero on any failure
+filings-hub verify --export-dir ./golden        # also writes one workbook per golden-set company
+filings-hub verify --tickers-file mine.txt      # use your own universe instead of the vendored S&P 500
+```
+
+| Criterion | How it is checked | Status |
+| --- | --- | --- |
+| Bulk backfill from empty lake to loaded Postgres in < 4 h | the `run_log` row the backfill writes | needs SEC access |
+| Daily refresh 5 consecutive weekdays without intervention | `run_log` refresh rows, weekends skipped, any failed run disqualifies | needs SEC access |
+| 20-company golden set checked against the filings | per company: period labels well-formed and unique, an annual period present, every period has a results filing, statements exist with an income statement and balance sheet, arithmetic checks not failing | needs SEC access |
+| Every golden-set period has the correct label, results filing and earnings-release 8-K | coverage across the set, with implausible 8-K lags reported | needs SEC access |
+| `checks_passed` ≥ 95 % on S&P 500 filings since 2020 | the vendored [S&P 500 list](filings_hub/data/PROVENANCE.md) joined to `periods` | needs SEC access |
+| `pytest` green, coverage on `periods.py` and `sync_statements.py` ≥ 80 % | `make cov` | **met**: 133 tests, 97 % / 96 % (91 % overall) |
+| README explains backfill, refresh and export in three commands | above | **met** |
+
+The five data criteria are reported as *not evaluated* rather than passed when the lake does not hold
+the universe they are about, so a partial lake cannot read as a green light. The harness itself is
+tested in both directions: each criterion has pass, fail and abstain cases, and one test builds a lake
+at the shape and scale of real data and asserts all five reach PASS through the same SQL.
+
+The golden set covers the characteristics the plan names — a 52/53-week filer, several non-December
+year ends, a bank with no gross profit line, two REITs, two insurers, a biotech, dual share classes,
+and a 40-F filer reporting under IFRS. It is a CSV of tickers, resolved to CIKs from the loaded data,
+so it carries no hard-coded identifiers that could go stale: [`filings_hub/data/golden_set.csv`](filings_hub/data/golden_set.csv).

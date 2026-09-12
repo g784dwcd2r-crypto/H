@@ -175,6 +175,38 @@ def worker(
 
 
 @app.command()
+def verify(
+    tickers_file: Path | None = typer.Option(
+        None, help="universe for the quality criterion; default: the vendored S&P 500 list"
+    ),
+    golden_file: Path | None = typer.Option(None, help="golden set CSV (ticker,covers); default: the vendored 20"),
+    since: int = typer.Option(2020, help="first fiscal year for the quality criterion"),
+    export_dir: Path | None = typer.Option(None, help="also write one workbook per golden-set company here"),
+    verbose: bool = typer.Option(False, help="show evidence for criteria that passed too"),
+) -> None:
+    """Run the plan's phase 1 definition of done and report pass/fail per criterion.
+
+    Needs a lake built from real SEC data (`filings-hub backfill`); exits non-zero if a criterion fails.
+    """
+    _setup_logging(False)
+    from filings_hub.db.database import Database
+    from filings_hub.verify import export_golden_set, format_report, load_golden_set, load_tickers_file, run_acceptance
+
+    golden = load_golden_set(golden_file)
+    tickers = load_tickers_file(tickers_file) if tickers_file else None
+    db = Database(get_settings().database_url, _storage())
+    try:
+        criteria = run_acceptance(db, golden=golden, tickers=tickers, since=since)
+        typer.echo(format_report(criteria, verbose=verbose))
+        if export_dir:
+            written = export_golden_set(db, golden, export_dir)
+            typer.echo(f"wrote {len(written)} workbooks to {export_dir} for the golden-set eyeball check")
+    finally:
+        db.close()
+    raise typer.Exit(1 if any(c.passed is False for c in criteria) else 0)
+
+
+@app.command()
 def demo(verbose: bool = False) -> None:
     """Seed the lake with synthetic EDGAR data and run the whole pipeline offline (no SEC access needed)."""
     _setup_logging(verbose)
