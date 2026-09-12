@@ -29,8 +29,9 @@ envVarGroups:
       - key: AWS_SECRET_ACCESS_KEY
         sync: false
       - key: AWS_REGION
-        value: us-east-1
-      # For Cloudflare R2 / MinIO add: AWS_ENDPOINT_URL=https://<account>.r2.cloudflarestorage.com
+        sync: false            # AWS: the bucket's region. Cloudflare R2: auto
+      - key: AWS_ENDPOINT_URL
+        sync: false            # AWS: leave empty. R2: https://<account-id>.r2.cloudflarestorage.com
 
 services:
   - type: web
