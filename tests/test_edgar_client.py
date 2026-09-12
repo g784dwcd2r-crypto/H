@@ -136,3 +136,74 @@ def test_download_is_idempotent_and_streams(tmp_path, monkeypatch):
     assert bulk.latest_raw(Storage(str(tmp_path / "empty")), "submissions") is None
     out = bulk.download_all(st, c, day)
     assert set(out) == {"company_tickers", "submissions", "companyfacts", "fsds"}
+
+
+def test_throttle_waits_out_the_sec_block(monkeypatch):
+    """403/429 use the long throttle schedule and never count against max_retries."""
+    slept: list[float] = []
+    monkeypatch.setattr("filings_hub.ingest.edgar_client.time.sleep", slept.append)
+    calls = {"n": 0}
+
+    def handler(request):
+        calls["n"] += 1
+        if calls["n"] <= 3:
+            return httpx.Response(403)
+        if calls["n"] == 4:
+            return httpx.Response(429, headers={"Retry-After": "900"})
+        return httpx.Response(200, text="ok")
+
+    c = EdgarClient("Test test@example.com", max_retries=0, transport=httpx.MockTransport(handler))
+    assert c.get("https://www.sec.gov/bulk.zip").text == "ok"
+    assert slept == [30.0, 60.0, 120.0, 900.0]  # doubling; Retry-After wins when longer
+    assert calls["n"] == 5
+
+
+def test_throttle_schedule_caps_and_gives_up(monkeypatch):
+    slept: list[float] = []
+    monkeypatch.setattr("filings_hub.ingest.edgar_client.time.sleep", slept.append)
+    c = EdgarClient(
+        "Test test@example.com",
+        max_retries=5,
+        throttle_retries=3,
+        throttle_max_wait=100.0,
+        transport=httpx.MockTransport(lambda r: httpx.Response(403)),
+    )
+    with pytest.raises(EdgarError, match="HTTP 403"):
+        c.get("https://www.sec.gov/x")
+    assert slept == [30.0, 60.0, 100.0]  # three throttle rounds, capped; max_retries not consumed
+
+
+def test_stream_retries_throttle_then_streams(monkeypatch, tmp_path):
+    slept: list[float] = []
+    monkeypatch.setattr("filings_hub.ingest.edgar_client.time.sleep", slept.append)
+    calls = {"n": 0}
+
+    def handler(request):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            return httpx.Response(403)
+        if calls["n"] == 2:
+            return httpx.Response(503)
+        return httpx.Response(200, content=b"z" * 100)
+
+    c = EdgarClient("Test test@example.com", max_retries=1, transport=httpx.MockTransport(handler))
+    st = Storage(str(tmp_path))
+    assert bulk.download_to(st, c, "https://www.sec.gov/big.zip", "raw/big.zip") is True
+    assert st.size("raw/big.zip") == 100
+    assert slept[0] == 30.0 and 1.0 <= slept[1] <= 2.0  # throttle wait, then the short server-error backoff
+    assert not st.exists("raw/big.zip.part")
+
+
+def test_client_from_settings_reads_throttle_settings(monkeypatch):
+    monkeypatch.setenv("SEC_USER_AGENT", "Test test@example.com")
+    monkeypatch.setenv("EDGAR_THROTTLE_RETRIES", "2")
+    monkeypatch.setenv("EDGAR_THROTTLE_MAX_WAIT_SECONDS", "45")
+    from filings_hub.config import get_settings
+    from filings_hub.ingest.edgar_client import client_from_settings
+
+    get_settings.cache_clear()
+    try:
+        c = client_from_settings(transport=httpx.MockTransport(lambda r: httpx.Response(200)))
+        assert (c.throttle_retries, c.throttle_max_wait) == (2, 45.0)
+    finally:
+        get_settings.cache_clear()

@@ -33,6 +33,16 @@ class EdgarError(RuntimeError):
     pass
 
 
+class _Attempts:
+    """Retry counters for one logical request: server/transport errors and SEC throttles are separate budgets."""
+
+    __slots__ = ("errors", "throttles")
+
+    def __init__(self) -> None:
+        self.errors = 0
+        self.throttles = 0
+
+
 class RateLimiter:
     """Token bucket: at most `rate` requests per second, shared across threads."""
 
@@ -57,7 +67,20 @@ class RateLimiter:
 
 
 class EdgarClient:
-    RETRY_STATUSES = {403, 429, 500, 502, 503, 504}
+    """Two retry policies, because the SEC fails in two different ways.
+
+    * Server errors (5xx) and transport errors: short exponential backoff, `max_retries` attempts.
+    * Throttling (403, 429): the SEC edge blocks an IP for about ten minutes once it decides the
+      traffic is an automated burst (a large bulk download right before the next request is enough).
+      Those get their own schedule, 30 s doubling up to `throttle_max_wait`, for `throttle_retries`
+      rounds (default: 30, 60, 120, 240, 480, 600, 600, 600 s, about 45 minutes in total), and they
+      never count against `max_retries`. A `Retry-After` header is honoured when it is longer.
+    """
+
+    THROTTLE_STATUSES = {403, 429}
+    SERVER_ERROR_STATUSES = {500, 502, 503, 504}
+    RETRY_STATUSES = THROTTLE_STATUSES | SERVER_ERROR_STATUSES
+    THROTTLE_FIRST_WAIT = 30.0
 
     def __init__(
         self,
@@ -66,12 +89,16 @@ class EdgarClient:
         max_retries: int = 5,
         timeout: float = 60.0,
         transport: httpx.BaseTransport | None = None,
+        throttle_retries: int = 8,
+        throttle_max_wait: float = 600.0,
     ):
         if not user_agent or "@" not in user_agent:
             raise EdgarError('SEC_USER_AGENT must look like "Company Name contact@email" (SEC fair-access policy).')
         self.user_agent = user_agent
         self.limiter = RateLimiter(requests_per_second)
         self.max_retries = max_retries
+        self.throttle_retries = throttle_retries
+        self.throttle_max_wait = throttle_max_wait
         headers = {
             "User-Agent": user_agent,
             "Accept-Encoding": "gzip, deflate",
@@ -90,22 +117,52 @@ class EdgarClient:
 
     # -- core request with retry -------------------------------------------------------------
     def _request(self, method: str, url: str, **kw: Any) -> httpx.Response:
-        attempt = 0
+        attempts = _Attempts()
         while True:
             self.limiter.acquire()
             try:
                 resp = self.http.request(method, url, **kw)
             except (httpx.TransportError, httpx.TimeoutException) as e:
-                if attempt >= self.max_retries:
-                    raise EdgarError(f"{method} {url} failed after {attempt + 1} attempts: {e}") from e
-                self._backoff(attempt, url, str(e))
-                attempt += 1
+                if attempts.errors >= self.max_retries:
+                    raise EdgarError(f"{method} {url} failed after {attempts.errors + 1} attempts: {e}") from e
+                self._backoff(attempts.errors, url, str(e))
+                attempts.errors += 1
                 continue
-            if resp.status_code in self.RETRY_STATUSES and attempt < self.max_retries:
-                self._backoff(attempt, url, f"HTTP {resp.status_code}", resp.headers.get("Retry-After"))
-                attempt += 1
+            if self._retry_status(resp, url, attempts):
                 continue
             return resp
+
+    def _retry_status(self, resp: httpx.Response, url: str, attempts: _Attempts) -> bool:
+        """Sleep and return True when `resp` should be retried; False when it is final."""
+        status = resp.status_code
+        retry_after = resp.headers.get("Retry-After")
+        if status in self.THROTTLE_STATUSES:
+            if attempts.throttles >= self.throttle_retries:
+                return False
+            self._throttle_wait(attempts.throttles, url, status, retry_after)
+            attempts.throttles += 1
+            return True
+        if status in self.SERVER_ERROR_STATUSES:
+            if attempts.errors >= self.max_retries:
+                return False
+            self._backoff(attempts.errors, url, f"HTTP {status}", retry_after)
+            attempts.errors += 1
+            return True
+        return False
+
+    def _throttle_wait(self, round_: int, url: str, status: int, retry_after: str | None = None) -> None:
+        delay = min(self.throttle_max_wait, self.THROTTLE_FIRST_WAIT * (2**round_))
+        if retry_after and retry_after.isdigit():
+            delay = max(delay, float(retry_after))
+        log.warning(
+            "SEC throttled (HTTP %s), waiting %.0fs before retry %s/%s: %s",
+            status,
+            delay,
+            round_ + 1,
+            self.throttle_retries,
+            url,
+        )
+        time.sleep(delay)
 
     @staticmethod
     def _backoff(attempt: int, url: str, why: str, retry_after: str | None = None) -> None:
@@ -136,24 +193,22 @@ class EdgarClient:
     @contextmanager
     def stream(self, url: str) -> Iterator[httpx.Response]:
         """Streaming GET for large bulk files (retries only the connection phase)."""
-        attempt = 0
+        attempts = _Attempts()
         while True:
             self.limiter.acquire()
             try:
                 with self.http.stream("GET", url) as resp:
-                    if resp.status_code in self.RETRY_STATUSES and attempt < self.max_retries:
-                        self._backoff(attempt, url, f"HTTP {resp.status_code}")
-                        attempt += 1
+                    if self._retry_status(resp, url, attempts):
                         continue
                     if resp.status_code >= 400:
                         raise EdgarError(f"GET {url} -> HTTP {resp.status_code}")
                     yield resp
                     return
             except (httpx.TransportError, httpx.TimeoutException) as e:
-                if attempt >= self.max_retries:
+                if attempts.errors >= self.max_retries:
                     raise EdgarError(f"stream {url} failed: {e}") from e
-                self._backoff(attempt, url, str(e))
-                attempt += 1
+                self._backoff(attempts.errors, url, str(e))
+                attempts.errors += 1
 
     # -- EDGAR endpoints ------------------------------------------------------------------------
     @staticmethod
@@ -217,4 +272,6 @@ def client_from_settings(transport: httpx.BaseTransport | None = None) -> EdgarC
         max_retries=s.edgar_max_retries,
         timeout=s.edgar_timeout_seconds,
         transport=transport,
+        throttle_retries=s.edgar_throttle_retries,
+        throttle_max_wait=s.edgar_throttle_max_wait_seconds,
     )
