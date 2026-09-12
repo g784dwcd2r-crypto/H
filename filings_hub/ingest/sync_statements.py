@@ -244,7 +244,7 @@ def _stage_fsds_quarter(duck: Duck, quarter: str, enrich: bool) -> int:
         """,
         [quarter, quarter, quarter, quarter, quarter],
     )
-    return duck.sql("SELECT count(*) FROM stg").fetchone()[0]
+    return duck.fetch_value("SELECT count(*) FROM stg")
 
 
 def _checks_from_staged(duck: Duck, source: str) -> pa.Table:
@@ -324,7 +324,7 @@ def build_fsds_quarter(
         # remove the previous build of this quarter and the fallbacks it supersedes
         _delete_glob(storage, f"{layout.STATEMENTS}/*/fsds_{quarter}_*.parquet")
         _delete_glob(storage, f"{layout.STATEMENT_CHECKS}/*/fsds_{quarter}_*.parquet")
-        covered = {r[0] for r in duck.sql("SELECT DISTINCT accession FROM stg").fetchall()}
+        covered = set(duck.fetch_column("SELECT DISTINCT accession FROM stg"))
         removed = 0
         for p in existing_fallbacks(storage) if fallbacks is None else fallbacks:
             acc = p.rsplit("/", 1)[-1][len("fallback_") : -len(".parquet")]
@@ -353,7 +353,7 @@ def build_fsds_quarter(
                  FILENAME_PATTERN 'fsds_{quarter}_{{uuid}}')
                 """
             )
-        duck.con.unregister("chk")
+        duck.unregister("chk")
         n_filings = len(covered)
         log.info(
             "statements %s: %d rows, %d filings, %d checks, %d fallbacks superseded",
@@ -677,7 +677,7 @@ def accessions_with_statements(storage: Storage, cik: int) -> set[str]:
     try:
         if not duck.view("statements", f"{layout.statements_cik_dir(cik)}/*.parquet"):
             return set()
-        return {r[0] for r in duck.sql("SELECT DISTINCT accession FROM statements").fetchall()}
+        return set(duck.fetch_column("SELECT DISTINCT accession FROM statements"))
     finally:
         duck.close()
 
@@ -759,10 +759,7 @@ def fill_all_fallbacks(storage: Storage, ciks: list[int] | None = None) -> int:
             if not duck.view("filings", f"{layout.FILINGS}/*/*.parquet"):
                 return 0
             forms = _sql_list(FINANCIAL_REPORT_FORMS)
-            ciks = [
-                r[0]
-                for r in duck.sql(f"SELECT DISTINCT cik FROM filings WHERE is_xbrl AND form IN ({forms})").fetchall()
-            ]
+            ciks = duck.fetch_column(f"SELECT DISTINCT cik FROM filings WHERE is_xbrl AND form IN ({forms})")
         total = 0
         for i, cik in enumerate(ciks, 1):
             total += fill_fallbacks_for_cik(storage, cik, duck)

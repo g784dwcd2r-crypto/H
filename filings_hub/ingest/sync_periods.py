@@ -46,10 +46,8 @@ def rebuild_periods(storage: Storage, ciks: list[int] | None = None) -> int:
         if duck.view("companies", layout.COMPANIES, hive=False):
             for r in duck.fetch_dicts("SELECT cik, fiscal_year_end FROM companies"):
                 fye[r["cik"]] = r["fiscal_year_end"]
-        if ciks:
-            targets = sorted(set(ciks))
-        else:
-            targets = [r[0] for r in duck.sql("SELECT DISTINCT cik FROM filings ORDER BY cik").fetchall()]
+        all_ciks = "SELECT DISTINCT cik FROM filings ORDER BY cik"
+        targets = sorted(set(ciks)) if ciks else duck.fetch_column(all_ciks)
         out: list[dict[str, Any]] = []
         for i in range(0, len(targets), BATCH_CIKS):
             batch = targets[i : i + BATCH_CIKS]

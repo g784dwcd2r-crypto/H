@@ -69,7 +69,7 @@ def load_fsds_quarter(storage: Storage, quarter: str, duck: Duck | None = None) 
                     zf.extract(f"{t}.txt", tmp)
             for t in TABLES:
                 src = Path(tmp) / f"{t}.txt"
-                cols = [r[0] for r in duck.sql(f"DESCRIBE SELECT * FROM {_read_csv_sql(src)}").fetchall()]
+                cols = duck.fetch_column(f"DESCRIBE SELECT * FROM {_read_csv_sql(src)}")
                 extra = ""
                 if t == "num":
                     # Some vintages ship dimensional rows; statements only use non-dimensional values.
@@ -85,7 +85,7 @@ def load_fsds_quarter(storage: Storage, quarter: str, duck: Duck | None = None) 
                     f"COPY (SELECT {SELECTS[t]} FROM {_read_csv_sql(src)}{extra}) "
                     f"TO '{target}' (FORMAT PARQUET, COMPRESSION ZSTD)"
                 )
-                counts[t] = duck.sql(f"SELECT count(*) FROM read_parquet('{target}')").fetchone()[0]
+                counts[t] = duck.fetch_value(f"SELECT count(*) FROM read_parquet('{target}')")
         log.info("FSDS %s loaded: %s", quarter, counts)
         return counts
     finally:

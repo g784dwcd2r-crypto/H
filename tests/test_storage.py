@@ -97,3 +97,47 @@ def test_api_answers_on_an_empty_lake(tmp_path):
         assert m["totals"]["companies"] == 0 and m["runs"] == [] and m["filings_per_day"] == []
         assert c.get("/quality/failed").json() == {"total": 0, "limit": 100, "offset": 0, "failed": []}
     app.state.db.close()
+
+
+def test_concurrent_reads_are_safe(built_lake):
+    """One DuckDB connection is not safe for concurrent use, and the API serves sync endpoints from a
+    threadpool (a single company page fires three requests at once). Without serialisation `execute` on
+    one thread replaces the pending result of another, pairing one query's columns with another's rows.
+    """
+    from collections import Counter
+    from concurrent.futures import ThreadPoolExecutor
+
+    from filings_hub.db.database import Database
+    from filings_hub.testing import edgar_fixtures as fx
+
+    db = Database("", built_lake)
+    queries = [
+        ("SELECT * FROM companies WHERE cik = ?", [fx.APPLE], 1),
+        ("SELECT * FROM periods_serving WHERE cik = ? ORDER BY period_end DESC", [fx.APPLE], 8),
+        ("SELECT * FROM filings WHERE cik = ? ORDER BY filed_date", [fx.APPLE], len(fx.APPLE_FILINGS)),
+        (
+            "SELECT * FROM statements WHERE accession = ? AND statement = 'BS' AND is_primary_period",
+            [fx.APPLE_10K_FY2025],
+            8,
+        ),
+    ]
+
+    def run(i: int) -> str:
+        sql, params, expected = queries[i % len(queries)]
+        try:
+            rows = db.query(sql, params)
+        except Exception as e:
+            return f"{type(e).__name__}"
+        if len(rows) != expected:
+            return f"wrong row count {len(rows)} != {expected}"
+        # every row must carry the columns the query asked for, not another query's
+        if any("cik" not in r for r in rows):
+            return "column/row mismatch"
+        return "ok"
+
+    try:
+        with ThreadPoolExecutor(max_workers=8) as pool:
+            results = Counter(pool.map(run, range(400)))
+    finally:
+        db.close()
+    assert results == Counter({"ok": 400}), results

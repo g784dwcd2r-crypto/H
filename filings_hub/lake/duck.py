@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import threading
 from typing import Any
 
 import duckdb
@@ -22,9 +23,14 @@ class Duck:
 
     def __init__(self, storage: Storage, database: str = ":memory:", threads: int | None = None):
         self.storage = storage
+        # One DuckDB connection is not safe for concurrent use: `execute` on a second thread replaces
+        # the pending result of the first, which silently pairs one query's columns with another's rows.
+        # The API serves sync endpoints from a threadpool, so every use of the connection is serialised.
+        # Re-entrant because the higher-level helpers call each other.
+        self._lock = threading.RLock()
         self.con = duckdb.connect(database)
         if threads:
-            self.con.execute(f"SET threads={int(threads)}")
+            self.sql(f"SET threads={int(threads)}")
         if storage.is_remote:
             self._configure_httpfs()
 
@@ -32,13 +38,13 @@ class Duck:
         from filings_hub.config import get_settings
 
         s = get_settings()
-        self.con.execute("INSTALL httpfs; LOAD httpfs;")
-        self.con.execute(f"SET s3_region='{s.aws_region}'")
+        self.sql("INSTALL httpfs; LOAD httpfs;")
+        self.sql(f"SET s3_region='{s.aws_region}'")
         if s.aws_access_key_id:
-            self.con.execute(f"SET s3_access_key_id='{s.aws_access_key_id}'")
-            self.con.execute(f"SET s3_secret_access_key='{s.aws_secret_access_key}'")
+            self.sql(f"SET s3_access_key_id='{s.aws_access_key_id}'")
+            self.sql(f"SET s3_secret_access_key='{s.aws_secret_access_key}'")
             if s.aws_session_token:
-                self.con.execute(f"SET s3_session_token='{s.aws_session_token}'")
+                self.sql(f"SET s3_session_token='{s.aws_session_token}'")
 
     # -- helpers -------------------------------------------------------------------------------
     def path(self, rel: str) -> str:
@@ -55,19 +61,44 @@ class Duck:
         hp = "true" if hive else "false"
         return f"read_parquet('{self.path(rel_glob)}', hive_partitioning={hp}, union_by_name=true)"
 
-    def sql(self, query: str, params: list[Any] | None = None) -> duckdb.DuckDBPyRelation:
-        return self.con.execute(query, params or [])
+    def sql(self, query: str, params: list[Any] | None = None) -> None:
+        """Run a statement that returns nothing (DDL, COPY, SET). To read rows use a fetch_* method:
+        the result of a bare `execute` is only valid until the next one on this connection."""
+        with self._lock:
+            self.con.execute(query, params or [])
 
     def fetch_arrow(self, query: str, params: list[Any] | None = None) -> pa.Table:
-        return to_arrow(self.con.execute(query, params or []))
+        with self._lock:
+            return to_arrow(self.con.execute(query, params or []))
+
+    def fetch_all(self, query: str, params: list[Any] | None = None) -> list[tuple]:
+        with self._lock:
+            return self.con.execute(query, params or []).fetchall()
+
+    def fetch_one(self, query: str, params: list[Any] | None = None) -> tuple | None:
+        with self._lock:
+            return self.con.execute(query, params or []).fetchone()
+
+    def fetch_value(self, query: str, params: list[Any] | None = None) -> Any:
+        row = self.fetch_one(query, params)
+        return row[0] if row else None
+
+    def fetch_column(self, query: str, params: list[Any] | None = None) -> list[Any]:
+        return [r[0] for r in self.fetch_all(query, params)]
 
     def fetch_dicts(self, query: str, params: list[Any] | None = None) -> list[dict[str, Any]]:
-        cur = self.con.execute(query, params or [])
-        cols = [d[0] for d in cur.description]
-        return [dict(zip(cols, row, strict=True)) for row in cur.fetchall()]
+        with self._lock:
+            cur = self.con.execute(query, params or [])
+            cols = [d[0] for d in cur.description]
+            return [dict(zip(cols, row, strict=True)) for row in cur.fetchall()]
 
     def register(self, name: str, table: pa.Table) -> None:
-        self.con.register(name, table)
+        with self._lock:
+            self.con.register(name, table)
+
+    def unregister(self, name: str) -> None:
+        with self._lock:
+            self.con.unregister(name)
 
     # -- views over the lake -------------------------------------------------------------------
     def view(self, name: str, rel_glob: str, hive: bool = True) -> bool:
@@ -82,7 +113,7 @@ class Duck:
                 return False
         elif not self.storage.exists(rel_glob):
             return False
-        self.con.execute(f"CREATE OR REPLACE VIEW {name} AS SELECT * FROM {self.scan(rel_glob, hive)}")
+        self.sql(f"CREATE OR REPLACE VIEW {name} AS SELECT * FROM {self.scan(rel_glob, hive)}")
         return True
 
     def create_views(self) -> dict[str, bool]:
@@ -103,4 +134,5 @@ class Duck:
         }
 
     def close(self) -> None:
-        self.con.close()
+        with self._lock:
+            self.con.close()
