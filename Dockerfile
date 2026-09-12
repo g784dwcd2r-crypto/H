@@ -7,5 +7,4 @@ RUN uv pip install --system --no-cache ".[s3]"
 ENV LAKE_ROOT=/data
 VOLUME ["/data"]
 EXPOSE 8000
-ENTRYPOINT ["filings-hub"]
-CMD ["api"]
+CMD ["filings-hub", "api"]
