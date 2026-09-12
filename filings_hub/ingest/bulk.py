@@ -18,6 +18,7 @@ from filings_hub.ingest.edgar_client import (
     COMPANYFACTS_BULK_URL,
     SUBMISSIONS_BULK_URL,
     EdgarClient,
+    EdgarMissing,
 )
 from filings_hub.lake import layout
 from filings_hub.lake.storage import Storage
@@ -65,10 +66,16 @@ def download_submissions(storage: Storage, client: EdgarClient, day: date | None
     return rel
 
 
-def download_companyfacts(storage: Storage, client: EdgarClient, day: date | None = None) -> str:
+def download_companyfacts(storage: Storage, client: EdgarClient, day: date | None = None) -> str | None:
+    """None when the SEC is not serving the bulk file right now (it disappears during the nightly rebuild
+    and has had multi-day outages); the backfill then falls back to the per-company API."""
     day = day or date.today()
     rel = layout.raw_companyfacts_zip(day)
-    download_to(storage, client, COMPANYFACTS_BULK_URL, rel)
+    try:
+        download_to(storage, client, COMPANYFACTS_BULK_URL, rel)
+    except EdgarMissing as e:
+        log.warning("companyfacts.zip not available from the SEC right now (%s); using the per-company API", e)
+        return None
     return rel
 
 

@@ -33,6 +33,15 @@ class EdgarError(RuntimeError):
     pass
 
 
+class EdgarMissing(EdgarError):
+    """The resource is not there: HTTP 404, or the S3 `AccessDenied` the SEC's origin bucket answers
+    for an object that does not exist (bulk files vanish while the nightly rebuild runs). Never retried."""
+
+
+# Body of an S3 "object not found" answer when the bucket denies listing; the SEC edge relays it as 403.
+S3_ACCESS_DENIED = b"<Code>AccessDenied</Code>"
+
+
 class _Attempts:
     """Retry counters for one logical request: server/transport errors and SEC throttles are separate budgets."""
 
@@ -132,11 +141,23 @@ class EdgarClient:
                 continue
             return resp
 
+    @staticmethod
+    def is_missing(resp: httpx.Response) -> bool:
+        """404, or a 403 carrying S3's AccessDenied body (the object is not there, not a block on us)."""
+        if resp.status_code == 404:
+            return True
+        if resp.status_code == 403:
+            resp.read()
+            return S3_ACCESS_DENIED in resp.content[:4096]
+        return False
+
     def _retry_status(self, resp: httpx.Response, url: str, attempts: _Attempts) -> bool:
         """Sleep and return True when `resp` should be retried; False when it is final."""
         status = resp.status_code
         retry_after = resp.headers.get("Retry-After")
         if status in self.THROTTLE_STATUSES:
+            if self.is_missing(resp):
+                return False
             if attempts.throttles >= self.throttle_retries:
                 return False
             self._throttle_wait(attempts.throttles, url, status, retry_after)
@@ -175,17 +196,24 @@ class EdgarClient:
     def get(self, url: str, **kw: Any) -> httpx.Response:
         resp = self._request("GET", url, **kw)
         if resp.status_code >= 400:
-            raise EdgarError(f"GET {url} -> HTTP {resp.status_code}")
+            raise self._error(url, resp)
         return resp
 
     def get_optional(self, url: str) -> httpx.Response | None:
-        """GET returning None on 404 (e.g. daily index for a weekend)."""
+        """GET returning None when the resource is not there (404, or S3 AccessDenied for a missing object)."""
         resp = self._request("GET", url)
-        if resp.status_code == 404:
+        if self.is_missing(resp):
             return None
         if resp.status_code >= 400:
-            raise EdgarError(f"GET {url} -> HTTP {resp.status_code}")
+            raise self._error(url, resp)
         return resp
+
+    def _error(self, url: str, resp: httpx.Response) -> EdgarError:
+        msg = f"GET {url} -> HTTP {resp.status_code}"
+        if self.is_missing(resp):
+            why = "not found" if resp.status_code == 404 else "S3 AccessDenied, object not there"
+            return EdgarMissing(f"{msg} ({why})")
+        return EdgarError(msg)
 
     def get_json(self, url: str) -> Any:
         return orjson.loads(self.get(url).content)
@@ -201,7 +229,7 @@ class EdgarClient:
                     if self._retry_status(resp, url, attempts):
                         continue
                     if resp.status_code >= 400:
-                        raise EdgarError(f"GET {url} -> HTTP {resp.status_code}")
+                        raise self._error(url, resp)
                     yield resp
                     return
             except (httpx.TransportError, httpx.TimeoutException) as e:

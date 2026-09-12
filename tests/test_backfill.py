@@ -73,3 +73,52 @@ def test_raw_layer_is_reused_not_refetched(tmp_path, source):
     day = fx.seed_raw(storage, date(2026, 9, 11))
     rel = latest_raw(storage, source)
     assert rel is not None and storage.exists(rel) and day.isoformat() in rel
+
+
+def test_backfill_falls_back_to_api_when_companyfacts_zip_is_gone(tmp_path):
+    """companyfacts.zip answers S3 AccessDenied while the SEC rebuilds it: facts come from the API instead."""
+    import httpx
+    import orjson
+
+    from filings_hub.ingest import bulk
+    from filings_hub.ingest.edgar_client import EdgarClient
+    from filings_hub.lake import layout
+
+    docs = fx.companyfacts_docs()
+    api_hits: list[int] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        url = str(request.url)
+        if url == bulk.COMPANY_TICKERS_EXCHANGE_URL:
+            return httpx.Response(200, content=fx.company_tickers_exchange_json())
+        if url == bulk.SUBMISSIONS_BULK_URL:
+            return httpx.Response(200, content=fx.submissions_zip_bytes())
+        if url == bulk.COMPANYFACTS_BULK_URL:
+            return httpx.Response(403, content=b"<Error><Code>AccessDenied</Code></Error>")
+        if "financial-statement-data-sets" in url:
+            q = url.rsplit("/", 1)[1].removesuffix(".zip")
+            return httpx.Response(200, content=fx.fsds_zip_bytes(q)) if q in fx.fsds_quarters() else httpx.Response(404)
+        if "/api/xbrl/companyfacts/" in url:
+            cik = int(url.rsplit("CIK", 1)[1].removesuffix(".json"))
+            api_hits.append(cik)
+            return httpx.Response(200, content=orjson.dumps(docs[cik])) if cik in docs else httpx.Response(404)
+        return httpx.Response(404)
+
+    storage = Storage(str(tmp_path / "lake"))
+    today = date(2026, 9, 11)
+    client = EdgarClient("Test test@example.com", requests_per_second=1000, transport=httpx.MockTransport(handler))
+    run = run_backfill(storage, workers=2, fsds_since="2025q4", load_db=False, today=today, client=client)
+
+    assert run.status == "ok", run.summary()
+    assert run.facts_rows > 0 and not run.failures
+    names = [s.split("=")[0] for s in run.steps]
+    assert "facts[api]" in names and "facts" not in names
+    assert bulk.latest_raw(storage, "companyfacts") is None  # nothing pretended to be the bulk file
+    assert set(docs) <= set(api_hits)  # every company with a financial report was asked
+    assert storage.exists(layout.raw_api_companyfacts(today, fx.APPLE))  # raw response kept, like refresh
+    assert _fingerprint(storage)["facts"][0] > 0
+
+    # with the zip back, a second run prefers it and reports the bulk step
+    storage.write_bytes(layout.raw_companyfacts_zip(today), fx.companyfacts_zip_bytes())
+    again = run_backfill(storage, workers=1, skip_download=True, load_db=False, today=today)
+    assert again.status == "ok" and "facts" in [s.split("=")[0] for s in again.steps]
