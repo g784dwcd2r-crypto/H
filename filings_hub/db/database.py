@@ -13,6 +13,8 @@ import logging
 from collections.abc import Sequence
 from typing import Any
 
+import pyarrow as pa
+
 from filings_hub.lake import layout
 from filings_hub.lake.duck import Duck
 from filings_hub.lake.storage import Storage
@@ -51,29 +53,42 @@ class Database:
             self.duck = Duck(storage)
             self._prepare_duck_views()
 
+    @staticmethod
+    def _empty_table_schemas() -> dict[str, pa.Schema]:
+        """Arrow schema per serving table, taken from the modules that write them so the empty
+        stand-ins have the real columns and types (imported lazily: the db layer does not otherwise
+        depend on ingest)."""
+        from filings_hub.ingest.periods import PERIODS_SCHEMA
+        from filings_hub.ingest.refresh import RUN_LOG_SCHEMA
+        from filings_hub.ingest.submissions import FILINGS_SCHEMA
+        from filings_hub.ingest.sync_facts import FACTS_SCHEMA
+        from filings_hub.ingest.sync_statements import CHECKS_SCHEMA, STATEMENTS_SCHEMA
+        from filings_hub.ingest.sync_universe import COMPANIES_SCHEMA, TICKERS_SCHEMA
+
+        return {
+            "companies": COMPANIES_SCHEMA,
+            "tickers": TICKERS_SCHEMA,
+            "filings": FILINGS_SCHEMA,
+            "periods": PERIODS_SCHEMA,
+            "facts": FACTS_SCHEMA,
+            "statements": STATEMENTS_SCHEMA,
+            "statement_checks": CHECKS_SCHEMA,
+            "run_log": RUN_LOG_SCHEMA,
+        }
+
     def _prepare_duck_views(self) -> None:
+        """Views over whatever the lake holds, with correctly-typed empty stand-ins for the rest.
+
+        A lake that is still being backfilled (or has a table with no rows yet) must answer queries with
+        an empty result, not fail: the API is expected to be up while `filings-hub backfill` runs.
+        """
         views = self.duck.create_views()
-        if views["periods"] and views["statements"]:
-            self.duck.sql(f"CREATE OR REPLACE VIEW periods_serving AS {PERIODS_SERVING_SQL}")
-        elif views["periods"]:
-            self.duck.sql(
-                "CREATE OR REPLACE VIEW periods_serving AS "
-                "SELECT *, NULL::VARCHAR AS statements_source, NULL::BOOLEAN AS checks_passed FROM periods"
-            )
-        for name, ok in views.items():
-            if not ok and name in (
-                "companies",
-                "tickers",
-                "filings",
-                "periods",
-                "statements",
-                "statement_checks",
-                "run_log",
-            ):
-                # empty stand-ins so queries do not fail on a fresh lake
-                self.duck.sql(f"CREATE OR REPLACE VIEW {name} AS SELECT * FROM (SELECT 1) WHERE FALSE")
-        if not views["periods"]:
-            self.duck.sql("CREATE OR REPLACE VIEW periods_serving AS SELECT * FROM (SELECT 1) WHERE FALSE")
+        for name, schema in self._empty_table_schemas().items():
+            if not views.get(name):
+                self.duck.register(f"_empty_{name}", schema.empty_table())
+                self.duck.sql(f"CREATE OR REPLACE VIEW {name} AS SELECT * FROM _empty_{name}")
+        # periods_serving adds the statements source and check outcome to each period
+        self.duck.sql(f"CREATE OR REPLACE VIEW periods_serving AS {PERIODS_SERVING_SQL}")
 
     def refresh_views(self) -> None:
         if self.backend == "duckdb":

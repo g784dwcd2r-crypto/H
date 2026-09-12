@@ -22,3 +22,78 @@ def test_local_storage_roundtrip(tmp_path):
     assert not st.exists("a")
     st.delete("a")  # no-op
     assert st.duck_path("x") == st.full("x")
+
+
+def test_view_skips_empty_directories(tmp_path):
+    """An empty partition directory must degrade to "no data", not make every later query raise.
+
+    `build_fsds_quarter` creates statements/ and statement_checks/ before it knows whether either will
+    get rows, so a quarter in which no filing has an applicable arithmetic check leaves an empty
+    statement_checks/ behind. Treating that as present made DuckDB raise IOException on every query.
+    """
+    import duckdb
+    import pytest
+
+    from filings_hub.lake.duck import Duck
+
+    st = Storage(str(tmp_path / "lake"))
+    st.mkdirs("statement_checks")  # exists, but holds no parquet
+    st.write_parquet("statements/cik=1/part-0.parquet", pa.table({"cik": [1]}))
+
+    duck = Duck(st)
+    try:
+        assert duck.view("statement_checks", "statement_checks/*/*.parquet") is False
+        assert duck.view("statements", "statements/*/*.parquet") is True
+        assert duck.view("periods", "periods/periods.parquet", hive=False) is False
+        views = duck.create_views()
+        assert views["statement_checks"] is False and views["statements"] is True
+        with pytest.raises(duckdb.CatalogException):
+            duck.sql("SELECT * FROM statement_checks")  # the view was never created
+        assert duck.fetch_dicts("SELECT count(*) AS n FROM statements")[0]["n"] == 1
+    finally:
+        duck.close()
+
+
+def test_database_survives_an_empty_partition_directory(tmp_path):
+    """The serving layer must open against such a lake instead of failing at construction."""
+    from filings_hub.db.database import Database
+
+    st = Storage(str(tmp_path / "lake"))
+    st.mkdirs("statement_checks")
+    st.mkdirs("facts")
+    db = Database("", st)
+    try:
+        assert db.query("SELECT count(*) AS n FROM statement_checks") == [{"n": 0}]
+    finally:
+        db.close()
+
+
+def test_api_answers_on_an_empty_lake(tmp_path):
+    """The API is expected to be up while `filings-hub backfill` runs for hours, so every endpoint
+    must return an empty result rather than a 500 with a DuckDB binder error."""
+    from fastapi.testclient import TestClient
+
+    from filings_hub.api.app import create_app
+    from filings_hub.config import Settings
+
+    settings = Settings(
+        lake_root=str(tmp_path / "empty"),
+        database_url="",
+        api_key="",
+        api_rate_limit_per_minute=10000,
+        _env_file=None,
+    )
+    app = create_app(settings)
+    with TestClient(app) as c:
+        assert c.get("/health").json()["last_run"] is None
+        assert c.get("/search?q=apple").json()["results"] == []
+        assert c.get("/companies/320193").status_code == 404
+        assert c.get("/companies/AAPL").status_code == 404
+        assert c.get("/companies/320193/periods").json()["periods"] == []
+        assert c.get("/companies/320193/filings").json()["filings"] == []
+        assert c.get("/companies/320193/statements").status_code == 404
+        assert c.get("/companies/320193/facts?concept=Assets").json()["facts"] == []
+        m = c.get("/metrics").json()
+        assert m["totals"]["companies"] == 0 and m["runs"] == [] and m["filings_per_day"] == []
+        assert c.get("/quality/failed").json() == {"total": 0, "limit": 100, "offset": 0, "failed": []}
+    app.state.db.close()

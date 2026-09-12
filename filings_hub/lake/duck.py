@@ -71,10 +71,16 @@ class Duck:
 
     # -- views over the lake -------------------------------------------------------------------
     def view(self, name: str, rel_glob: str, hive: bool = True) -> bool:
-        """Create/replace a view if the data exists. Returns False when there is nothing to read."""
-        base = rel_glob.split("*")[0].rstrip("/")
-        has_dir = self.storage.exists(base) and (self.storage.glob(rel_glob) or rel_glob.endswith(".parquet"))
-        if not has_dir and not self.storage.exists(rel_glob):
+        """Create/replace a view over `rel_glob`. Returns False when there is nothing to read.
+
+        A wildcard pattern needs at least one matching file, not merely an existing directory: the
+        builders create partition directories before they know whether anything will land in them, and
+        DuckDB raises on a pattern that matches no file, which would take down every later query.
+        """
+        if "*" in rel_glob:
+            if not self.storage.glob(rel_glob):
+                return False
+        elif not self.storage.exists(rel_glob):
             return False
         self.con.execute(f"CREATE OR REPLACE VIEW {name} AS SELECT * FROM {self.scan(rel_glob, hive)}")
         return True
