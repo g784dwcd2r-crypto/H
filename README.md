@@ -62,7 +62,9 @@ $LAKE_ROOT/
   run_log/*.parquet
 ```
 
-`LAKE_ROOT` can be a local directory or `s3://bucket/prefix` (`pip install -e ".[s3]"`; DuckDB reads S3 through `httpfs` with the AWS variables in `.env`).
+`LAKE_ROOT` can be a local directory or `s3://bucket/prefix` (`pip install -e ".[s3]"`). DuckDB reads and writes the bucket through the same fsspec filesystem the rest of the code uses, configured by the `AWS_*` variables in `.env`; set `AWS_ENDPOINT_URL` for MinIO, R2 or another S3-compatible store. No DuckDB extension is downloaded. The full backfill and the daily refresh are tested end to end against a mock bucket (`tests/test_s3.py`).
+
+Every FSDS table load is reconciled and recorded in `fsds/load_log/`: raw rows in the file, rows loaded, rows DuckDB could not read (with the first examples), values present but unparseable, and the encoding used. Quarters before about 2013 carry Windows-1252 bytes; when UTF-8 rejects a row the loader transcodes the file line by line (valid UTF-8 lines untouched, the rest decoded as Windows-1252) and reads it again, so no row is lost to encoding. A table with more than 0.1 % of its rows rejected is flagged in the backfill's `run_log` failures.
 
 ## The rules that matter
 

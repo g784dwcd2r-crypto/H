@@ -38,6 +38,21 @@ class Settings(BaseSettings):
     aws_secret_access_key: str = ""
     aws_session_token: str = ""
     aws_region: str = "us-east-1"
+    aws_endpoint_url: str = Field(default="", description="S3-compatible endpoint (MinIO, R2, a mock); empty = AWS.")
+
+    def s3_storage_options(self) -> dict:
+        """Options for s3fs built from the settings; empty values fall back to the AWS default chain."""
+        opts: dict = {}
+        if self.aws_access_key_id:
+            opts["key"] = self.aws_access_key_id
+            opts["secret"] = self.aws_secret_access_key
+            if self.aws_session_token:
+                opts["token"] = self.aws_session_token
+        if self.aws_endpoint_url:
+            opts["endpoint_url"] = self.aws_endpoint_url
+        if self.aws_region:
+            opts["client_kwargs"] = {"region_name": self.aws_region}
+        return opts
 
     @field_validator("lake_root", mode="before")
     @classmethod

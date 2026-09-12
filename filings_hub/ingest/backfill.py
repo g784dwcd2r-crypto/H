@@ -45,34 +45,43 @@ def run_backfill(
         step = time.monotonic()
         headers = sync_filings.load_bulk_submissions(storage, sub_zip)
         run.new_filings = sync_filings.count_filings(storage)
-        log.info("step filings: %.0fs", time.monotonic() - step)
+        run.step("filings", time.monotonic() - step)
 
         step = time.monotonic()
         companies, _ = sync_universe.sync_universe(
             storage, headers, storage.read_bytes(tickers_json) if tickers_json else None, today
         )
         run.ciks_refreshed = companies.num_rows
-        log.info("step universe: %.0fs", time.monotonic() - step)
+        run.step("universe", time.monotonic() - step)
 
         step = time.monotonic()
         rebuild_periods(storage)
-        log.info("step periods: %.0fs", time.monotonic() - step)
+        run.step("periods", time.monotonic() - step)
 
         step = time.monotonic()
         facts = sync_facts.load_bulk_companyfacts(storage, facts_zip, workers=workers)
         run.facts_rows = facts["rows"]
         run.failures.extend(facts["failures"])
-        log.info("step facts: %.0fs", time.monotonic() - step)
+        run.step("facts", time.monotonic() - step)
 
         step = time.monotonic()
         quarters = [q for q in fsds.raw_quarters(storage) if q >= fsds_since]
         run.fsds_quarters_loaded = fsds.load_all_fsds(storage, quarters)
+        run.step("fsds_load", time.monotonic() - step)
+        # rows the loader could not read are never silent: over the threshold they go in the run log
+        for entry in fsds.load_log(storage):
+            if entry["raw_rows"] and entry["rejected_rows"] / entry["raw_rows"] > fsds.REJECT_WARN_RATIO:
+                run.failures.append(
+                    f"fsds {entry['quarter']} {entry['table']}: {entry['rejected_rows']:,} of "
+                    f"{entry['raw_rows']:,} rows rejected; first: {(entry['reject_examples'] or [''])[0]}"
+                )
+        step = time.monotonic()
         built = sync_statements.build_all_fsds(storage, quarters)
-        log.info("step fsds+statements (%d quarters): %.0fs", len(built), time.monotonic() - step)
+        run.step(f"statements[{len(built)}q]", time.monotonic() - step)
 
         step = time.monotonic()
         run.statements_built = sync_statements.fill_all_fallbacks(storage)
-        log.info("step fallbacks: %.0fs", time.monotonic() - step)
+        run.step("fallbacks", time.monotonic() - step)
 
         if load_db:
             url = database_url
@@ -86,7 +95,7 @@ def run_backfill(
                 step = time.monotonic()
                 load_full(storage, url)
                 run.db_loaded = True
-                log.info("step load: %.0fs", time.monotonic() - step)
+                run.step("load", time.monotonic() - step)
         run.finish("ok")
     except Exception as e:
         run.error = f"{type(e).__name__}: {e}"

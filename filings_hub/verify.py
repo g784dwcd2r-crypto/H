@@ -76,7 +76,7 @@ def load_tickers_file(path: Path) -> list[str]:
 # ---------------------------------------------------------------------------------------------
 def check_backfill_duration(db: Database, max_hours: float = MAX_BACKFILL_HOURS) -> Criterion:
     runs = db.query(
-        "SELECT run_id, started_at, duration_seconds, status, new_filings, facts_rows, db_loaded "
+        "SELECT run_id, started_at, duration_seconds, status, new_filings, facts_rows, db_loaded, steps "
         "FROM run_log WHERE kind = 'backfill' ORDER BY started_at DESC LIMIT 5"
     )
     name = f"Bulk backfill completes in < {max_hours:g} h"
@@ -96,6 +96,8 @@ def check_backfill_duration(db: Database, max_hours: float = MAX_BACKFILL_HOURS)
         f"{latest['new_filings']:,} filings, {latest['facts_rows']:,} facts, "
         f"serving tables loaded: {bool(latest['db_loaded'])}",
     ]
+    if latest.get("steps"):
+        evidence.append("steps: " + ", ".join(f"{step}s" for step in latest["steps"]))
     return Criterion(name, hours < max_hours, f"last successful backfill took {spent}", evidence)
 
 
