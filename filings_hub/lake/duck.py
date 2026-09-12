@@ -32,19 +32,11 @@ class Duck:
         if threads:
             self.sql(f"SET threads={int(threads)}")
         if storage.is_remote:
-            self._configure_httpfs()
-
-    def _configure_httpfs(self) -> None:
-        from filings_hub.config import get_settings
-
-        s = get_settings()
-        self.sql("INSTALL httpfs; LOAD httpfs;")
-        self.sql(f"SET s3_region='{s.aws_region}'")
-        if s.aws_access_key_id:
-            self.sql(f"SET s3_access_key_id='{s.aws_access_key_id}'")
-            self.sql(f"SET s3_secret_access_key='{s.aws_secret_access_key}'")
-            if s.aws_session_token:
-                self.sql(f"SET s3_session_token='{s.aws_session_token}'")
+            # The lake's own fsspec filesystem serves DuckDB too: one credential path, no `httpfs`
+            # extension to download, and any S3-compatible endpoint. Reads, globs and partitioned
+            # COPY ... APPEND all go through it.
+            with self._lock:
+                self.con.register_filesystem(storage.fs)
 
     # -- helpers -------------------------------------------------------------------------------
     def path(self, rel: str) -> str:

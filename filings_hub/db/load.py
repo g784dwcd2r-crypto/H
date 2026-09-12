@@ -156,6 +156,7 @@ TABLE_COLUMNS: dict[str, list[str]] = {
         "failures",
         "error",
         "db_loaded",
+        "steps",
     ],
 }
 

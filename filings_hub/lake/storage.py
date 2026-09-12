@@ -14,18 +14,30 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 
 
+def filesystem_for(root: str) -> fsspec.AbstractFileSystem:
+    """The fsspec filesystem for a remote lake root, configured from settings (credentials, region,
+    and an optional S3-compatible endpoint). Worker processes rebuild it the same way from the env."""
+    protocol = root.split("://", 1)[0]
+    if protocol in ("s3", "s3a"):
+        from filings_hub.config import get_settings
+
+        return fsspec.filesystem("s3", **get_settings().s3_storage_options())
+    fs, _ = fsspec.core.url_to_fs(root)
+    return fs
+
+
 class Storage:
     """All paths passed to methods are *relative to the lake root*.
 
     `root` may be a local directory (``./data``) or an S3 prefix (``s3://bucket/prefix``).
     """
 
-    def __init__(self, root: str):
+    def __init__(self, root: str, fs: fsspec.AbstractFileSystem | None = None):
         root = root.rstrip("/")
         self.is_remote = "://" in root
         self.root = root
         if self.is_remote:
-            self.fs, _ = fsspec.core.url_to_fs(root)
+            self.fs = fs or filesystem_for(root)
         else:
             self.fs = fsspec.filesystem("file")
             self.root = str(Path(root).resolve())

@@ -62,6 +62,7 @@ FILINGS = "filings"
 PERIODS = "periods/periods.parquet"
 FACTS = "facts"
 FSDS = "fsds"
+FSDS_LOAD_LOG = "fsds/load_log"  # one row per table per quarter: raw vs loaded vs rejected rows
 STATEMENTS = "statements"
 STATEMENT_CHECKS = "statement_checks"
 RUN_LOG = "run_log"

@@ -43,6 +43,7 @@ RUN_LOG_SCHEMA = pa.schema(
         ("failures", pa.list_(pa.string())),
         ("error", pa.string()),
         ("db_loaded", pa.bool_()),
+        ("steps", pa.list_(pa.string())),  # "name=seconds" per pipeline step, in order
     ]
 )
 
@@ -66,6 +67,11 @@ class RunLog:
     failures: list[str] = field(default_factory=list)
     error: str | None = None
     db_loaded: bool = False
+    steps: list[str] = field(default_factory=list)
+
+    def step(self, name: str, seconds: float) -> None:
+        self.steps.append(f"{name}={seconds:.0f}")
+        log.info("step %s: %.0fs", name, seconds)
 
     def finish(self, status: str) -> RunLog:
         self.finished_at = datetime.now(UTC).replace(microsecond=0, tzinfo=None)
@@ -90,6 +96,7 @@ class RunLog:
             "failures": self.failures[:200],
             "error": self.error,
             "db_loaded": self.db_loaded,
+            "steps": self.steps,
         }
 
     def summary(self) -> str:

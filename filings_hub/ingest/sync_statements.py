@@ -118,21 +118,45 @@ def _subtotal_sql(concept: str, label: str, is_abstract: str) -> str:
 # ---------------------------------------------------------------------------------------------
 # FSDS path
 # ---------------------------------------------------------------------------------------------
-def _stage_fsds_quarter(duck: Duck, quarter: str, enrich: bool) -> int:
-    """Stage one FSDS quarter into temp table `stg` with every derived column except checks_passed."""
+FX_INDEX_SQL = """
+SELECT accession, concept, unit, month_end_round(period_end) AS pe_r, period_start, period_end,
+       CASE WHEN period_start IS NULL THEN 0
+            ELSE greatest(1, round(duration_days / 91.0)::INTEGER) END AS qtrs_est
+FROM facts
+{where}
+QUALIFY row_number() OVER (PARTITION BY accession, concept, unit, pe_r, qtrs_est ORDER BY filed DESC) = 1
+"""
+
+
+def build_fx_index(duck: Duck) -> bool:
+    """Materialise the facts -> exact-period lookup once, for every quarter of a build.
+
+    The FSDS carries only month-end-rounded dates; exact 52/53-week period starts and ends come from
+    `facts`. Doing that lookup per quarter meant one full scan of the facts lake (~100M rows) for each
+    of ~68 quarters. Built once into `fx_index`, each quarter is then a keyed lookup.
+    """
     duck.sql(MACROS)
-    has_facts = enrich and duck.view("facts", f"{layout.FACTS}/*/*.parquet")
-    if has_facts:
+    if not duck.view("facts", f"{layout.FACTS}/*/*.parquet"):
+        return False
+    duck.sql("CREATE OR REPLACE TABLE fx_index AS " + FX_INDEX_SQL.format(where=""))
+    return True
+
+
+def _stage_fsds_quarter(duck: Duck, quarter: str, enrich: bool, fx_index: bool = False) -> int:
+    """Stage one FSDS quarter into temp table `stg` with every derived column except checks_passed.
+
+    `fx_index`: the lookup was already built for the whole run by `build_fx_index`."""
+    duck.sql(MACROS)
+    if fx_index:
         duck.sql(
-            """
-            CREATE OR REPLACE TEMP TABLE fx AS
-            SELECT accession, concept, unit, month_end_round(period_end) AS pe_r, period_start, period_end,
-                   CASE WHEN period_start IS NULL THEN 0
-                        ELSE greatest(1, round(duration_days / 91.0)::INTEGER) END AS qtrs_est
-            FROM facts
-            WHERE accession IN (SELECT adsh FROM fsds_sub WHERE quarter = ?)
-            QUALIFY row_number() OVER (PARTITION BY accession, concept, unit, pe_r, qtrs_est ORDER BY filed DESC) = 1
-            """,
+            "CREATE OR REPLACE TEMP TABLE fx AS SELECT * FROM fx_index "
+            "WHERE accession IN (SELECT adsh FROM fsds_sub WHERE quarter = ?)",
+            [quarter],
+        )
+    elif enrich and duck.view("facts", f"{layout.FACTS}/*/*.parquet"):
+        duck.sql(
+            "CREATE OR REPLACE TEMP TABLE fx AS "
+            + FX_INDEX_SQL.format(where="WHERE accession IN (SELECT adsh FROM fsds_sub WHERE quarter = ?)"),
             [quarter],
         )
     else:
@@ -331,6 +355,7 @@ def build_fsds_quarter(
     duck: Duck | None = None,
     enrich: bool = True,
     fallbacks: list[str] | None = None,
+    fx_index: bool = False,
 ) -> dict[str, int]:
     """Build statements for every filing in one FSDS quarter (idempotent per quarter).
 
@@ -341,7 +366,7 @@ def build_fsds_quarter(
         for t in ("sub", "num", "pre", "tag"):
             if not duck.view(f"fsds_{t}", f"{layout.FSDS}/{t}/*/*.parquet"):
                 raise RuntimeError(f"FSDS table {t} not loaded")
-        n_rows = _stage_fsds_quarter(duck, quarter, enrich)
+        n_rows = _stage_fsds_quarter(duck, quarter, enrich, fx_index)
         checks = _checks_from_staged(duck, "fsds")
         duck.register("chk", checks)
         duck.sql(
@@ -419,11 +444,17 @@ def build_all_fsds(
     have = loaded_quarters(storage)
     done = built_quarters(storage)
     todo = [q for q in (quarters or have) if q in have and (force or q not in done)]
+    if not todo:
+        return todo
     duck = Duck(storage)
-    fallbacks = existing_fallbacks(storage) if todo else []
+    fallbacks = existing_fallbacks(storage)
     try:
+        for t in ("sub", "num", "pre", "tag"):
+            duck.view(f"fsds_{t}", f"{layout.FSDS}/{t}/*/*.parquet")
+        # one pass over the facts lake for the whole run rather than one per quarter
+        indexed = enrich and len(todo) > 1 and build_fx_index(duck)
         for q in todo:
-            build_fsds_quarter(storage, q, duck, enrich, fallbacks)
+            build_fsds_quarter(storage, q, duck, enrich, fallbacks, fx_index=indexed)
     finally:
         duck.close()
     return todo

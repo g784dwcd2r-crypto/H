@@ -186,3 +186,7 @@ CREATE INDEX IF NOT EXISTS companies_rank_idx ON companies (is_active DESC, fili
 ALTER TABLE filings DROP CONSTRAINT IF EXISTS filings_pkey;
 ALTER TABLE filings ADD CONSTRAINT filings_pkey PRIMARY KEY (cik, accession);
 CREATE INDEX IF NOT EXISTS filings_accession_idx ON filings (accession);
+
+-- ==== 0004_run_log_steps.sql ====
+-- 0004: per-step timings on run_log, so a slow backfill can be attributed to a step.
+ALTER TABLE run_log ADD COLUMN IF NOT EXISTS steps TEXT[];
