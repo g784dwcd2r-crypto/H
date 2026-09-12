@@ -72,6 +72,7 @@ $LAKE_ROOT/
 * **Facts dedupe.** Same (concept, unit, period) reported in several filings → the latest filed is `is_current`; all values stay for restatement history (`/companies/{cik}/facts?history=true`).
 * **Primary period column.** Each filing contributes one column: the period ending on the filing's balance-sheet date, shortest duration reported for that statement (the quarter on a Q2 income statement, the year-to-date on a Q2 cash flow). Comparative columns are kept in the lake (`is_primary_period = false`).
 * **Provisional statements.** Filings the FSDS has not covered yet (it lags up to three months) get statements built from `facts`, using the company's latest FSDS-covered filing of the same kind as a template for line order and labels. They carry `source = 'facts_fallback'`, are shaded in Excel, and are replaced automatically when the FSDS quarter is published.
+* **Which value a line takes.** Whether a line shows an instant or a duration follows the concept (`tag.iord`), not the statement it appears on: opening and closing cash are points in time presented on the cash flow statement. A concept presented twice, as "beginning balances" and "ending balances", is paired to its dates in presentation order, because the SEC's `pre` table carries no dates of its own.
 * **Arithmetic checks.** Balance sheet: `Assets = Liabilities + Equity`. Income statement: gross profit, operating income, pre-tax − tax. Cash flow: activities (+ FX) = net change in cash. IFRS concept names are covered. A check only runs when all its operands are present; `checks_passed` is `NULL` when nothing applied, and the failing identities are stored in `statement_checks`.
 
 ## Daily refresh
@@ -146,5 +147,5 @@ pre-commit install
 | 20-company golden set checked by a human | `filings-hub golden` prints the sheet; human check pending |
 | `checks_passed` ≥ 95 % on S&P 500 filings since 2020 | `filings-hub quality --tickers-file --since 2020` |
 | Every golden-set period has correct label, results filing and 8-K | covered by tests on the fixture universe; real-data pass pending |
-| `pytest` green, coverage on `periods.py` and `sync_statements.py` ≥ 80 % | 85 tests, 97 % / 96 % |
+| `pytest` green, coverage on `periods.py` and `sync_statements.py` ≥ 80 % | 109 tests, 97 % / 96 % (92 % overall) |
 | README explains backfill, refresh and export in three commands | above |
