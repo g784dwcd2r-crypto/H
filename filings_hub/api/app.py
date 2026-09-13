@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import logging
 import re
+import time
 import uuid
 from datetime import date, timedelta
 from typing import Any
@@ -171,6 +172,19 @@ def create_app(
     magic_limiter = RateLimiter(3)
 
     app = FastAPI(title="Disclosure API", version=__version__, docs_url="/docs")
+
+    @app.middleware("http")
+    async def _timing(request, call_next):  # type: ignore[no-untyped-def]
+        # One line per request with its duration: on a hosted instance the platform's log is the
+        # only way to tell a slow lake read from a slow page render.
+        started = time.perf_counter()
+        response = await call_next(request)
+        elapsed_ms = (time.perf_counter() - started) * 1000
+        if request.url.path != "/health" or elapsed_ms > 1000:
+            log.info("%s %s -> %s in %.0f ms", request.method, request.url.path, response.status_code, elapsed_ms)
+        response.headers["Server-Timing"] = f"app;dur={elapsed_ms:.0f}"
+        return response
+
     app.state.db = database
     app.state.edgar = client
     app.state.users = users
