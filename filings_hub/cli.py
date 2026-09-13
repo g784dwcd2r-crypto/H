@@ -152,6 +152,22 @@ def _resolve_ticker(db, ticker: str) -> int:
 
 
 @app.command()
+def migrate() -> None:
+    """Apply schema migrations without reloading data. Safe to repeat before API deployment."""
+    import psycopg
+
+    from filings_hub.db.load import apply_migrations
+
+    url = get_settings().database_url
+    if not url:
+        typer.echo("DATABASE_URL is not set", err=True)
+        raise typer.Exit(2)
+    with psycopg.connect(url, autocommit=True) as conn:
+        applied = apply_migrations(conn)
+    typer.echo("Applied: " + (", ".join(applied) if applied else "schema already current"))
+
+
+@app.command()
 def load(
     full: bool = typer.Option(True, help="full reload (default) instead of incremental for --ciks"),
     ciks: str | None = typer.Option(None, help="comma-separated CIKs for an incremental load"),

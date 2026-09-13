@@ -2,10 +2,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { api } from "@/lib/server-api";
 import { SESSION_COOKIE, SESSION_DAYS } from "@/lib/session";
+import { deviceLabel } from "@/lib/device-label";
 
 export async function GET(req: NextRequest) {
   const token = req.nextUrl.searchParams.get("token") ?? "";
-  const r = await api.post("/auth/verify", { token });
+  const r = await api.post("/auth/verify", { token, device_label: deviceLabel(req.headers.get("user-agent") ?? "") });
   if (!r.ok || typeof r.data.session !== "string") {
     return NextResponse.redirect(new URL("/signin?error=link", req.nextUrl.origin));
   }

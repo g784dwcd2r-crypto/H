@@ -1,0 +1,1311 @@
+{
+  "title": "Disclosure full-platform capability and delivery backlog",
+  "created": "2026-09-13",
+  "baseline_commit": "dacf79d4ac4c2511c80d2445ee563d53ee09a33e",
+  "master_plan": "full-platform-plan.md",
+  "scope": "Proposed implementation and acquisition requirements; not a claim of current capability or universal AlphaSense availability",
+  "execution_note": "Implementation is underway. The first platform release is scoped and tested; it is not completion of the full roadmap or production/market parity.",
+  "workstreams": [
+    {
+      "id": "D01",
+      "title": "A common identity, evidence and permissions foundation",
+      "status": "in_progress",
+      "requirements": [
+        {
+          "id": "D01.01",
+          "requirement": "Permanent issuer and security identity",
+          "status": "partial",
+          "implementation_scope": "SEC issuer identity and co-filer isolation; security/listing history remains planned.",
+          "production_validated": false,
+          "evidence_document": "platform-delivery.md"
+        },
+        {
+          "id": "D01.02",
+          "requirement": "Historical ticker/listing and corporate-relationship mapping",
+          "status": "planned"
+        },
+        {
+          "id": "D01.03",
+          "requirement": "Immutable document/version registry",
+          "status": "partial",
+          "implementation_scope": "Immutable public SEC document and content-version registry; other source adapters remain planned.",
+          "production_validated": false,
+          "evidence_document": "platform-delivery.md"
+        },
+        {
+          "id": "D01.04",
+          "requirement": "Public-availability and ingestion time separation",
+          "status": "partial",
+          "implementation_scope": "Separate filing-date, discovery and indexing fields; full public-availability timestamps remain planned.",
+          "production_validated": false,
+          "evidence_document": "platform-delivery.md"
+        },
+        {
+          "id": "D01.05",
+          "requirement": "Source grants for storage, AI, display, export and offline use",
+          "status": "partial",
+          "implementation_scope": "Typed operation-specific, expiring, revocable grants and policy tests; provider agreements and production grant administration remain pending.",
+          "production_validated": false,
+          "evidence_document": "platform-delivery.md"
+        },
+        {
+          "id": "D01.06",
+          "requirement": "Policy-aware citations, caches and artifacts",
+          "status": "partial",
+          "implementation_scope": "Current public-source checks on indexed versions and saved source pointers; private/provider cache and artifact policy remains pending.",
+          "production_validated": false,
+          "evidence_document": "platform-delivery.md"
+        }
+      ],
+      "acceptance_gate": "historical ticker changes do not merge unrelated companies; duplicate/corrected documents resolve correctly; expired grants disappear from future retrieval; cross-tenant and revoked-user tests pass across search, caches and artifacts.",
+      "source_urls": []
+    },
+    {
+      "id": "D02",
+      "title": "Public filings and worldwide coverage",
+      "status": "in_progress",
+      "requirements": [
+        {
+          "id": "D02.01",
+          "requirement": "Complete relevant SEC forms and exhibit inventory",
+          "status": "partial",
+          "implementation_scope": "Full per-filing index inventories and supported-document extraction; live complete SEC coverage has not been populated or verified.",
+          "production_validated": false,
+          "evidence_document": "platform-delivery.md"
+        },
+        {
+          "id": "D02.02",
+          "requirement": "Permitted issuer presentations and supplementals",
+          "status": "planned"
+        },
+        {
+          "id": "D02.03",
+          "requirement": "Intraday source discovery with daily reconciliation",
+          "status": "planned"
+        },
+        {
+          "id": "D02.04",
+          "requirement": "Regulator/exchange/issuer source assessments",
+          "status": "planned"
+        },
+        {
+          "id": "D02.05",
+          "requirement": "UK/Europe, Canada and Australia cohorts",
+          "status": "planned"
+        },
+        {
+          "id": "D02.06",
+          "requirement": "Japan/Hong Kong/Singapore/India and further market cohorts",
+          "status": "planned"
+        },
+        {
+          "id": "D02.07",
+          "requirement": "Original-language content and searchable translations",
+          "status": "planned"
+        },
+        {
+          "id": "D02.08",
+          "requirement": "Published document/period completeness and latency",
+          "status": "partial",
+          "implementation_scope": "Registered document, extraction and inventory completeness with timestamps; no live-corpus latency certification.",
+          "production_validated": false,
+          "evidence_document": "platform-delivery.md"
+        }
+      ],
+      "acceptance_gate": "a verified source register, a representative independent sample, reconciled document inventories and observed event latency through reporting activity. A ticker count never substitutes for filing completeness.",
+      "source_urls": [
+        "https://help.alpha-sense.com/hc/en-us/articles/41913107681043-Global-Filings-Content-Overview"
+      ]
+    },
+    {
+      "id": "D03",
+      "title": "Earnings calls, news and premium research",
+      "status": "planned_expansion",
+      "requirements": [
+        {
+          "id": "D03.01",
+          "requirement": "Licensed earnings transcript and audio feeds",
+          "status": "planned"
+        },
+        {
+          "id": "D03.02",
+          "requirement": "Event calendar and live/revised/final transcript versions",
+          "status": "planned"
+        },
+        {
+          "id": "D03.03",
+          "requirement": "Speaker roles, Q&A and audio timestamps",
+          "status": "planned"
+        },
+        {
+          "id": "D03.04",
+          "requirement": "Guidance extraction and historical comparisons",
+          "status": "planned"
+        },
+        {
+          "id": "D03.05",
+          "requirement": "News/trade journals with correction and duplicate handling",
+          "status": "planned"
+        },
+        {
+          "id": "D03.06",
+          "requirement": "Broker/independent research with firm/user entitlements",
+          "status": "planned"
+        },
+        {
+          "id": "D03.07",
+          "requirement": "Industry/credit/specialist content acquisition",
+          "status": "planned"
+        },
+        {
+          "id": "D03.08",
+          "requirement": "Contract and delivery acceptance per provider",
+          "status": "planned"
+        }
+      ],
+      "acceptance_gate": "signed rights for the intended uses, sample reconciliation, acceptable delivery performance, permission tests and a sustainable quote. A live feed must disclose unavailable events and provisional text.",
+      "source_urls": [
+        "https://help.alpha-sense.com/hc/en-us/articles/41916900552595-Event-Transcripts-Content-Overview",
+        "https://help.alpha-sense.com/hc/en-us/articles/41919784082323-Broker-Research-Content-Overview"
+      ]
+    },
+    {
+      "id": "D04",
+      "title": "Expert research as a service",
+      "status": "planned_expansion",
+      "requirements": [
+        {
+          "id": "D04.01",
+          "requirement": "Expert transcript library partnership",
+          "status": "planned"
+        },
+        {
+          "id": "D04.02",
+          "requirement": "Expert project briefs and discovery",
+          "status": "planned"
+        },
+        {
+          "id": "D04.03",
+          "requirement": "Expert screening, selection, scheduling and costs",
+          "status": "planned"
+        },
+        {
+          "id": "D04.04",
+          "requirement": "Consent/recording/review/embargo workflow",
+          "status": "planned"
+        },
+        {
+          "id": "D04.05",
+          "requirement": "Reviewed transcript summaries and follow-ups",
+          "status": "planned"
+        },
+        {
+          "id": "D04.06",
+          "requirement": "AI-led interview integration with accountable review",
+          "status": "planned"
+        },
+        {
+          "id": "D04.07",
+          "requirement": "Recurring channel-check cohorts and question sets",
+          "status": "planned"
+        },
+        {
+          "id": "D04.08",
+          "requirement": "Source-linked longitudinal grids with sample limitations",
+          "status": "planned"
+        }
+      ],
+      "acceptance_gate": "partner agreement, operational ownership, verified expert/consent records, tested review and restricted-content handling, clear costs and permitted distribution. No autonomous call or payment merely because a research agent suggested it.",
+      "source_urls": [
+        "https://help.alpha-sense.com/hc/en-us/articles/49288197594515-AI-Led-Expert-Calls",
+        "https://www.alpha-sense.com/solutions/channel-checks/"
+      ]
+    },
+    {
+      "id": "D05",
+      "title": "A research-grade document engine and reader",
+      "status": "in_progress",
+      "requirements": [
+        {
+          "id": "D05.01",
+          "requirement": "HTML/iXBRL/PDF/Office/audio extraction",
+          "status": "partial",
+          "implementation_scope": "HTML/plain text and text PDF extraction; scanned PDFs, Office and audio remain unsupported.",
+          "production_validated": false,
+          "evidence_document": "platform-delivery.md"
+        },
+        {
+          "id": "D05.02",
+          "requirement": "OCR and multicolumn reading order",
+          "status": "planned"
+        },
+        {
+          "id": "D05.03",
+          "requirement": "Structured tables and footnotes",
+          "status": "planned"
+        },
+        {
+          "id": "D05.04",
+          "requirement": "Stable paragraph/table/cell/audio anchors",
+          "status": "partial",
+          "implementation_scope": "Immutable source version and PDF page offsets; structured table/cell/audio anchors remain planned.",
+          "production_validated": false,
+          "evidence_document": "platform-delivery.md"
+        },
+        {
+          "id": "D05.05",
+          "requirement": "Embedded figure/chart retrieval and source images",
+          "status": "planned"
+        },
+        {
+          "id": "D05.06",
+          "requirement": "Version comparison and synchronized evidence reader",
+          "status": "partial",
+          "implementation_scope": "Immutable text reader, paginated captured-version history and bounded same-document text comparison with both-source access checks; synchronized visual PDF/HTML diffs remain planned.",
+          "production_validated": false,
+          "evidence_document": "platform-delivery.md"
+        },
+        {
+          "id": "D05.07",
+          "requirement": "Annotation/bookmark/selected-text questions",
+          "status": "planned"
+        },
+        {
+          "id": "D05.08",
+          "requirement": "Safe reader rendering and uncertainty labels",
+          "status": "planned"
+        }
+      ],
+      "acceptance_gate": "difficult scans, multicolumn reports, multi-page tables and amended documents retain accurate reading order and anchors; a citation opens the actual supporting passage; malformed content cannot execute in the reader.",
+      "source_urls": [
+        "https://www.alpha-sense.com/solutions/competitive-intelligence-for-leading-corporations/"
+      ]
+    },
+    {
+      "id": "D06",
+      "title": "Trusted financials, exact history and revisions",
+      "status": "in_progress",
+      "requirements": [
+        {
+          "id": "D06.01",
+          "requirement": "Exact observation context and source precision",
+          "status": "partial",
+          "implementation_scope": "Co-filer values and quality checks isolated; full precision/context reconstruction remains planned.",
+          "production_validated": false,
+          "evidence_document": "platform-delivery.md"
+        },
+        {
+          "id": "D06.02",
+          "requirement": "Annual/quarterly/YTD/LTM and fiscal-transition methods",
+          "status": "planned"
+        },
+        {
+          "id": "D06.03",
+          "requirement": "Original/latest/known-as-of observations",
+          "status": "partial",
+          "implementation_scope": "Filing-date cutoff consistently applies to grid, derivatives and Excel; full amendment and historical database replay remain planned.",
+          "production_validated": false,
+          "evidence_document": "platform-delivery.md"
+        },
+        {
+          "id": "D06.04",
+          "requirement": "Amendment, reclassification and policy-change history",
+          "status": "partial",
+          "implementation_scope": "Two-date comparison classifies value, label, unit, context and evidence changes for overlapping period-spine observations; complete amendment history remains planned.",
+          "production_validated": false,
+          "evidence_document": "platform-delivery.md"
+        },
+        {
+          "id": "D06.05",
+          "requirement": "Controlled repair of historical inferred dates",
+          "status": "planned"
+        },
+        {
+          "id": "D06.06",
+          "requirement": "Corporate-action/per-share/currency semantics",
+          "status": "planned"
+        },
+        {
+          "id": "D06.07",
+          "requirement": "Diverse independent golden corpus",
+          "status": "partial",
+          "implementation_scope": "New co-filer/cutoff/publication/context regressions supplement existing financial tests; independently sourced wider-sector corpus remains required.",
+          "production_validated": false,
+          "evidence_document": "platform-delivery.md"
+        },
+        {
+          "id": "D06.08",
+          "requirement": "Metric-level validation and missing-data states",
+          "status": "planned"
+        }
+      ],
+      "acceptance_gate": "broaden independent source expectations from the current two-issuer sample to at least 30 deliberately diverse issuers plus edge cases, followed by stratified ongoing checks. Verify periods, values, source anchors, calculations and exported results independently. Reproduce a historical research cutoff without later-publication leakage. Passing a sample is scoped assurance, not a universal accuracy percentage.",
+      "source_urls": []
+    },
+    {
+      "id": "D07",
+      "title": "Segments, company KPIs and industry packs",
+      "status": "planned_expansion",
+      "requirements": [
+        {
+          "id": "D07.01",
+          "requirement": "XBRL dimensions and segment hierarchy history",
+          "status": "planned"
+        },
+        {
+          "id": "D07.02",
+          "requirement": "KPI extraction from notes and supplementals",
+          "status": "planned"
+        },
+        {
+          "id": "D07.03",
+          "requirement": "Versioned company KPI definitions",
+          "status": "planned"
+        },
+        {
+          "id": "D07.04",
+          "requirement": "Non-GAAP reconciliations",
+          "status": "planned"
+        },
+        {
+          "id": "D07.05",
+          "requirement": "Banks/insurance/REIT financial packs",
+          "status": "planned"
+        },
+        {
+          "id": "D07.06",
+          "requirement": "Software/retail/consumer operating packs",
+          "status": "planned"
+        },
+        {
+          "id": "D07.07",
+          "requirement": "Industrial/energy/utilities operating packs",
+          "status": "planned"
+        },
+        {
+          "id": "D07.08",
+          "requirement": "Travel/telecom/life-sciences packs",
+          "status": "planned"
+        },
+        {
+          "id": "D07.09",
+          "requirement": "Comparable-definition checks and explicit exclusions",
+          "status": "planned"
+        }
+      ],
+      "acceptance_gate": "reconcile reported/managed bank measures, acquisitions within growth rates, changing SaaS definitions and reorganized segments. Peer rankings must disclose incompatible or missing observations.",
+      "source_urls": []
+    },
+    {
+      "id": "D08",
+      "title": "Market, consensus, ownership, deals and private-company data",
+      "status": "planned_expansion",
+      "requirements": [
+        {
+          "id": "D08.01",
+          "requirement": "Licensed prices and reference data",
+          "status": "planned"
+        },
+        {
+          "id": "D08.02",
+          "requirement": "Corporate actions and FX",
+          "status": "planned"
+        },
+        {
+          "id": "D08.03",
+          "requirement": "Consensus with revision/basis/coverage history",
+          "status": "planned"
+        },
+        {
+          "id": "D08.04",
+          "requirement": "Separate guidance and analyst forecasts",
+          "status": "planned"
+        },
+        {
+          "id": "D08.05",
+          "requirement": "Ownership/insider data with reporting-lag semantics",
+          "status": "planned"
+        },
+        {
+          "id": "D08.06",
+          "requirement": "Private-company identity/financial/workforce sources",
+          "status": "planned"
+        },
+        {
+          "id": "D08.07",
+          "requirement": "M&A state, value, stake and consideration history",
+          "status": "planned"
+        },
+        {
+          "id": "D08.08",
+          "requirement": "Funding rounds distinct from valuations",
+          "status": "planned"
+        },
+        {
+          "id": "D08.09",
+          "requirement": "Provider entitlements and export rights",
+          "status": "planned"
+        }
+      ],
+      "acceptance_gate": "correct splits and FX; no double-counted holdings; no announced deal shown as completed; no round amount displayed as valuation; documented fiscal/basis alignment for estimates and actuals.",
+      "source_urls": [
+        "https://www.alpha-sense.com/platform/financial-data/"
+      ]
+    },
+    {
+      "id": "D09",
+      "title": "Screening, comparisons and interactive analysis",
+      "status": "in_progress",
+      "requirements": [
+        {
+          "id": "D09.01",
+          "requirement": "Saved universes and peer sets",
+          "status": "planned"
+        },
+        {
+          "id": "D09.02",
+          "requirement": "Fundamental/valuation/growth/quality screens",
+          "status": "planned"
+        },
+        {
+          "id": "D09.03",
+          "requirement": "Industry KPI and liquidity/leverage screens",
+          "status": "planned"
+        },
+        {
+          "id": "D09.04",
+          "requirement": "Private/deal/funding screens",
+          "status": "planned"
+        },
+        {
+          "id": "D09.05",
+          "requirement": "Custom comparable metrics and fiscal alignment",
+          "status": "partial",
+          "implementation_scope": "Explicit concept comparisons retain currency/fiscal context and missingness; custom standardized metrics and alignment remain planned.",
+          "production_validated": false,
+          "evidence_document": "platform-delivery.md"
+        },
+        {
+          "id": "D09.06",
+          "requirement": "Historical charts and percentile views",
+          "status": "planned"
+        },
+        {
+          "id": "D09.07",
+          "requirement": "Inspectable natural-language filters",
+          "status": "planned"
+        },
+        {
+          "id": "D09.08",
+          "requirement": "Point-in-time screens and missing-data denominators",
+          "status": "planned"
+        }
+      ],
+      "acceptance_gate": "independent recomputation of selected comps; stable company/security mapping; no zeros manufactured from blanks; no future information in an as-of screen. [Industry comparison baseline](https://help.alpha-sense.com/hc/en-us/articles/42489594638995-Industry-Comps)",
+      "source_urls": [
+        "https://help.alpha-sense.com/hc/en-us/articles/42489594638995-Industry-Comps"
+      ]
+    },
+    {
+      "id": "D10",
+      "title": "Excel connection and a maintainable model library",
+      "status": "in_progress",
+      "requirements": [
+        {
+          "id": "D10.01",
+          "requirement": "Stable metric IDs and versioned financial API",
+          "status": "partial",
+          "implementation_scope": "Versioned financial snapshot/change APIs with content IDs; stable cross-version standardized metric identities remain planned.",
+          "production_validated": false,
+          "evidence_document": "platform-delivery.md"
+        },
+        {
+          "id": "D10.02",
+          "requirement": "Formula-based Excel data pulls",
+          "status": "planned"
+        },
+        {
+          "id": "D10.03",
+          "requirement": "Existing-workbook mappings and refresh previews",
+          "status": "partial",
+          "implementation_scope": "Guarded local workbook refresh and preview implemented for supported ordinary xlsx files; native Excel integration remains planned.",
+          "production_validated": false,
+          "evidence_document": "platform-delivery.md"
+        },
+        {
+          "id": "D10.04",
+          "requirement": "Preserved formulas/assumptions/formatting",
+          "status": "partial",
+          "implementation_scope": "Mapped historical values refresh with formula/manual-override guards and round-trip checks; unsupported native features are rejected.",
+          "production_validated": false,
+          "evidence_document": "platform-delivery.md"
+        },
+        {
+          "id": "D10.05",
+          "requirement": "Sources, stale states, rollback and refresh history",
+          "status": "partial",
+          "implementation_scope": "New output preserves input for rollback and includes evidence/next guards; automatic stale-state/refresh history remains planned.",
+          "production_validated": false,
+          "evidence_document": "platform-delivery.md"
+        },
+        {
+          "id": "D10.06",
+          "requirement": "Linked financial and sector models",
+          "status": "planned"
+        },
+        {
+          "id": "D10.07",
+          "requirement": "DCF/LBO/scenario/sensitivity/transaction templates",
+          "status": "planned"
+        },
+        {
+          "id": "D10.08",
+          "requirement": "Maintained company-specific models",
+          "status": "planned"
+        },
+        {
+          "id": "D10.09",
+          "requirement": "Supported Windows/Mac/web compatibility acceptance",
+          "status": "planned"
+        }
+      ],
+      "acceptance_gate": "refresh an analyst-modified workbook across earnings, an acquisition and a segment change; preserve custom formulas/formatting/overrides; independently recalculate in supported Excel environments; undo returns to the prior model version.",
+      "source_urls": [
+        "https://help.alpha-sense.com/hc/en-us/articles/51437573696915-Excel-Add-In-Solutions",
+        "https://help.alpha-sense.com/hc/en-us/articles/42489711231763-Canalyst-Models"
+      ]
+    },
+    {
+      "id": "D11",
+      "title": "Complete search and cited questions",
+      "status": "in_progress",
+      "requirements": [
+        {
+          "id": "D11.01",
+          "requirement": "Indexed exact/Boolean/proximity search",
+          "status": "partial",
+          "implementation_scope": "Indexed exact words, adjacent quoted phrases and Boolean grammar; arbitrary proximity/semantic retrieval remains planned.",
+          "production_validated": false,
+          "evidence_document": "platform-delivery.md"
+        },
+        {
+          "id": "D11.02",
+          "requirement": "Semantic/synonym retrieval",
+          "status": "planned"
+        },
+        {
+          "id": "D11.03",
+          "requirement": "Company/sector/source/date/form/language filters",
+          "status": "partial",
+          "implementation_scope": "Company, form and filing-date filters; sector/source/language provider filters remain planned.",
+          "production_validated": false,
+          "evidence_document": "platform-delivery.md"
+        },
+        {
+          "id": "D11.04",
+          "requirement": "Cross-company/portfolio and selected-document search",
+          "status": "partial",
+          "implementation_scope": "Cross-company public SEC search; portfolio and selected-document query scopes remain planned.",
+          "production_validated": false,
+          "evidence_document": "platform-delivery.md"
+        },
+        {
+          "id": "D11.05",
+          "requirement": "Pending/failed/excluded-document reporting",
+          "status": "partial",
+          "implementation_scope": "Explicit known-corpus pending, failed, unsupported and inventory gaps; this is not global content completeness.",
+          "production_validated": false,
+          "evidence_document": "platform-delivery.md"
+        },
+        {
+          "id": "D11.06",
+          "requirement": "Conversational questions and follow-ups",
+          "status": "planned"
+        },
+        {
+          "id": "D11.07",
+          "requirement": "Exact citations and permission rechecks",
+          "status": "partial",
+          "implementation_scope": "Immutable version references and current public-source access rechecks; AI claim citations remain planned.",
+          "production_validated": false,
+          "evidence_document": "platform-delivery.md"
+        },
+        {
+          "id": "D11.08",
+          "requirement": "Deterministic financial calculations/counts",
+          "status": "planned"
+        },
+        {
+          "id": "D11.09",
+          "requirement": "Historical cutoff and adversarial retrieval tests",
+          "status": "planned"
+        }
+      ],
+      "acceptance_gate": "held-out analyst query judgments, search recall/false omissions, source support and negative-query cases; no hidden failed-document coverage. Test adversarial document instructions and cross-account leakage. A generated answer must never imply an exhaustive search when scope is partial. [Search interaction baseline](https://help.alpha-sense.com/hc/en-us/articles/41666587181203-Interacting-with-Generative-Search)",
+      "source_urls": [
+        "https://help.alpha-sense.com/hc/en-us/articles/41666587181203-Interacting-with-Generative-Search"
+      ]
+    },
+    {
+      "id": "D12",
+      "title": "Research grids, deep research, workflow agents and persistent execution",
+      "status": "planned_expansion",
+      "requirements": [
+        {
+          "id": "D12.01",
+          "requirement": "Typed research grids over companies/documents/periods",
+          "status": "planned"
+        },
+        {
+          "id": "D12.02",
+          "requirement": "Source-backed cells with overrides and change refresh",
+          "status": "planned"
+        },
+        {
+          "id": "D12.03",
+          "requirement": "Editable research brief/scope/budget",
+          "status": "planned"
+        },
+        {
+          "id": "D12.04",
+          "requirement": "Deep research with counterevidence and evidence ledger",
+          "status": "planned"
+        },
+        {
+          "id": "D12.05",
+          "requirement": "Checkpoints, cancellation and resumable jobs",
+          "status": "planned"
+        },
+        {
+          "id": "D12.06",
+          "requirement": "Prebuilt earnings/industry/credit/M&A/IC workflows",
+          "status": "planned"
+        },
+        {
+          "id": "D12.07",
+          "requirement": "Custom and organization templates",
+          "status": "planned"
+        },
+        {
+          "id": "D12.08",
+          "requirement": "Schedules and event triggers",
+          "status": "planned"
+        },
+        {
+          "id": "D12.09",
+          "requirement": "Inspectable/deletable project memory",
+          "status": "planned"
+        },
+        {
+          "id": "D12.10",
+          "requirement": "Sandboxed persistent execution and reviewed artifact updates",
+          "status": "planned"
+        }
+      ],
+      "acceptance_gate": "blind review of complete assignments, contradictory evidence and unsupported claims; no future-source leakage; reproducible calculations; cancelled/retried jobs do not duplicate mutations; clear action history, bounded spend and recoverable artifact edits.",
+      "source_urls": [
+        "https://help.alpha-sense.com/hc/en-us/articles/41680141048979-Leveraging-Generative-Grid",
+        "https://help.alpha-sense.com/hc/en-us/articles/48564685232275-Custom-and-Scheduled-Workflow-Agents",
+        "https://help.alpha-sense.com/hc/en-us/articles/53911346856851-SuperAnalyst-FAQs"
+      ]
+    },
+    {
+      "id": "D13",
+      "title": "Monitoring, alerts and portfolio dashboards",
+      "status": "planned_expansion",
+      "requirements": [
+        {
+          "id": "D13.01",
+          "requirement": "Company/sector/topic/portfolio dashboards",
+          "status": "planned"
+        },
+        {
+          "id": "D13.02",
+          "requirement": "Saved searches and configurable widgets",
+          "status": "planned"
+        },
+        {
+          "id": "D13.03",
+          "requirement": "Filing/amendment/guidance/KPI/news alerts",
+          "status": "planned"
+        },
+        {
+          "id": "D13.04",
+          "requirement": "Sentence-level sentiment and topic trends",
+          "status": "planned"
+        },
+        {
+          "id": "D13.05",
+          "requirement": "Event inbox, acknowledgement and review state",
+          "status": "planned"
+        },
+        {
+          "id": "D13.06",
+          "requirement": "Quiet hours/time zones/digest preferences",
+          "status": "planned"
+        },
+        {
+          "id": "D13.07",
+          "requirement": "Canonical event deduplication and transactional delivery",
+          "status": "planned"
+        },
+        {
+          "id": "D13.08",
+          "requirement": "Publication/discovery/processing/delivery timestamps",
+          "status": "planned"
+        },
+        {
+          "id": "D13.09",
+          "requirement": "Real-event completeness, correction and latency acceptance",
+          "status": "planned"
+        }
+      ],
+      "acceptance_gate": "replay a real event set and account for every expected event, duplicates and omissions. Prove delivery and pause/unsubscribe behavior, then observe real source-to-user latency during an earnings cycle.",
+      "source_urls": [
+        "https://help.alpha-sense.com/hc/en-us/articles/41711901352211-Sentiment-Analysis",
+        "https://help.alpha-sense.com/hc/en-us/articles/41809206884243-Leveraging-and-Customizing-Your-Dashboard"
+      ]
+    },
+    {
+      "id": "D14",
+      "title": "Research workspaces, collaboration and publishable outputs",
+      "status": "in_progress",
+      "requirements": [
+        {
+          "id": "D14.01",
+          "requirement": "Projects with documents/notes/highlights/searches",
+          "status": "partial",
+          "implementation_scope": "Personal/team projects, notes/theses and source pointers; highlights and saved searches remain planned.",
+          "production_validated": false,
+          "evidence_document": "platform-delivery.md"
+        },
+        {
+          "id": "D14.02",
+          "requirement": "Model snapshots, thesis and decision history",
+          "status": "partial",
+          "implementation_scope": "Revisioned user-authored thesis notes; financial hash pointers explicitly unresolved until an archive is implemented.",
+          "production_validated": false,
+          "evidence_document": "platform-delivery.md"
+        },
+        {
+          "id": "D14.03",
+          "requirement": "Team folders/comments/assignments/review",
+          "status": "planned"
+        },
+        {
+          "id": "D14.04",
+          "requirement": "Approved artifacts and revision history",
+          "status": "planned"
+        },
+        {
+          "id": "D14.05",
+          "requirement": "Controlled source-aware sharing",
+          "status": "partial",
+          "implementation_scope": "Fixed personal or organization scopes and live membership checks; broader artifact/source-grant sharing remains planned.",
+          "production_validated": false,
+          "evidence_document": "platform-delivery.md"
+        },
+        {
+          "id": "D14.06",
+          "requirement": "Reusable company/earnings/IC/diligence templates",
+          "status": "partial",
+          "implementation_scope": "Three local research-prompt templates with explicit template authorship until edited; firm-defined templates and generated publication workflows remain planned.",
+          "production_validated": false,
+          "evidence_document": "platform-delivery.md"
+        },
+        {
+          "id": "D14.07",
+          "requirement": "Editable Word/PDF/PowerPoint/spreadsheet outputs",
+          "status": "planned"
+        },
+        {
+          "id": "D14.08",
+          "requirement": "Citation and rendering acceptance",
+          "status": "planned"
+        }
+      ],
+      "acceptance_gate": "permissions on source and derived work; correct rendering, units and citations; attribution/history survives export where supported; concurrent edits do not lose analyst work.",
+      "source_urls": [
+        "https://help.alpha-sense.com/hc/en-us/articles/51087728136979-Getting-Started-with-Workspaces"
+      ]
+    },
+    {
+      "id": "D15",
+      "title": "Office assistants and linked presentations",
+      "status": "planned_expansion",
+      "requirements": [
+        {
+          "id": "D15.01",
+          "requirement": "Excel-assisted formula/model explanation",
+          "status": "planned"
+        },
+        {
+          "id": "D15.02",
+          "requirement": "Reviewable scenario and model edits",
+          "status": "planned"
+        },
+        {
+          "id": "D15.03",
+          "requirement": "PowerPoint source-backed slide generation",
+          "status": "planned"
+        },
+        {
+          "id": "D15.04",
+          "requirement": "Firm templates/master slides/notes preservation",
+          "status": "planned"
+        },
+        {
+          "id": "D15.05",
+          "requirement": "Charts and tables linked to data/model versions",
+          "status": "planned"
+        },
+        {
+          "id": "D15.06",
+          "requirement": "Scoped refresh previews and undo",
+          "status": "planned"
+        },
+        {
+          "id": "D15.07",
+          "requirement": "Office-platform round-trip acceptance",
+          "status": "planned"
+        }
+      ],
+      "acceptance_gate": "independently calculated scenarios; correct formula dependencies; supported-platform round trips; one changed assumption updates only intended cells/charts/slides; rollback restores the prior version.",
+      "source_urls": [
+        "https://help.alpha-sense.com/hc/en-us/articles/50684671343763-AlphaSense-for-PowerPoint-and-Excel-IT-Admin-Guide-Centralized-Deployment"
+      ]
+    },
+    {
+      "id": "D16",
+      "title": "Enterprise identity and internal knowledge",
+      "status": "in_progress",
+      "requirements": [
+        {
+          "id": "D16.01",
+          "requirement": "Tenant roles/groups/invites/ownership transfer",
+          "status": "partial",
+          "implementation_scope": "Organizations and owner/admin/member policies with last-owner protection; groups, invitations and transfer UI remain planned.",
+          "production_validated": false,
+          "evidence_document": "platform-delivery.md"
+        },
+        {
+          "id": "D16.02",
+          "requirement": "Session/device revocation and audit records",
+          "status": "implemented",
+          "implementation_scope": "Durable v2 sessions, expiry, device lists, per-session/revoke-other/logout and audit; lake/Postgres and browser acceptance.",
+          "production_validated": false,
+          "evidence_document": "platform-delivery.md"
+        },
+        {
+          "id": "D16.03",
+          "requirement": "SSO and SCIM lifecycle",
+          "status": "planned"
+        },
+        {
+          "id": "D16.04",
+          "requirement": "Service accounts and policy administration",
+          "status": "planned"
+        },
+        {
+          "id": "D16.05",
+          "requirement": "Upload plus initial Drive/SharePoint connectors",
+          "status": "planned"
+        },
+        {
+          "id": "D16.06",
+          "requirement": "Additional Box/Egnyte/S3/email/CRM connectors",
+          "status": "planned"
+        },
+        {
+          "id": "D16.07",
+          "requirement": "Selective/resumable sync and malware handling",
+          "status": "planned"
+        },
+        {
+          "id": "D16.08",
+          "requirement": "ACL mirroring and deletion propagation",
+          "status": "planned"
+        },
+        {
+          "id": "D16.09",
+          "requirement": "Revocation across search, AI, caches and artifacts",
+          "status": "partial",
+          "implementation_scope": "Revocation enforced on current sessions/projects and public saved-document pointers; AI/private caches/artifacts remain planned.",
+          "production_validated": false,
+          "evidence_document": "platform-delivery.md"
+        }
+      ],
+      "acceptance_gate": "tenant/group/shared-link adversarial tests; rapid permission changes and employee departure; safe connector failure/restart; accurate deletion and retention behavior. Contractual isolation and residency promises require deployment-specific proof.",
+      "source_urls": [
+        "https://www.alpha-sense.com/security/integration-security/"
+      ]
+    },
+    {
+      "id": "D17",
+      "title": "Public APIs, integrations and mobile",
+      "status": "in_progress",
+      "requirements": [
+        {
+          "id": "D17.01",
+          "requirement": "Versioned research/data/document/export APIs",
+          "status": "partial",
+          "implementation_scope": "Versioned financial and comparison APIs plus indexed document/search routes; comprehensive public developer platform remains planned.",
+          "production_validated": false,
+          "evidence_document": "platform-delivery.md"
+        },
+        {
+          "id": "D17.02",
+          "requirement": "Scoped credentials, quotas and pagination",
+          "status": "planned"
+        },
+        {
+          "id": "D17.03",
+          "requirement": "Asynchronous jobs and signed webhooks",
+          "status": "planned"
+        },
+        {
+          "id": "D17.04",
+          "requirement": "Sandbox/SDK/changelog/deprecation support",
+          "status": "planned"
+        },
+        {
+          "id": "D17.05",
+          "requirement": "Entitlement-aware MCP interface",
+          "status": "planned"
+        },
+        {
+          "id": "D17.06",
+          "requirement": "Approved external notification/system integrations",
+          "status": "planned"
+        },
+        {
+          "id": "D17.07",
+          "requirement": "Responsive/installable mobile research",
+          "status": "planned"
+        },
+        {
+          "id": "D17.08",
+          "requirement": "Native iOS/Android when justified",
+          "status": "planned"
+        },
+        {
+          "id": "D17.09",
+          "requirement": "Offline rights, local account storage and sync conflicts",
+          "status": "planned"
+        }
+      ],
+      "acceptance_gate": "token/permission tests, compatible API upgrades, webhook retries/signature validation, offline/reconnect conflicts, logout clearing account content, correct deep links and licensing-compliant offline expiry. [Mobile baseline](https://help.alpha-sense.com/hc/en-us/articles/42253345516435-AlphaSense-on-iOS)",
+      "source_urls": [
+        "https://developer.alpha-sense.com/",
+        "https://developer.alpha-sense.com/agent-api/mcp/overview",
+        "https://help.alpha-sense.com/hc/en-us/articles/42253345516435-AlphaSense-on-iOS"
+      ]
+    },
+    {
+      "id": "D18",
+      "title": "A coherent professional experience",
+      "status": "in_progress",
+      "requirements": [
+        {
+          "id": "D18.01",
+          "requirement": "Workflow-based navigation and onboarding",
+          "status": "partial",
+          "implementation_scope": "Research/projects/compare workspace navigation; role-specific onboarding remains planned.",
+          "production_validated": false,
+          "evidence_document": "platform-delivery.md"
+        },
+        {
+          "id": "D18.02",
+          "requirement": "Simplified statement toolbar and advanced view settings",
+          "status": "implemented",
+          "implementation_scope": "Primary statement toolbar simplified; advanced controls and preference scope remain available.",
+          "production_validated": false,
+          "evidence_document": "platform-delivery.md"
+        },
+        {
+          "id": "D18.03",
+          "requirement": "Command search and keyboard workflows",
+          "status": "planned"
+        },
+        {
+          "id": "D18.04",
+          "requirement": "Pinned labels, density and resizable panels",
+          "status": "planned"
+        },
+        {
+          "id": "D18.05",
+          "requirement": "Source/context continuity across views",
+          "status": "partial",
+          "implementation_scope": "Search result to immutable source to project note; broader modeling/AI context continuity remains planned.",
+          "production_validated": false,
+          "evidence_document": "platform-delivery.md"
+        },
+        {
+          "id": "D18.06",
+          "requirement": "Clear loading/error/partial/stale states",
+          "status": "partial",
+          "implementation_scope": "Search gaps/errors, session mutation failure, project revision conflicts and unavailable comparisons have explicit states.",
+          "production_validated": false,
+          "evidence_document": "platform-delivery.md"
+        },
+        {
+          "id": "D18.07",
+          "requirement": "Screen-reader/zoom/contrast/reduced-motion QA",
+          "status": "partial",
+          "implementation_scope": "Keyboard, mobile width and reduced-motion browser checks; full independent accessibility audit remains required.",
+          "production_validated": false,
+          "evidence_document": "platform-delivery.md"
+        },
+        {
+          "id": "D18.08",
+          "requirement": "Measured task completion and activation",
+          "status": "planned"
+        }
+      ],
+      "acceptance_gate": "first-time users complete company-to-source-to-output tasks without coaching; advanced users can work efficiently with the keyboard; no lost state, inaccessible controls or undisclosed missing data.",
+      "source_urls": []
+    },
+    {
+      "id": "D19",
+      "title": "Reliability, security and accountable operation",
+      "status": "in_progress",
+      "requirements": [
+        {
+          "id": "D19.01",
+          "requirement": "Atomic dataset publication and coordinated ingestion",
+          "status": "partial",
+          "implementation_scope": "Atomic Postgres multi-table publication and coherent financial readers; immutable lake generations and distributed ingestion leases remain planned.",
+          "production_validated": false,
+          "evidence_document": "platform-delivery.md"
+        },
+        {
+          "id": "D19.02",
+          "requirement": "Production Postgres writes and safe migrations",
+          "status": "implemented",
+          "implementation_scope": "Transactional serialized migrations, schema-only deployment CLI and PostgreSQL account/project writes with concurrency regression tests.",
+          "production_validated": false,
+          "evidence_document": "platform-delivery.md"
+        },
+        {
+          "id": "D19.03",
+          "requirement": "Durable jobs/idempotency/quarantine",
+          "status": "planned"
+        },
+        {
+          "id": "D19.04",
+          "requirement": "Infrastructure as code and staging",
+          "status": "partial",
+          "implementation_scope": "Paid Render blueprint includes pre-deploy schema migration; actual production/staging provisioning remains external work.",
+          "production_validated": false,
+          "evidence_document": "platform-delivery.md"
+        },
+        {
+          "id": "D19.05",
+          "requirement": "Secrets/encryption/least privilege",
+          "status": "planned"
+        },
+        {
+          "id": "D19.06",
+          "requirement": "Backups/restore/replay/rollback drills",
+          "status": "planned"
+        },
+        {
+          "id": "D19.07",
+          "requirement": "Freshness/completeness/latency/cost instrumentation",
+          "status": "planned"
+        },
+        {
+          "id": "D19.08",
+          "requirement": "Vulnerability and incident response",
+          "status": "planned"
+        },
+        {
+          "id": "D19.09",
+          "requirement": "Retention/deletion and model/subprocessor policies",
+          "status": "planned"
+        },
+        {
+          "id": "D19.10",
+          "requirement": "Independent security assessments and buyer-specific assurance",
+          "status": "planned"
+        },
+        {
+          "id": "D19.11",
+          "requirement": "Residency/keys/private deployment where contracted",
+          "status": "planned"
+        }
+      ],
+      "acceptance_gate": "production restore/replay, load tests, corrected-source recovery, visible stale/partial states and incident drills. Commit to contractual service levels only after measured operation and affordable coverage.",
+      "source_urls": [
+        "https://www.alpha-sense.com/security/"
+      ]
+    },
+    {
+      "id": "D20",
+      "title": "Commercial readiness, support and migration",
+      "status": "in_progress",
+      "requirements": [
+        {
+          "id": "D20.01",
+          "requirement": "Provider/compute/support unit economics",
+          "status": "planned"
+        },
+        {
+          "id": "D20.02",
+          "requirement": "Discovery/professional/enterprise packaging",
+          "status": "planned"
+        },
+        {
+          "id": "D20.03",
+          "requirement": "Premium-source and research-usage entitlements",
+          "status": "planned"
+        },
+        {
+          "id": "D20.04",
+          "requirement": "Billing/invoices/trial/cancellation/recovery",
+          "status": "planned"
+        },
+        {
+          "id": "D20.05",
+          "requirement": "Support/training/escalation and service docs",
+          "status": "planned"
+        },
+        {
+          "id": "D20.06",
+          "requirement": "Watchlist/note/citation/profile/mapping migration",
+          "status": "planned"
+        },
+        {
+          "id": "D20.07",
+          "requirement": "Portable user research and exit procedures",
+          "status": "partial",
+          "implementation_scope": "Account-authorized portable project JSON with saved notes, revisions and currently resolved source references; cross-product import, full account portability and exit administration remain planned.",
+          "production_validated": false,
+          "evidence_document": "platform-delivery.md"
+        },
+        {
+          "id": "D20.08",
+          "requirement": "Real customer workflow and renewal comparisons",
+          "status": "planned"
+        },
+        {
+          "id": "D20.09",
+          "requirement": "Commercial launch gates and accountable ownership",
+          "status": "planned"
+        }
+      ],
+      "acceptance_gate": "billing/entitlement lifecycle, migrated data reconciliation, repeat real usage, supported workflows completed with fewer or no additional corrections, credible support and a sustainable contribution margin.",
+      "source_urls": [
+        "https://www.alpha-sense.com/pricing/"
+      ]
+    }
+  ],
+  "initial_delivery_packets": [
+    {
+      "id": "P01",
+      "outcome": "Freeze reviewed baseline; inventory real serving data and open release gates",
+      "dependencies": "Current repo and read-only deployment inventory",
+      "status": "planned"
+    },
+    {
+      "id": "P02",
+      "outcome": "Capability/source register with status, owner, rights, coverage and acceptance fields",
+      "dependencies": "P01",
+      "status": "planned"
+    },
+    {
+      "id": "P03",
+      "outcome": "Versioned entity/document/observation/artifact/entitlement contracts",
+      "dependencies": "P01-P02",
+      "status": "planned"
+    },
+    {
+      "id": "P04",
+      "outcome": "Tenant membership, session/device revocation and audited access primitives",
+      "dependencies": "P03",
+      "status": "planned"
+    },
+    {
+      "id": "P05",
+      "outcome": "Dataset manifests, atomic publication and safe migration/rollback",
+      "dependencies": "P03",
+      "status": "planned"
+    },
+    {
+      "id": "P06",
+      "outcome": "Diverse independent golden corpus and historical context repair cases",
+      "dependencies": "P01-P03; separate validator",
+      "status": "planned"
+    },
+    {
+      "id": "P07",
+      "outcome": "Durable document ingestion with extraction/anchor/failure manifests",
+      "dependencies": "P03-P05",
+      "status": "planned"
+    },
+    {
+      "id": "P08",
+      "outcome": "Indexed exact/Boolean search with complete/partial/failure reporting",
+      "dependencies": "P04-P07",
+      "status": "planned"
+    },
+    {
+      "id": "P09",
+      "outcome": "Exact financial history and original/latest/as-of retrieval",
+      "dependencies": "P03, P05-P06",
+      "status": "planned"
+    },
+    {
+      "id": "P10",
+      "outcome": "Before/after number and document change review",
+      "dependencies": "P07-P09",
+      "status": "planned"
+    },
+    {
+      "id": "P11",
+      "outcome": "Stable metric API and Excel mapping/refresh prototype",
+      "dependencies": "P09-P10",
+      "status": "planned"
+    },
+    {
+      "id": "P12",
+      "outcome": "Source discovery/processing/delivery telemetry and event inbox",
+      "dependencies": "P05-P07, P10",
+      "status": "planned"
+    },
+    {
+      "id": "P13",
+      "outcome": "Simpler statement controls and persistent evidence context",
+      "dependencies": "Stable P03/P09 API contracts; design can prototype sooner",
+      "status": "planned"
+    },
+    {
+      "id": "P14",
+      "outcome": "End-to-end earnings-to-model benchmark with real analyst task scripts",
+      "dependencies": "P08-P13",
+      "status": "planned"
+    },
+    {
+      "id": "P15",
+      "outcome": "Provider comparison and contract requirement packets for transcripts, market data and research",
+      "dependencies": "P02; runs alongside engineering, with no purchase implied",
+      "status": "planned"
+    }
+  ],
+  "release_tracking": {
+    "release": "platform-foundations",
+    "status": "local_verification_passed",
+    "delivery_document": "platform-delivery.md",
+    "requirements_touched": 41,
+    "all_requirements_complete": false,
+    "verification": {
+      "python_tests_passed": 436,
+      "python_tests_skipped": 0,
+      "python_coverage_percent": 92,
+      "frontend_unit_tests_passed": 21,
+      "browser_scenarios_passed": 18,
+      "browser_fixture": "isolated synthetic SEC lake and mocked transport",
+      "production_validated": false
+    }
+  }
+}

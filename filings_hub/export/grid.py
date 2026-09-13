@@ -90,6 +90,7 @@ class Grid:
     period_mode: str = "as_filed"
     restated: bool = False
     column_order: str = "newest_right"
+    as_of: date | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -99,6 +100,8 @@ class Grid:
             "period_mode": self.period_mode,
             "restated": self.restated,
             "column_order": self.column_order,
+            "as_of": self.as_of.isoformat() if self.as_of else None,
+            "availability_basis": "SEC filing date; end of selected day, not intraday availability",
             "periods": [
                 {
                     "period_label": p.period_label,
@@ -150,8 +153,8 @@ def _all_periods(db: Database, cik: int) -> list[PeriodColumn]:
     """Every period the lake knows for the company, oldest first."""
     rows = db.query(
         f"SELECT p.*, f.filing_index_url, f.primary_doc_url, e.primary_doc_url AS er_url "
-        f"FROM {db.periods_table} p LEFT JOIN filings f ON f.accession = p.results_accession "
-        f"LEFT JOIN filings e ON e.accession = p.earnings_release_accession "
+        f"FROM {db.periods_table} p LEFT JOIN filings f ON f.accession = p.results_accession AND f.cik = p.cik "
+        f"LEFT JOIN filings e ON e.accession = p.earnings_release_accession AND e.cik = p.cik "
         f"WHERE p.cik = ? ORDER BY p.period_end, p.results_filed_date",
         [cik],
     )
@@ -178,7 +181,7 @@ def _all_periods(db: Database, cik: int) -> list[PeriodColumn]:
 
 
 def _statement_rows(
-    db: Database, accessions: list[str], statements: tuple[str, ...], primary_only: bool = True
+    db: Database, accessions: list[str], statements: tuple[str, ...], primary_only: bool = True, cik: int | None = None
 ) -> dict[str, dict[str, list[dict[str, Any]]]]:
     """accession -> statement code -> lines (ordered). Primary-period lines only unless asked."""
     if not accessions:
@@ -190,9 +193,10 @@ def _statement_rows(
         f"value_presented, value, period_start, period_end, period_end_rounded, qtrs, is_primary_period, "
         f"taxonomy, is_custom, datatype, source, filed_date, negating "
         f"FROM statements WHERE accession IN ({ph_acc}) AND statement IN ({ph_stmt}) "
+        f"{'AND cik = ?' if cik is not None else ''} "
         f"AND NOT is_parenthetical {'AND is_primary_period' if primary_only else ''} "
         f"ORDER BY accession, statement, line_order",
-        [*accessions, *statements],
+        [*accessions, *statements, *([cik] if cik is not None else [])],
     )
     out: dict[str, dict[str, list[dict[str, Any]]]] = {}
     for r in rows:
@@ -568,6 +572,22 @@ def build_grid(
     period_mode: str = "as_filed",
     restated: bool = False,
     column_order: str = "newest_right",
+    as_of: date | None = None,
+) -> Grid:
+    with db.read_snapshot() as reader:
+        return _build_grid(reader, cik, period_labels, limit, statements, period_mode, restated, column_order, as_of)
+
+
+def _build_grid(
+    db: Database,
+    cik: int,
+    period_labels: list[str] | None,
+    limit: int,
+    statements: tuple[str, ...],
+    period_mode: str,
+    restated: bool,
+    column_order: str,
+    as_of: date | None,
 ) -> Grid:
     if period_mode not in PERIOD_MODES:
         raise ValueError(f"period_mode must be one of {', '.join(PERIOD_MODES)}")
@@ -579,6 +599,10 @@ def build_grid(
     derived_mode = period_mode in ("quarterly", "ltm")
     restated = bool(restated) and not derived_mode
     all_periods = _all_periods(db, cik)
+    if as_of is not None:
+        # Apply before choosing columns, comparatives or any derivation operands.
+        # Unknown dates fail closed. This is date-resolution availability, not transaction-time replay.
+        all_periods = [p for p in all_periods if p.filed_date is not None and p.filed_date <= as_of]
     shown = _select(all_periods, period_labels, limit, period_mode)
 
     need = {p.accession for p in shown}
@@ -591,7 +615,7 @@ def build_grid(
         if oldest:
             need |= {p.accession for p in all_periods if p.filed_date and p.filed_date >= oldest}
     rows = _Rows(
-        _statement_rows(db, sorted(need), statements, primary_only=not (derived_mode or restated)), all_periods
+        _statement_rows(db, sorted(need), statements, primary_only=not (derived_mode or restated), cik=cik), all_periods
     )
 
     # column labels and basis
@@ -711,4 +735,5 @@ def build_grid(
         period_mode=period_mode,
         restated=restated,
         column_order=column_order,
+        as_of=as_of,
     )

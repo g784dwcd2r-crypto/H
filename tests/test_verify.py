@@ -386,9 +386,15 @@ def _acceptance_lake(root, golden, sp500_ciks, *, checks_pass_rate=1.0, weekdays
                             }
                         )
     st.write_parquet(layout.PERIODS, pa.Table.from_pylist(periods, schema=PERIODS_SCHEMA))
-    st.write_parquet(
-        f"{layout.STATEMENTS}/cik=1/part-0.parquet", pa.Table.from_pylist(statements, schema=STATEMENTS_SCHEMA)
-    )
+    # Hive partition values are authoritative in DuckDB. The physical partition must identify
+    # the actual issuer, just as production ingestion does; putting everyone in cik=1 hides this.
+    by_cik = {}
+    for row in statements:
+        by_cik.setdefault(row["cik"], []).append(row)
+    for cik, rows in by_cik.items():
+        st.write_parquet(
+            f"{layout.statements_cik_dir(cik)}/part-0.parquet", pa.Table.from_pylist(rows, schema=STATEMENTS_SCHEMA)
+        )
 
     runs = [
         {

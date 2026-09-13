@@ -380,6 +380,11 @@ def _write_source(wb: Workbook, grid: Grid, opts: ExportOptions) -> None:
             "not establish that a formal restatement occurred. Cell comments identify the actual source, "
             "including original values retained when later filings omit a line."
         )
+    if grid.as_of is not None:
+        note += (
+            f" Availability cutoff: filings dated on or before {grid.as_of.isoformat()}. "
+            "This is filing-date resolution, not intraday availability or an archived database snapshot."
+        )
     if opts.subtotals == "formulas":
         note += " Subtotals are formulas where the reported children add up to the reported total, values otherwise."
     ws.cell(len(grid.periods) + 3, 1, note)
@@ -423,8 +428,9 @@ def export_excel(
     period_mode: str = "as_filed",
     restated: bool = False,
     column_order: str = "newest_right",
+    as_of: date | None = None,
 ) -> bytes:
-    return export_workbook(db, cik, period_labels, limit, options, period_mode, restated, column_order)[0]
+    return export_workbook(db, cik, period_labels, limit, options, period_mode, restated, column_order, as_of)[0]
 
 
 def export_workbook(
@@ -436,12 +442,13 @@ def export_workbook(
     period_mode: str = "as_filed",
     restated: bool = False,
     column_order: str = "newest_right",
+    as_of: date | None = None,
 ) -> tuple[bytes, str]:
     """The workbook bytes and the file name the options resolve to."""
     opts = options or ExportOptions()
     if period_mode not in PERIOD_MODES or column_order not in COLUMN_ORDERS:
         raise ValueError("bad period_mode or column_order")
-    grid = build_grid(db, cik, period_labels, limit, opts.statements, period_mode, restated, column_order)
+    grid = build_grid(db, cik, period_labels, limit, opts.statements, period_mode, restated, column_order, as_of)
     wb = workbook_from_grid(grid, opts)
     buf = io.BytesIO()
     wb.save(buf)

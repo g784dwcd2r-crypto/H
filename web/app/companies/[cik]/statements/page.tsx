@@ -5,6 +5,7 @@ import StatementTabs from "@/components/StatementTabs";
 import { api, NotFound } from "@/lib/server-api";
 import { type PeriodMode, type Pref } from "@/lib/api";
 import { resolvedPrefs, sessionToken } from "@/lib/session";
+import { validFilingDate } from "@/lib/filing-cutoff";
 
 export const dynamic = "force-dynamic";
 const MODES: PeriodMode[] = ["as_filed", "quarterly", "annual", "ltm"];
@@ -14,10 +15,11 @@ export default async function StatementsPage({
   searchParams,
 }: {
   params: Promise<{ cik: string }>;
-  searchParams: Promise<{ periods?: string; limit?: string; mode?: string; restated?: string }>;
+  searchParams: Promise<{ periods?: string; limit?: string; mode?: string; restated?: string; as_of?: string }>;
 }) {
   const { cik } = await params;
-  const { periods, limit, mode, restated } = await searchParams;
+  const { periods, limit, mode, restated, as_of: asOf } = await searchParams;
+  if (asOf && !validFilingDate(asOf)) return <div className="page-error"><h1>Check the filing cutoff</h1><p>Use a valid date in YYYY-MM-DD format.</p><Link href={`/companies/${encodeURIComponent(cik)}/statements`}>Return to current financials</Link></div>;
   let sic: string | null = null;
   try {
     sic = (await api.company(cik)).company.sic ?? null;
@@ -41,7 +43,7 @@ export default async function StatementsPage({
   const columnOrder = prefs.column_order?.value === "newest_left" ? "newest_left" : "newest_right";
   let grid;
   try {
-    grid = await api.statements(cik, periods, n, { period_mode: periodMode, restated: wantRestated, column_order: columnOrder });
+    grid = await api.statements(cik, periods, n, { period_mode: periodMode, restated: wantRestated, column_order: columnOrder, as_of: asOf });
   } catch (e) {
     if (e instanceof NotFound) notFound();
     throw e;
@@ -49,6 +51,7 @@ export default async function StatementsPage({
   const id = String(grid.cik);
   const more = new URLSearchParams({ limit: String(Math.min(n + 8, 40)), mode: periodMode });
   if (wantRestated) more.set("restated", "1");
+  if (asOf) more.set("as_of", asOf);
   return (
     <>
       <p className="crumb"><Link href={`/companies/${id}`}>← {grid.company_name}</Link></p>
@@ -59,7 +62,7 @@ export default async function StatementsPage({
         {periods ? "" : <> · <Link href={`/companies/${id}/statements?${more.toString()}`}>show more periods</Link></>}
       </p>
       <CompanyNav cik={id} />
-      <StatementTabs grid={grid} cik={id} sic={sic} initialPrefs={list} signedIn={signedIn} periodsShown={n} explicitLimit={!!limit} periodsParam={periods} />
+      <StatementTabs grid={grid} cik={id} sic={sic} initialPrefs={list} signedIn={signedIn} periodsShown={n} explicitLimit={!!limit} periodsParam={periods} asOf={asOf} />
     </>
   );
 }

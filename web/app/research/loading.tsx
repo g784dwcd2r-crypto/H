@@ -1,0 +1,1 @@
+export default function ResearchLoading() { return <div className="loading-state" role="status"><p className="eyebrow">Research workspace</p><h1>Searching the filing index…</h1><div className="loading-line"/><div className="loading-line short"/><p className="muted">Reading indexed documents and coverage status.</p></div>; }

@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import PrefsSettings from "@/components/PrefsSettings";
+import SettingsNav from "@/components/SettingsNav";
 import { api } from "@/lib/server-api";
 import { currentUser, sessionToken } from "@/lib/session";
 
@@ -19,6 +20,7 @@ export default async function SettingsPage() {
         Signed in as {user.email}
         {user.first_name ? ` (${user.first_name} ${user.last_name}${user.company ? `, ${user.company}` : ""}${user.title ? `, ${user.title}` : ""})` : ""}. Manage your saved research and export defaults. See where each choice applies, change it or take your settings with you.
       </p>
+      <SettingsNav />
       <PrefsSettings initial={prefs} defaults={defaults} />
     </>
   );

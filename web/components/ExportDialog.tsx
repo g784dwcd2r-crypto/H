@@ -18,6 +18,7 @@ export default function ExportDialog({
   signedIn,
   current,
   periods,
+  asOf,
   open,
   onClose,
 }: {
@@ -27,6 +28,7 @@ export default function ExportDialog({
   signedIn: boolean;
   current: Partial<ExportConfig>; // the grid as shown right now (mode, restated, order, limit)
   periods?: string;
+  asOf?: string;
   open: boolean;
   onClose: () => void;
 }) {
@@ -55,7 +57,7 @@ export default function ExportDialog({
   const download = async () => {
     setDownloading(true); setMsg(null);
     try {
-      const response = await fetch(`/api/export?${exportQuery(cik, cfg, periods)}`);
+      const response = await fetch(`/api/export?${exportQuery(cik, cfg, periods, asOf)}`);
       if (!response.ok) throw new Error("Export unavailable");
       const blob = await response.blob();
       const filename = response.headers.get("Content-Disposition")?.match(/filename="?([^";]+)"?/i)?.[1] ?? "Disclosure-financials.xlsx";
@@ -113,6 +115,7 @@ export default function ExportDialog({
         )}
 
         {periods && <p className="notice">Exporting your selected periods: {periods}. Open the full company financials to choose a different range.</p>}
+        {asOf && <p className="notice">This workbook includes filings available by {asOf}, through that filing date. The cutoff is taken from this view and will not be saved in settings or profiles.</p>}
         <div className="dlg-grid">
           <label>
             <span>Periods</span>

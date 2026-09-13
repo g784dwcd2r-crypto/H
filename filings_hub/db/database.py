@@ -15,6 +15,7 @@ import shutil
 import tempfile
 import time
 from collections.abc import Sequence
+from contextlib import closing, contextmanager
 from typing import Any
 
 import pyarrow as pa
@@ -30,13 +31,13 @@ PERIODS_SERVING_SQL = """
 SELECT p.*, s.statements_source, s.checks_passed
 FROM periods p
 LEFT JOIN (
-    SELECT accession,
+    SELECT cik, accession,
            CASE WHEN bool_or(source = 'fsds') THEN 'fsds' ELSE 'facts_fallback' END AS statements_source,
            bool_and(checks_passed) AS checks_passed
     FROM statements
     WHERE statement IN ('IS', 'BS', 'CF') AND is_primary_period
-    GROUP BY accession
-) s ON s.accession = p.results_accession
+    GROUP BY cik, accession
+) s ON s.accession = p.results_accession AND s.cik = p.cik
 """
 
 
@@ -228,6 +229,29 @@ class Database:
             cols = [d.name for d in cur.description]
             return [dict(zip(cols, row, strict=True)) for row in cur.fetchall()]
 
+    @contextmanager
+    def read_snapshot(self):
+        """One response observes one cooperating Postgres publication.
+
+        Take the shared publication lock *before* a repeatable-read snapshot is acquired: TRUNCATE
+        is not MVCC-safe for readers whose snapshot predates a load. A dedicated connection also
+        prevents concurrent HTTP requests from sharing or committing each other's transaction.
+        DuckDB's lock protects local view changes only; the mutable lake is not a published snapshot.
+        """
+        if getattr(self, "_snapshot_active", False):
+            yield self
+        elif self.backend == "duckdb":
+            with self.duck._lock:
+                yield self
+        else:
+            with closing(Database(self.url, self.storage)) as reader:
+                reader.conn.execute("SELECT pg_advisory_lock_shared(684319202601)")
+                with reader.conn.transaction():
+                    reader.conn.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY")
+                    reader._snapshot_active = True
+                    yield reader
+                # Closing the dedicated connection always releases the session lock, including on failure.
+
     def execute(self, sql: str, params: Sequence[Any] = ()) -> None:
         if self.backend == "duckdb":
             self.duck.sql(sql, list(params))
@@ -240,6 +264,8 @@ class Database:
             self.duck.close()
         else:
             self.conn.close()
+        if hasattr(self, "_facts_duck"):
+            self._facts_duck.close()
         if self._local_dir:
             shutil.rmtree(self._local_dir, ignore_errors=True)
 
