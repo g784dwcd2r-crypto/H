@@ -167,7 +167,8 @@ def test_periods_carry_key_numbers(client):
     p = client.get("/companies/320193/periods", headers=H).json()["periods"]
     fy25 = next(x for x in p if x["period_label"] == "FY2025")
     assert fy25["metrics"]["revenue"] > 0 and fy25["metrics"]["eps_diluted"] > 0
-    assert set(fy25["metrics"]) == {"revenue", "net_income", "eps_diluted", "total_assets", "operating_cash_flow"}
+    assert {"revenue", "net_income", "eps_diluted", "total_assets", "operating_cash_flow"} <= set(fy25["metrics"])
+    assert fy25["metrics"]["gross_profit"] > 0 and fy25["metrics"]["buybacks"] > 0  # as reported, not presented
     q3 = next(x for x in p if x["period_label"] == "Q3 2026")  # no statements yet: nulls, not an error
     assert q3["metrics"]["revenue"] is None
 

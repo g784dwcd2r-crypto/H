@@ -240,3 +240,43 @@ h1 .accent { font-style: italic; color: var(--ink-2); }
 .btn.wide { width: 100%; padding: 14px 22px; font-size: 15px; }
 header.top nav .user .cta { padding: 6px 12px; border: 1px solid var(--ink); border-radius: 999px; }
 @media (max-width: 640px) { .signup .two { grid-template-columns: 1fr; } }
+
+/* every preference is one control: value, where it applies, where it is set from */
+.toolbar.wrap { flex-wrap: wrap; row-gap: 12px; }
+.prefctl { display: inline-flex; align-items: center; gap: 8px; }
+.prefctl label.check { display: inline-flex; align-items: center; gap: 6px; }
+.prefctl .scopetag select { font-size: 12px; padding: 3px 6px; }
+.chip.derived { background: #e8f0fb; border-color: #c5d6ee; color: #2d4f7c; }
+.stmt td.derived { background: rgba(232, 240, 251, 0.6); }
+.stmt tr.abstract td.derived { background: transparent; }
+.btn.small { padding: 7px 14px; font-size: 13px; }
+
+/* proposals ("you chose this on three companies") */
+.proposal { display: flex; justify-content: space-between; align-items: center; gap: 16px; flex-wrap: wrap; padding: 12px 16px; margin: 0 0 16px; background: var(--paper-2); border: 1px solid var(--line); border-radius: 12px; font-size: 14px; }
+
+/* export dialog */
+.exportdlg { border: 1px solid var(--line-strong); border-radius: 16px; padding: 24px 28px; width: min(720px, calc(100vw - 32px)); background: var(--paper); color: var(--ink); box-shadow: 0 24px 64px rgba(20, 20, 20, 0.2); }
+.exportdlg::backdrop { background: rgba(20, 20, 20, 0.35); }
+.dlg-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; }
+.dlg-head .eyebrow { margin-bottom: 6px; }
+.dlg-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px 16px; margin-top: 16px; }
+.dlg-grid label { display: flex; flex-direction: column; gap: 5px; font-size: 13px; }
+.dlg-grid label > span { font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); }
+.dlg-grid label.wide { grid-column: 1 / -1; }
+.dlg-grid input, .dlg-grid select { padding: 8px 10px; font: 14px var(--sans); color: var(--ink); background: var(--paper-3); border: 1px solid var(--line-strong); border-radius: 8px; }
+.dlg-checks { border: none; padding: 0; margin: 14px 0 0; display: flex; flex-wrap: wrap; gap: 8px 18px; font-size: 13px; }
+.dlg-checks legend { padding: 0; margin-bottom: 6px; font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; }
+.dlg-checks label { display: inline-flex; align-items: center; gap: 6px; }
+.dlg-actions { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; margin-top: 20px; }
+.dlg-actions select { padding: 6px 8px; font: 13px var(--sans); border: 1px solid var(--line-strong); border-radius: 8px; background: var(--paper-3); }
+.profile-row { margin-top: 12px; }
+.profiles { margin: 14px 0 0; }
+.linkbtn.plain { text-decoration: none; color: inherit; font-size: 13px; }
+
+/* headline cards */
+.headline { margin: 26px 0 0; }
+.cards.tight { margin: 0 0 6px; }
+.cards .card .k select { font: 12px var(--sans); letter-spacing: 0; text-transform: none; padding: 3px 6px; border: 1px solid var(--line-strong); border-radius: 6px; background: var(--paper-3); max-width: 100%; }
+.cardsbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 0; }
+.cardsbar select { font: 12px var(--sans); padding: 2px 6px; }
+.summary { margin-top: 18px; }

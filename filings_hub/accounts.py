@@ -35,7 +35,16 @@ DEFAULTS: dict[str, Any] = {
     "periods_shown": 8,
     "negative_style": "parentheses",
     "column_order": "newest_right",
+    "period_mode": "as_filed",  # as_filed | quarterly | annual | ltm
+    "restated": False,  # comparatives from the latest filing that presents the period
+    "headline_cards": ["revenue", "net_income", "eps_diluted", "operating_cash_flow"],
+    "export_config": {},  # the last export dialog settings (an ExportOptions dict plus grid params)
 }
+# keys whose repeated company-level choice can be proposed as the global one
+PROPOSABLE = ("period_mode", "scale", "column_order", "restated", "periods_shown", "negative_style", "export_config")
+PROPOSAL_STRIKES = 3  # the same choice on this many companies
+PROPOSAL_DISMISSALS = 2  # dismissed this often: never again
+DISMISSED_KEY = "proposals_dismissed"
 MAGIC_LINK_MINUTES = 15
 USERS = "users"
 PREFS = "prefs"
@@ -195,6 +204,8 @@ class UserStore(Protocol):
     def delete_pref(self, user_id: str, scope: str, scope_key: str, key: str) -> bool: ...
     def delete_all_prefs(self, user_id: str) -> int: ...
     def add_event(self, user_id: str, event: dict[str, Any]) -> None: ...
+    def list_events(self, user_id: str, limit: int = 500) -> list[dict[str, Any]]: ...
+    def recent_events(self, days: int = 30, limit: int = 20000) -> list[dict[str, Any]]: ...
 
 
 def _email_key(email: str) -> str:
@@ -269,6 +280,33 @@ class LakeUserStore:
 
     def add_event(self, user_id: str, event: dict[str, Any]) -> None:
         self._write(f"{EVENTS}/{user_id}/{int(time.time() * 1000)}-{uuid.uuid4().hex[:6]}.json", event)
+
+    def list_events(self, user_id: str, limit: int = 500) -> list[dict[str, Any]]:
+        """Newest first. File names start with a millisecond timestamp, so the listing sorts by time."""
+        out = []
+        for rel in sorted(self.storage.ls(f"{EVENTS}/{user_id}"), reverse=True)[:limit]:
+            d = self._read(rel)
+            if d is not None:
+                d["user_id"] = user_id
+                out.append(d)
+        return out
+
+    def recent_events(self, days: int = 30, limit: int = 20000) -> list[dict[str, Any]]:
+        since = int((time.time() - days * 86400) * 1000)
+        out: list[dict[str, Any]] = []
+        for user_dir in self.storage.ls(EVENTS):
+            uid = user_dir.rstrip("/").rsplit("/", 1)[-1]
+            for rel in sorted(self.storage.ls(user_dir), reverse=True):
+                stamp = rel.rsplit("/", 1)[-1].split("-", 1)[0]
+                if stamp.isdigit() and int(stamp) < since:
+                    break
+                d = self._read(rel)
+                if d is not None:
+                    d["user_id"] = uid
+                    out.append(d)
+                if len(out) >= limit:
+                    return out
+        return out
 
 
 class PostgresUserStore:
@@ -439,6 +477,32 @@ class PostgresUserStore:
                 ),
             )
 
+    @staticmethod
+    def _event(r: dict[str, Any]) -> dict[str, Any]:
+        out = dict(r)
+        for k in ("old", "new"):
+            if isinstance(out.get(k), str):
+                out[k] = json.loads(out[k])
+        if isinstance(out.get("at"), datetime):
+            out["at"] = _iso(out["at"])
+        return out
+
+    def list_events(self, user_id: str, limit: int = 500) -> list[dict[str, Any]]:
+        rows = self._all(
+            "SELECT user_id, key, scope, old, new, source, at FROM pref_events WHERE user_id = %s "
+            "ORDER BY at DESC LIMIT %s",
+            (user_id, limit),
+        )
+        return [self._event(r) for r in rows]
+
+    def recent_events(self, days: int = 30, limit: int = 20000) -> list[dict[str, Any]]:
+        rows = self._all(
+            "SELECT user_id, key, scope, old, new, source, at FROM pref_events "
+            "WHERE at >= now() - make_interval(days => %s) ORDER BY at DESC LIMIT %s",
+            (days, limit),
+        )
+        return [self._event(r) for r in rows]
+
 
 def store_from_settings(storage: Storage, database_url: str) -> UserStore:
     if database_url.startswith(("postgresql://", "postgres://")):
@@ -598,8 +662,151 @@ def validate_pref(scope: str, scope_key: str, key: str, value: Any, source: str)
     return None
 
 
+# ---------------------------------------------------------------------------------------------
+# UI events, inferred proposals, and the option touch report
+# ---------------------------------------------------------------------------------------------
+UI_SCOPE = "ui"
+
+
+def validate_event(payload: dict[str, Any]) -> str | None:
+    name = payload.get("name")
+    if not isinstance(name, str) or not (1 <= len(name) <= 60) or not all(c.isalnum() or c in "._-:" for c in name):
+        return "name must be 1-60 characters of letters, digits, dots, dashes, colons, underscores"
+    props = payload.get("props", {})
+    if props is None:
+        props = {}
+    if not isinstance(props, dict) or len(json.dumps(props)) > 2000:
+        return "props must be a small object"
+    return None
+
+
+def ui_event(name: str, props: dict[str, Any] | None) -> dict[str, Any]:
+    """A UI event in the shape of a preference event, so one table (or folder) holds both."""
+    return {"key": name, "scope": UI_SCOPE, "old": None, "new": props or {}, "source": "ui", "at": _iso(_now())}
+
+
+def _proposal_id(key: str, value: Any) -> str:
+    return f"{key}={json.dumps(value, sort_keys=True)}"
+
+
+def proposals(prefs: list[Pref]) -> list[dict[str, Any]]:
+    """Choices repeated on several companies that the global default does not yet make.
+
+    Three strikes: the same explicit value at company scope on PROPOSAL_STRIKES companies, while the
+    global value (or the system default) says something else, yields one proposal. Dismissed twice,
+    a proposal is never shown again; accepting writes the global preference with source=inferred.
+    """
+    dismissed = next((p.value for p in prefs if p.ident == ("global", "", DISMISSED_KEY)), None)
+    dismissed = dismissed if isinstance(dismissed, dict) else {}
+    global_vals = {p.key: p.value for p in prefs if p.scope == "global"}
+    counts: dict[tuple[str, str], set[str]] = {}
+    values: dict[tuple[str, str], Any] = {}
+    for p in prefs:
+        if p.scope != "company" or p.key not in PROPOSABLE or p.source != "explicit":
+            continue
+        pid = _proposal_id(p.key, p.value)
+        counts.setdefault((p.key, pid), set()).add(p.scope_key)
+        values[(p.key, pid)] = p.value
+    out = []
+    for (key, pid), ciks in counts.items():
+        value = values[(key, pid)]
+        current = global_vals.get(key, DEFAULTS.get(key))
+        if len(ciks) < PROPOSAL_STRIKES or current == value or dismissed.get(pid, 0) >= PROPOSAL_DISMISSALS:
+            continue
+        out.append(
+            {
+                "id": pid,
+                "key": key,
+                "value": value,
+                "companies": sorted(ciks),
+                "current": current,
+                "message": f"You chose this on {len(ciks)} companies. Make it your default everywhere?",
+            }
+        )
+    return sorted(out, key=lambda d: (-len(d["companies"]), d["key"]))
+
+
+def accept_proposal(store: UserStore, user_id: str, key: str, value: Any) -> Pref:
+    if key not in PROPOSABLE:
+        raise ValueError("not a proposable preference")
+    old = next((p.value for p in store.list_prefs(user_id) if p.ident == ("global", "", key)), None)
+    pref = Pref(scope="global", scope_key="", key=key, value=value, source="inferred")
+    store.put_pref(user_id, pref)
+    store.add_event(
+        user_id, {"key": key, "scope": "global", "old": old, "new": value, "source": "inferred", "at": pref.updated_at}
+    )
+    return pref
+
+
+def dismiss_proposal(store: UserStore, user_id: str, key: str, value: Any) -> int:
+    """Count a dismissal; returns how many times this proposal has now been dismissed."""
+    prefs = store.list_prefs(user_id)
+    cur = next((p.value for p in prefs if p.ident == ("global", "", DISMISSED_KEY)), None)
+    cur = dict(cur) if isinstance(cur, dict) else {}
+    pid = _proposal_id(key, value)
+    cur[pid] = int(cur.get(pid, 0)) + 1
+    store.put_pref(user_id, Pref(scope="global", scope_key="", key=DISMISSED_KEY, value=cur, source="explicit"))
+    store.add_event(
+        user_id,
+        {
+            "key": "proposal.dismiss",
+            "scope": UI_SCOPE,
+            "old": None,
+            "new": {"id": pid, "times": cur[pid]},
+            "source": "ui",
+            "at": _iso(_now()),
+        },
+    )
+    return cur[pid]
+
+
+def touch_report(events: list[dict[str, Any]], days: int) -> dict[str, Any]:
+    """Which options people touch: preference writes by key and value, UI events by name."""
+    users: set[str] = set()
+    pref_keys: dict[str, dict[str, Any]] = {}
+    ui: dict[str, dict[str, Any]] = {}
+    for e in events:
+        uid = str(e.get("user_id") or "")
+        users.add(uid)
+        key = str(e.get("key") or "")
+        if e.get("scope") == UI_SCOPE:
+            d = ui.setdefault(key, {"name": key, "count": 0, "users": set()})
+            d["count"] += 1
+            d["users"].add(uid)
+            continue
+        d = pref_keys.setdefault(
+            key, {"key": key, "writes": 0, "users": set(), "scopes": {}, "values": {}, "inferred": 0}
+        )
+        d["writes"] += 1
+        d["users"].add(uid)
+        d["scopes"][str(e.get("scope"))] = d["scopes"].get(str(e.get("scope")), 0) + 1
+        v = json.dumps(e.get("new"), sort_keys=True)
+        d["values"][v] = d["values"].get(v, 0) + 1
+        if e.get("source") == "inferred":
+            d["inferred"] += 1
+    prefs_out = []
+    for d in sorted(pref_keys.values(), key=lambda d: -d["writes"]):
+        top = sorted(d["values"].items(), key=lambda kv: -kv[1])[:5]
+        prefs_out.append(
+            {
+                "key": d["key"],
+                "writes": d["writes"],
+                "users": len(d["users"]),
+                "inferred": d["inferred"],
+                "scopes": d["scopes"],
+                "top_values": [{"value": json.loads(v), "n": n} for v, n in top],
+            }
+        )
+    ui_out = [
+        {"name": d["name"], "count": d["count"], "users": len(d["users"])}
+        for d in sorted(ui.values(), key=lambda d: -d["count"])
+    ]
+    return {"days": days, "events": len(events), "users": len(users), "prefs": prefs_out, "ui": ui_out}
+
+
 __all__ = [
     "DEFAULTS",
+    "PROPOSABLE",
     "RESOLUTION",
     "SCOPES",
     "LakeUserStore",
@@ -607,14 +814,20 @@ __all__ = [
     "Pref",
     "SessionSigner",
     "User",
+    "accept_proposal",
+    "dismiss_proposal",
     "get_or_create_user",
     "google_email_for_code",
     "is_business_email",
     "issue_magic_link",
+    "proposals",
     "redeem_magic_link",
     "resolve",
     "scope_key_for",
     "store_from_settings",
+    "touch_report",
+    "ui_event",
+    "validate_event",
     "validate_pref",
     "validate_signup",
 ]

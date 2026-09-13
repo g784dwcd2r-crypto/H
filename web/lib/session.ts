@@ -5,7 +5,17 @@ import { api, type Resolved, type User } from "@/lib/api";
 export const SESSION_COOKIE = "fh_session";
 export const SESSION_DAYS = 30;
 
-export const DEFAULTS: Record<string, unknown> = { scale: "millions", statement: "IS", periods_shown: 8 };
+export const DEFAULTS: Record<string, unknown> = {
+  scale: "millions",
+  statement: "IS",
+  periods_shown: 8,
+  negative_style: "parentheses",
+  column_order: "newest_right",
+  period_mode: "as_filed",
+  restated: false,
+  headline_cards: ["revenue", "net_income", "eps_diluted", "operating_cash_flow"],
+  export_config: {},
+};
 
 export async function sessionToken(): Promise<string | null> {
   try {
@@ -27,14 +37,14 @@ export async function currentUser(): Promise<User | null> {
 }
 
 /** Resolved preferences for a context; system defaults when signed out or the API is unreachable. */
-export async function resolvedPrefs(ctx: { cik?: string | number; sic?: string; statement?: string }): Promise<{ prefs: Resolved; signedIn: boolean }> {
+export async function resolvedPrefs(ctx: { cik?: string | number; sic?: string | null; statement?: string }): Promise<{ prefs: Resolved; signedIn: boolean }> {
   const token = await sessionToken();
   const fallback: Resolved = Object.fromEntries(
     Object.entries(DEFAULTS).map(([k, v]) => [k, { value: v, scope: "default", scope_key: "", source: "default" }]),
   );
   if (!token) return { prefs: fallback, signedIn: false };
   try {
-    const r = await api.resolvePrefs(token, ctx);
+    const r = await api.resolvePrefs(token, { ...ctx, sic: ctx.sic ?? undefined });
     return { prefs: { ...fallback, ...r.prefs }, signedIn: true };
   } catch {
     return { prefs: fallback, signedIn: false };

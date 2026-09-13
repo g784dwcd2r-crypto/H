@@ -1,14 +1,16 @@
 // Streams the workbook from the Filings Hub API so the API key never reaches the browser.
+// Every export option is passed through as-is; the API validates them.
 import { NextRequest } from "next/server";
 import { api } from "@/lib/api";
 
 export async function GET(req: NextRequest) {
-  const cik = req.nextUrl.searchParams.get("cik");
-  const periods = req.nextUrl.searchParams.get("periods") ?? undefined;
-  const limit = parseInt(req.nextUrl.searchParams.get("limit") ?? "8", 10) || 8;
+  const q = new URLSearchParams(req.nextUrl.searchParams);
+  const cik = q.get("cik");
   if (!cik) return new Response("cik required", { status: 400 });
-  const upstream = await fetch(api.exportUrl(cik, periods, limit), { headers: api.key ? { "X-API-Key": api.key } : {} });
-  if (!upstream.ok) return new Response(`export failed (${upstream.status})`, { status: upstream.status });
+  q.delete("cik");
+  if (!q.get("limit")) q.set("limit", "8");
+  const upstream = await fetch(api.exportUrl(cik, q), { headers: api.key ? { "X-API-Key": api.key } : {} });
+  if (!upstream.ok) return new Response(`export failed (${upstream.status}): ${await upstream.text()}`, { status: upstream.status });
   return new Response(upstream.body, {
     headers: {
       "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",

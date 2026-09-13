@@ -1,6 +1,21 @@
 """Statement grid: periods as columns, as-reported lines as rows, merged across filings.
 
 Shared by the Excel exporter and the API's statements endpoint so both show the same thing.
+
+The grid has a *period mode*:
+
+* ``as_filed``  -- each column is the filing's own primary period (the quarter on an income statement,
+  the year to date on a 10-Q cash flow statement, the year on a 10-K). Nothing is derived.
+* ``annual``    -- fiscal years only.
+* ``quarterly`` -- discrete quarters. Q1-Q3 are the filings' own quarter columns where the filing
+  presents one; year-to-date statements (cash flow) become differences of consecutive year-to-date
+  columns; Q4 is the fiscal year less the nine-month year to date (or less Q1+Q2+Q3 when the Q3
+  filing reports no nine-month column). Balance sheets are points in time and stay as filed.
+* ``ltm``       -- trailing four quarters at each quarter end: YTD(n) + FY(prior) - YTD(n, prior year).
+
+``restated`` (as-filed and annual modes) takes each column's numbers from the newest later filing
+that presents the same period as a comparative, so a restated or reclassified prior year shows the
+company's latest view; the filing the numbers came from is named on the column.
 """
 
 from __future__ import annotations
@@ -10,12 +25,16 @@ from datetime import date
 from typing import Any
 
 from filings_hub.db.database import Database
-from filings_hub.ingest.sync_statements import CORE_STATEMENTS, STATEMENT_NAMES
+from filings_hub.ingest.sync_statements import CORE_STATEMENTS, STATEMENT_NAMES, month_end_round
+
+PERIOD_MODES = ("as_filed", "quarterly", "annual", "ltm")
+COLUMN_ORDERS = ("newest_right", "newest_left")
+INSTANT_STATEMENTS = ("BS",)  # points in time: never derived
 
 
 @dataclass
 class PeriodColumn:
-    period_label: str
+    period_label: str  # column label; the values dict is keyed by it
     period_end: date
     fiscal_year: int
     fiscal_quarter: int
@@ -28,6 +47,11 @@ class PeriodColumn:
     earnings_release_url: str | None
     statements_source: str | None
     checks_passed: bool | None
+    filed_label: str = ""  # the lake's period label (FY2025, Q3 2026); equals period_label when as filed
+    period_type: str = "quarter"
+    basis: str = "as filed"  # as filed | derived | restated
+    basis_note: str | None = None  # "FY2025 less nine months to Q3 2025", "from 0000320193-25-000079"
+    restated_from: str | None = None
 
     @property
     def is_provisional(self) -> bool:
@@ -59,18 +83,28 @@ class Grid:
     cik: int
     company_name: str
     ticker: str | None
-    periods: list[PeriodColumn]  # oldest -> newest
+    periods: list[PeriodColumn]  # oldest -> newest unless column_order is newest_left
     statements: list[StatementGrid]
+    period_mode: str = "as_filed"
+    restated: bool = False
+    column_order: str = "newest_right"
 
     def to_dict(self) -> dict[str, Any]:
         return {
             "cik": self.cik,
             "company_name": self.company_name,
             "ticker": self.ticker,
+            "period_mode": self.period_mode,
+            "restated": self.restated,
+            "column_order": self.column_order,
             "periods": [
                 {
                     "period_label": p.period_label,
+                    "filed_label": p.filed_label,
                     "period_end": p.period_end.isoformat(),
+                    "fiscal_year": p.fiscal_year,
+                    "fiscal_quarter": p.fiscal_quarter,
+                    "period_type": p.period_type,
                     "accession": p.accession,
                     "form": p.form,
                     "filed_date": p.filed_date.isoformat() if p.filed_date else None,
@@ -79,6 +113,9 @@ class Grid:
                     "statements_source": p.statements_source,
                     "is_provisional": p.is_provisional,
                     "checks_passed": p.checks_passed,
+                    "basis": p.basis,
+                    "basis_note": p.basis_note,
+                    "restated_from": p.restated_from,
                 }
                 for p in self.periods
             ],
@@ -105,30 +142,23 @@ class Grid:
         }
 
 
-def _period_columns(db: Database, cik: int, period_labels: list[str] | None, limit: int) -> list[PeriodColumn]:
-    if period_labels:
-        placeholders = ", ".join("?" for _ in period_labels)
-        rows = db.query(
-            f"SELECT p.*, f.filing_index_url, f.primary_doc_url, e.primary_doc_url AS er_url "
-            f"FROM {db.periods_table} p LEFT JOIN filings f ON f.accession = p.results_accession "
-            f"LEFT JOIN filings e ON e.accession = p.earnings_release_accession "
-            f"WHERE p.cik = ? AND p.period_label IN ({placeholders}) ORDER BY p.period_end",
-            [cik, *period_labels],
-        )
-    else:
-        rows = db.query(
-            f"SELECT * FROM (SELECT p.*, f.filing_index_url, f.primary_doc_url, e.primary_doc_url AS er_url "
-            f"FROM {db.periods_table} p LEFT JOIN filings f ON f.accession = p.results_accession "
-            f"LEFT JOIN filings e ON e.accession = p.earnings_release_accession "
-            f"WHERE p.cik = ? ORDER BY p.period_end DESC LIMIT ?) t ORDER BY period_end",
-            [cik, limit],
-        )
+def _all_periods(db: Database, cik: int) -> list[PeriodColumn]:
+    """Every period the lake knows for the company, oldest first."""
+    rows = db.query(
+        f"SELECT p.*, f.filing_index_url, f.primary_doc_url, e.primary_doc_url AS er_url "
+        f"FROM {db.periods_table} p LEFT JOIN filings f ON f.accession = p.results_accession "
+        f"LEFT JOIN filings e ON e.accession = p.earnings_release_accession "
+        f"WHERE p.cik = ? ORDER BY p.period_end, p.results_filed_date",
+        [cik],
+    )
     return [
         PeriodColumn(
             period_label=r["period_label"],
+            filed_label=r["period_label"],
             period_end=r["period_end"],
             fiscal_year=r["fiscal_year"],
             fiscal_quarter=r["fiscal_quarter"],
+            period_type=r.get("period_type") or "quarter",
             accession=r["results_accession"],
             form=r.get("results_form"),
             filed_date=r.get("results_filed_date"),
@@ -144,17 +174,19 @@ def _period_columns(db: Database, cik: int, period_labels: list[str] | None, lim
 
 
 def _statement_rows(
-    db: Database, accessions: list[str], statements: tuple[str, ...]
+    db: Database, accessions: list[str], statements: tuple[str, ...], primary_only: bool = True
 ) -> dict[str, dict[str, list[dict[str, Any]]]]:
-    """accession -> statement code -> primary-period lines (ordered)."""
+    """accession -> statement code -> lines (ordered). Primary-period lines only unless asked."""
     if not accessions:
         return {}
     ph_acc = ", ".join("?" for _ in accessions)
     ph_stmt = ", ".join("?" for _ in statements)
     rows = db.query(
         f"SELECT accession, statement, line_order, concept, label, is_abstract, is_subtotal, parent_concept, unit, "
-        f"value_presented, value FROM statements WHERE accession IN ({ph_acc}) AND statement IN ({ph_stmt}) "
-        f"AND is_primary_period AND NOT is_parenthetical ORDER BY accession, statement, line_order",
+        f"value_presented, value, period_end_rounded, qtrs, is_primary_period "
+        f"FROM statements WHERE accession IN ({ph_acc}) AND statement IN ({ph_stmt}) "
+        f"AND NOT is_parenthetical {'AND is_primary_period' if primary_only else ''} "
+        f"ORDER BY accession, statement, line_order",
         [*accessions, *statements],
     )
     out: dict[str, dict[str, list[dict[str, Any]]]] = {}
@@ -199,33 +231,237 @@ def merge_line_order(per_period: list[list[str]]) -> list[str]:
     return merged
 
 
+PeriodKey = tuple[date | None, int | None]  # (period_end_rounded, qtrs)
+
+
+class _Rows:
+    """Statement rows of many filings, indexed by filing, statement and reported period."""
+
+    def __init__(self, rows_by_acc: dict[str, dict[str, list[dict[str, Any]]]]):
+        self._rows = rows_by_acc
+        self._primary: dict[tuple[str, str], list[tuple[str, dict[str, Any]]]] = {}
+        self._groups: dict[tuple[str, str], dict[PeriodKey, dict[str, dict[str, Any]]]] = {}
+        self._concepts: dict[tuple[str, str, PeriodKey], dict[str, list[dict[str, Any]]]] = {}
+
+    def primary(self, acc: str, stmt: str) -> list[tuple[str, dict[str, Any]]]:
+        """The filing's own primary-period lines, keyed and in line order."""
+        k = (acc, stmt)
+        if k not in self._primary:
+            rows = [r for r in self._rows.get(acc, {}).get(stmt, []) if r.get("is_primary_period")]
+            self._primary[k] = _keyed_lines(rows)
+        return self._primary[k]
+
+    def groups(self, acc: str, stmt: str) -> dict[PeriodKey, dict[str, dict[str, Any]]]:
+        """(period_end_rounded, qtrs) -> key -> row, for every period the filing presents."""
+        k = (acc, stmt)
+        if k not in self._groups:
+            by_period: dict[PeriodKey, list[dict[str, Any]]] = {}
+            for r in self._rows.get(acc, {}).get(stmt, []):
+                by_period.setdefault((r.get("period_end_rounded"), r.get("qtrs")), []).append(r)
+            self._groups[k] = {pk: dict(_keyed_lines(rows)) for pk, rows in by_period.items()}
+        return self._groups[k]
+
+    def has_period(self, acc: str, stmt: str, pk: PeriodKey) -> bool:
+        g = self.groups(acc, stmt).get(pk)
+        return bool(g) and any(r.get("value_presented") is not None for r in g.values())
+
+    def value(self, acc: str, stmt: str, key: str, pk: PeriodKey, concept: str | None = None) -> float | None:
+        """The presented value of line `key` for the period `pk` in filing `acc`; None when absent.
+
+        Falls back to the concept when the filing's label for the line drifted, provided the concept
+        appears once in that period.
+        """
+        g = self.groups(acc, stmt).get(pk)
+        if not g:
+            return None
+        r = g.get(key)
+        if r is None and concept:
+            ck = (acc, stmt, pk)
+            if ck not in self._concepts:
+                by_c: dict[str, list[dict[str, Any]]] = {}
+                for row in g.values():
+                    by_c.setdefault(row["concept"], []).append(row)
+                self._concepts[ck] = by_c
+            cands = self._concepts[ck].get(concept, [])
+            r = cands[0] if len(cands) == 1 else None
+        return None if r is None else r.get("value_presented")
+
+    def primary_qtrs(self, acc: str, stmt: str) -> int:
+        """Duration of the filing's own column on this statement (0 when it presents instants only)."""
+        qs = [r["qtrs"] for _, r in self.primary(acc, stmt) if r.get("qtrs")]
+        return max(qs) if qs else 0
+
+
+def _pk(p: PeriodColumn, qtrs: int) -> PeriodKey:
+    return (month_end_round(p.period_end), qtrs)
+
+
+class _Derive:
+    """Quarter and trailing-four-quarter arithmetic for one statement of one company."""
+
+    def __init__(self, rows: _Rows, stmt: str, periods: list[PeriodColumn]):
+        self.rows = rows
+        self.stmt = stmt
+        self.byq: dict[tuple[int, int], PeriodColumn] = {}
+        for p in periods:
+            if p.period_type != "transition":
+                self.byq.setdefault((p.fiscal_year, p.fiscal_quarter), p)
+
+    def ytd(self, fy: int, n: int, key: str, concept: str) -> float | None:
+        p = self.byq.get((fy, n))
+        if p is None:
+            return None
+        return self.rows.value(p.accession, self.stmt, key, _pk(p, n), concept)
+
+    def quarter(self, fy: int, n: int, key: str, concept: str) -> float | None:
+        p = self.byq.get((fy, n))
+        if p is None:
+            return None
+        if n == 4:
+            fy_v = self.rows.value(p.accession, self.stmt, key, _pk(p, 4), concept)
+            if fy_v is None:
+                return None
+            y3 = self.ytd(fy, 3, key, concept)
+            if y3 is not None:
+                return fy_v - y3
+            qs = [self.quarter(fy, i, key, concept) for i in (1, 2, 3)]
+            return None if any(q is None for q in qs) else fy_v - sum(q for q in qs if q is not None)
+        direct = self.rows.value(p.accession, self.stmt, key, _pk(p, 1), concept)
+        if direct is not None or n == 1:
+            return direct
+        yn, yprev = self.ytd(fy, n, key, concept), self.ytd(fy, n - 1, key, concept)
+        return None if yn is None or yprev is None else yn - yprev
+
+    def q4_basis(self, fy: int) -> str | None:
+        p3 = self.byq.get((fy, 3))
+        if p3 is not None and self.rows.has_period(p3.accession, self.stmt, _pk(p3, 3)):
+            return f"FY{fy} less nine months to {p3.period_label}"
+        if all((fy, i) in self.byq for i in (1, 2, 3)):
+            return f"FY{fy} less Q1, Q2 and Q3"
+        return None
+
+    def ltm(self, fy: int, n: int, key: str, concept: str) -> float | None:
+        if n == 4:
+            return self.ytd(fy, 4, key, concept)
+        p = self.byq.get((fy, n))
+        yn = self.ytd(fy, n, key, concept)
+        fy_prev = self.ytd(fy - 1, 4, key, concept)
+        y_prior = None
+        prior = self.byq.get((fy - 1, n))
+        if p is not None and prior is not None:  # the comparative column in this year's filing first
+            y_prior = self.rows.value(p.accession, self.stmt, key, _pk(prior, n), concept)
+        if y_prior is None:
+            y_prior = self.ytd(fy - 1, n, key, concept)
+        if yn is not None and fy_prev is not None and y_prior is not None:
+            return yn + fy_prev - y_prior
+        total = 0.0
+        y, q = fy, n
+        for _ in range(4):
+            v = self.quarter(y, q, key, concept)
+            if v is None:
+                return None
+            total += v
+            q -= 1
+            if q == 0:
+                y, q = y - 1, 4
+        return total
+
+
+def _select(
+    all_periods: list[PeriodColumn], period_labels: list[str] | None, limit: int, mode: str
+) -> list[PeriodColumn]:
+    if period_labels:
+        wanted = set(period_labels)
+        return [p for p in all_periods if p.period_label in wanted]
+    if mode == "annual":
+        return [p for p in all_periods if p.period_type == "annual"][-limit:]
+    return all_periods[-limit:]
+
+
+def _restating_filing(
+    rows: _Rows, col: PeriodColumn, stmt: str, all_periods: list[PeriodColumn]
+) -> PeriodColumn | None:
+    """The newest later filing that presents this column's own period on this statement."""
+    q = rows.primary_qtrs(col.accession, stmt)
+    pk = _pk(col, q)
+    later = [
+        p
+        for p in all_periods
+        if p.accession != col.accession
+        and p.filed_date
+        and col.filed_date
+        and p.filed_date > col.filed_date
+        and rows.has_period(p.accession, stmt, pk)
+    ]
+    return max(later, key=lambda p: (p.filed_date, p.period_end)) if later else None
+
+
 def build_grid(
     db: Database,
     cik: int,
     period_labels: list[str] | None = None,
     limit: int = 8,
     statements: tuple[str, ...] = CORE_STATEMENTS,
+    period_mode: str = "as_filed",
+    restated: bool = False,
+    column_order: str = "newest_right",
 ) -> Grid:
+    if period_mode not in PERIOD_MODES:
+        raise ValueError(f"period_mode must be one of {', '.join(PERIOD_MODES)}")
+    if column_order not in COLUMN_ORDERS:
+        raise ValueError(f"column_order must be one of {', '.join(COLUMN_ORDERS)}")
     comp = db.query("SELECT name, ticker FROM companies WHERE cik = ?", [cik])
     if not comp:
         raise KeyError(f"unknown CIK {cik}")
-    periods = _period_columns(db, cik, period_labels, limit)
-    rows_by_acc = _statement_rows(db, [p.accession for p in periods], statements)
+    derived_mode = period_mode in ("quarterly", "ltm")
+    restated = bool(restated) and not derived_mode
+    all_periods = _all_periods(db, cik)
+    shown = _select(all_periods, period_labels, limit, period_mode)
+
+    need = {p.accession for p in shown}
+    if derived_mode:
+        years = {p.fiscal_year for p in shown}
+        years |= {y - 1 for y in years}
+        need |= {p.accession for p in all_periods if p.fiscal_year in years}
+    if restated and shown:
+        oldest = min(p.filed_date for p in shown if p.filed_date) if any(p.filed_date for p in shown) else None
+        if oldest:
+            need |= {p.accession for p in all_periods if p.filed_date and p.filed_date >= oldest}
+    rows = _Rows(_statement_rows(db, sorted(need), statements, primary_only=not (derived_mode or restated)))
+
+    # column labels and basis
+    for p in shown:
+        p.period_label, p.basis, p.basis_note = p.filed_label, "as filed", None
+        if p.period_type == "transition":
+            continue
+        if period_mode == "quarterly" and p.fiscal_quarter == 4:
+            p.period_label, p.basis = f"Q4 {p.fiscal_year}", "derived"
+        elif period_mode == "ltm" and p.fiscal_quarter != 4:
+            p.period_label, p.basis = f"LTM {p.filed_label}", "derived"
+            p.basis_note = f"twelve months to {p.filed_label}"
+
     grids: list[StatementGrid] = []
     for code in statements:
         per_period_keys: list[list[str]] = []
-        per_period_lines: list[tuple[str, dict[str, dict[str, Any]]]] = []
-        for p in reversed(periods):  # newest first
-            keyed = _keyed_lines(rows_by_acc.get(p.accession, {}).get(code, []))
+        per_period_lines: list[tuple[PeriodColumn, dict[str, dict[str, Any]]]] = []
+        for p in reversed(shown):  # newest first
+            keyed = rows.primary(p.accession, code)
             if not keyed:
                 continue
             per_period_keys.append([k for k, _ in keyed])
-            per_period_lines.append((p.period_label, {k: r for k, r in keyed}))
+            per_period_lines.append((p, dict(keyed)))
         if not per_period_keys:
             continue
         order = merge_line_order(per_period_keys)
         lines: dict[str, GridLine] = {}
-        for label, keyed in per_period_lines:  # newest first -> newest label/attributes win
+        derive = _Derive(rows, code, all_periods) if derived_mode and code not in INSTANT_STATEMENTS else None
+        for p, keyed in per_period_lines:  # newest first -> newest label/attributes win
+            source: PeriodColumn | None = None
+            if restated:
+                source = _restating_filing(rows, p, code, all_periods)
+                if source is not None and p.basis == "as filed":
+                    p.basis, p.restated_from = "restated", source.accession
+                    p.basis_note = f"as presented in {source.form or 'the filing'} {source.accession}"
             for key, r in keyed.items():
                 ln = lines.get(key)
                 if ln is None:
@@ -239,20 +475,47 @@ def build_grid(
                         unit=r.get("unit"),
                     )
                     lines[key] = ln
-                ln.values[label] = r.get("value_presented")
+                value = r.get("value_presented")
+                if ln.is_abstract:
+                    value = None
+                elif derive is not None and p.period_type != "transition":
+                    if r.get("qtrs"):  # a duration: derive it
+                        fn = derive.quarter if period_mode == "quarterly" else derive.ltm
+                        value = fn(p.fiscal_year, p.fiscal_quarter, key, r["concept"])
+                    elif r.get("period_end_rounded") and r["period_end_rounded"] != month_end_round(p.period_end):
+                        # an opening balance: the closing balance of the period the derived flows start after
+                        fy, n = p.fiscal_year, p.fiscal_quarter
+                        prev = (fy, n - 1) if n > 1 else (fy - 1, 4)
+                        if period_mode == "ltm":
+                            prev = (fy - 1, n)
+                        pp = derive.byq.get(prev) if n < 4 or period_mode == "quarterly" else None
+                        if pp is not None:
+                            value = rows.value(pp.accession, code, key, _pk(pp, 0), r["concept"])
+                elif source is not None:
+                    v = rows.value(
+                        source.accession, code, key, (r.get("period_end_rounded"), r.get("qtrs")), r["concept"]
+                    )
+                    value = v if v is not None else value
+                ln.values[p.period_label] = value
                 if r.get("label"):
-                    ln.labels[label] = r["label"]
+                    ln.labels[p.period_label] = r["label"]
                 if ln.unit is None and r.get("unit"):
                     ln.unit = r["unit"]
+            if derive is not None and p.basis == "derived" and period_mode == "quarterly" and not p.basis_note:
+                p.basis_note = derive.q4_basis(p.fiscal_year) or "Q1-Q3 filings missing; nothing to derive from"
         ordered = [lines[k] for k in order]
         for ln in ordered:
-            for p in periods:
+            for p in shown:
                 ln.values.setdefault(p.period_label, None)
         grids.append(StatementGrid(code=code, name=STATEMENT_NAMES[code], lines=ordered))
+    periods = list(shown) if column_order == "newest_right" else list(reversed(shown))
     return Grid(
         cik=cik,
         company_name=comp[0]["name"],
         ticker=comp[0].get("ticker"),
         periods=periods,
         statements=grids,
+        period_mode=period_mode,
+        restated=restated,
+        column_order=column_order,
     )

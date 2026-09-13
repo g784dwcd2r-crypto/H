@@ -1,7 +1,10 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import FollowButton from "@/components/FollowButton";
-import { api, fmtDate, fmtEps, fmtMoney, isAnnual, NotFound, type Doc, type Period } from "@/lib/api";
+import HeadlineCards from "@/components/HeadlineCards";
+import { api, fmtDate, fmtEps, fmtMoney, isAnnual, NotFound, type Doc, type Period, type Pref } from "@/lib/api";
+import type { Remembered } from "@/lib/local";
+import { sessionToken } from "@/lib/session";
 
 export const dynamic = "force-dynamic";
 
@@ -18,6 +21,17 @@ export default async function CompanyPage({ params }: { params: Promise<{ cik: s
   }
   const c = data.company;
   const id = String(c.cik);
+  const token = await sessionToken();
+  let prefList: Pref[] = [];
+  if (token) {
+    try {
+      prefList = (await api.listPrefs(token)).prefs;
+    } catch {
+      prefList = [];
+    }
+  }
+  const followed = prefList.find((p) => p.scope === "global" && p.key === "watchlist");
+  const initialWatch = Array.isArray(followed?.value) ? (followed!.value as Remembered[]) : undefined;
   const [docsResp, peersResp] = await Promise.all([
     api.documents(id, 10).catch(() => null),
     api.peers(id).catch(() => null),
@@ -35,6 +49,14 @@ export default async function CompanyPage({ params }: { params: Promise<{ cik: s
   const latestAnnual = periods.periods.find((p) => isAnnual(p.results_form));
   const latestQuarter = periods.periods.find((p) => !isAnnual(p.results_form));
   const latestRelease = periods.periods.find((p) => p.earnings_release_accession);
+  // the headline cards show the latest period that has numbers, against the same period a year earlier
+  const hasNumbers = (p: Period) => !!p.metrics && Object.values(p.metrics).some((v) => v !== null && v !== undefined);
+  const headline = periods.periods.find(hasNumbers);
+  const yearAgo = headline
+    ? periods.periods.find(
+        (p) => p !== headline && hasNumbers(p) && p.period_label.replace(/\d{4}/, "") === headline.period_label.replace(/\d{4}/, "") && isAnnual(p.results_form) === isAnnual(headline.results_form),
+      )
+    : undefined;
   const release = (p: Period | undefined): Doc | undefined =>
     p?.earnings_release_accession ? (docs[p.earnings_release_accession] ?? []).find((d) => d.kind === "release") : undefined;
   const extras = (p: Period): Doc[] =>
@@ -56,8 +78,23 @@ export default async function CompanyPage({ params }: { params: Promise<{ cik: s
           </h1>
           <p className="meta">{c.sic_description ?? ""}{c.fiscal_year_end ? ` · fiscal year ends ${fye(c.fiscal_year_end)}` : ""}{!c.is_active && " · no financial report in the last 18 months"}</p>
         </div>
-        <FollowButton company={{ cik: c.cik, name: c.name, ticker: c.ticker }} />
+        <FollowButton company={{ cik: c.cik, name: c.name, ticker: c.ticker }} signedIn={!!token} initial={initialWatch} />
       </div>
+
+      {headline && (
+        <HeadlineCards
+          cik={id}
+          sic={c.sic ?? null}
+          signedIn={!!token}
+          initialPrefs={prefList}
+          preset={data.headline_preset}
+          labels={data.metric_labels}
+          latest={headline.metrics ?? null}
+          prior={yearAgo?.metrics ?? null}
+          periodLabel={headline.period_label}
+          priorLabel={yearAgo?.period_label ?? null}
+        />
+      )}
 
       <section className="summary">
         <div className="block">

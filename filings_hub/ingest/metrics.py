@@ -50,8 +50,90 @@ METRICS: dict[str, tuple[str, tuple[str, ...]]] = {
     ),
     "total_assets": ("BS", ("Assets",)),
     "operating_cash_flow": ("CF", OPERATING_CF),
+    # wider set for the swappable headline cards; still first-concept-that-appears, never derived
+    "gross_profit": ("IS", ("GrossProfit",)),
+    "operating_income": ("IS", ("OperatingIncomeLoss",)),
+    "pretax_income": (
+        "IS",
+        (
+            "IncomeLossFromContinuingOperationsBeforeIncomeTaxesExtraordinaryItemsNoncontrollingInterest",
+            "IncomeLossFromContinuingOperationsBeforeIncomeTaxesMinorityInterestAndIncomeLossFromEquityMethodInvestments",
+        ),
+    ),
+    "income_tax": ("IS", ("IncomeTaxExpenseBenefit",)),
+    "eps_basic": ("IS", ("EarningsPerShareBasic", "EarningsPerShareBasicAndDiluted")),
+    "shares_diluted": ("IS", ("WeightedAverageNumberOfDilutedSharesOutstanding",)),
+    "net_interest_income": ("IS", ("InterestIncomeExpenseNet", "InterestIncomeExpenseAfterProvisionForLoanLoss")),
+    "provision_for_credit_losses": (
+        "IS",
+        ("ProvisionForLoanLeaseAndOtherLosses", "ProvisionForLoanLossesExpensed", "ProvisionForCreditLosses"),
+    ),
+    "noninterest_income": ("IS", ("NoninterestIncome",)),
+    "cash": (
+        "BS",
+        ("CashAndCashEquivalentsAtCarryingValue", "CashCashEquivalentsRestrictedCashAndRestrictedCashEquivalents"),
+    ),
+    "total_liabilities": ("BS", ("Liabilities",)),
+    "total_equity": (
+        "BS",
+        ("StockholdersEquity", "StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest"),
+    ),
+    "long_term_debt": ("BS", ("LongTermDebtNoncurrent", "LongTermDebt")),
+    "deposits": ("BS", ("Deposits",)),
+    "loans": ("BS", ("LoansAndLeasesReceivableNetReportedAmount", "NotesReceivableNet")),
+    "capex": ("CF", ("PaymentsToAcquirePropertyPlantAndEquipment", "PaymentsToAcquireProductiveAssets")),
+    "investing_cash_flow": ("CF", ("NetCashProvidedByUsedInInvestingActivities",)),
+    "financing_cash_flow": ("CF", ("NetCashProvidedByUsedInFinancingActivities",)),
+    "dividends_paid": ("CF", ("PaymentsOfDividends", "PaymentsOfDividendsCommonStock")),
+    "buybacks": ("CF", ("PaymentsForRepurchaseOfCommonStock",)),
+    "depreciation": ("CF", ("DepreciationDepletionAndAmortization", "DepreciationAndAmortization", "Depreciation")),
 }
 METRIC_NAMES = tuple(METRICS)
+METRIC_LABELS: dict[str, str] = {
+    "revenue": "Revenue",
+    "net_income": "Net income",
+    "eps_diluted": "Diluted EPS",
+    "total_assets": "Total assets",
+    "operating_cash_flow": "Operating cash flow",
+    "gross_profit": "Gross profit",
+    "operating_income": "Operating income",
+    "pretax_income": "Pre-tax income",
+    "income_tax": "Income tax",
+    "eps_basic": "Basic EPS",
+    "shares_diluted": "Diluted shares",
+    "net_interest_income": "Net interest income",
+    "provision_for_credit_losses": "Provision for credit losses",
+    "noninterest_income": "Non-interest income",
+    "cash": "Cash",
+    "total_liabilities": "Total liabilities",
+    "total_equity": "Equity",
+    "long_term_debt": "Long-term debt",
+    "deposits": "Deposits",
+    "loans": "Loans",
+    "capex": "Capital expenditure",
+    "investing_cash_flow": "Investing cash flow",
+    "financing_cash_flow": "Financing cash flow",
+    "dividends_paid": "Dividends paid",
+    "buybacks": "Buybacks",
+    "depreciation": "Depreciation and amortisation",
+}
+# what the headline cards show by default for an industry (SIC prefix -> metrics); banks and insurers
+# have no "revenue" line worth the name
+HEADLINE_PRESETS: dict[str, list[str]] = {
+    "60": ["net_interest_income", "provision_for_credit_losses", "net_income", "total_assets"],  # banks
+    "61": ["net_interest_income", "provision_for_credit_losses", "net_income", "total_assets"],  # credit
+    "63": ["revenue", "net_income", "total_assets", "total_equity"],  # insurance
+    "67": ["revenue", "net_income", "total_assets", "total_equity"],  # holding companies, REITs
+}
+
+
+def headline_preset(sic: str | None) -> list[str]:
+    """The default headline cards for an industry code; the generic four otherwise."""
+    for prefix, cards in HEADLINE_PRESETS.items():
+        if sic and str(sic).startswith(prefix):
+            return list(cards)
+    return ["revenue", "net_income", "eps_diluted", "operating_cash_flow"]
+
 
 COMPANY_METRICS_SCHEMA = pa.schema(
     [
@@ -176,9 +258,12 @@ def upsert_company_metrics(storage: Storage, ciks: Iterable[int]) -> int:
 
 __all__ = [
     "COMPANY_METRICS_SCHEMA",
+    "HEADLINE_PRESETS",
     "METRICS",
+    "METRIC_LABELS",
     "METRIC_NAMES",
     "build_company_metrics",
+    "headline_preset",
     "period_metrics",
     "upsert_company_metrics",
 ]
