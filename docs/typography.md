@@ -44,6 +44,7 @@ To reproduce a conversion with an extracted source TTF:
 
 ```python
 from fontTools.ttLib import TTFont
+
 font = TTFont("AlbertSans-Regular.ttf", recalcTimestamp=False)
 font.flavor = "woff2"
 font.save("albert-sans-regular.woff2")
