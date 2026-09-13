@@ -144,6 +144,18 @@ def create_app(
         import threading
 
         threading.Thread(target=database.warm, name="filings-warm", daemon=True).start()
+    try:
+        universe = database.query("SELECT count(*) AS n FROM companies")[0]["n"]
+    except Exception:  # pragma: no cover - a broken lake is reported by the first request instead
+        universe = None
+    if not universe:
+        # A service pointed at the wrong place (the image's default LAKE_ROOT=/data, an unset
+        # environment group) comes up healthy and serves an empty site; say so where the
+        # platform's log is read. /health carries the same facts under "lake".
+        log.warning(
+            "serving from %s, which has no companies table: check LAKE_ROOT and the storage credentials",
+            storage.root,
+        )
     limiter = RateLimiter(s.api_rate_limit_per_minute)
     if not s.api_key:
         log.warning("API_KEY is empty: the API is unauthenticated (dev mode)")
