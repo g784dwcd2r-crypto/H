@@ -2,7 +2,7 @@
 
 ## Product direction
 
-The public homepage implements the approved editorial reference: warm white, near-black text, broad serif headings, thin rules, direct company search, and a compact financial workspace. Blue identifies selection and source evidence. Research pages share this language with denser tables and controls. System fonts remove a third-party font request and keep the layout usable offline.
+The public homepage develops the editorial reference with an almost-white canvas (`#fefefd`), deep ink (`#101522`), broad serif headings, thin rules, direct company search, and a compact financial workspace. Royal blue (`#244ad8`) highlights the final headline word, selected observations, source links and interaction states. A light preview frame and soft shadow replace the heavy grey surround; a dark ink-to-navy research section gives the page a contrasting focal point. Research pages share the surface and color tokens with denser tables and controls. System fonts remove a third-party font request and keep the layout usable offline.
 
 The homepage is real HTML, not a screenshot. The example's three tabs and financial cells work, and each selected observation links to the original source. Apple is identified by a neutral letter monogram, not an unofficial recreated brand logo.
 
@@ -31,6 +31,8 @@ The five annual metrics for fiscal 2024 and 2023 were checked against page 1 of 
 ## Responsive and accessible behavior
 
 The mobile homepage places search ahead of the simplified financial example. Wide research tables scroll inside their containers. Semantic landmarks, headings, labels, skip navigation, visible keyboard focus and reduced-motion support are included. A 390px viewport DOM inspection found no page overflow on the homepage. Main account and source interactions must also pass the browser test suite after API changes.
+
+Motion is finite and responds to intent: a short entrance on the hero, one reveal when lower sections enter the viewport, small arrow movements on hover, and a brief transition when an example tab or observation changes. Financial figures never count up, cycle automatically or move in the real statement table. The reveal enhancement never hides content in CSS; reading and source links remain available without JavaScript or IntersectionObserver. Reduced-motion preferences disable entrances and scroll reveals, cancel active reveal animations when changed, and remove smooth scrolling in the page and filing reader. No animation library or new dependency is required.
 
 ## Validation
 
