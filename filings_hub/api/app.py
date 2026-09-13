@@ -139,7 +139,7 @@ def create_app(
 ) -> FastAPI:
     s = settings or get_settings()
     storage = Storage(s.resolved_lake_root())
-    database = db or Database(s.database_url, storage)
+    database = db or Database(s.database_url, storage, lazy_remote_views=True)
     if database.is_remote_lake:
         import threading
 
@@ -211,12 +211,17 @@ def create_app(
 
     @app.get("/health")
     def health() -> dict[str, Any]:
-        runs = database.query("SELECT run_id, status, finished_at FROM run_log ORDER BY started_at DESC LIMIT 1")
+        # Never wait on the lake: the platform's health check decides whether the service is
+        # reachable at all, and a warm-up or a slow read on another thread must not fail it.
+        runs = database.query_if_idle(
+            "SELECT run_id, status, finished_at FROM run_log ORDER BY started_at DESC LIMIT 1", timeout=1.0
+        )
         return {
             "status": "ok",
             "version": __version__,
             "backend": database.backend,
             "last_run": runs[0] if runs else None,
+            "busy": runs is None,
         }
 
     @app.get("/search")

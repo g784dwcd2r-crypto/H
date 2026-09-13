@@ -69,3 +69,30 @@ ownership mobile step both navigate by keyboard), and it affects real
 keyboard and touch users. Decision: upgrade the web app to Next 16 in its own
 PR rather than retry or loosen the browser tests. Until then a red `ci / web`
 that names one of those steps is this bug, not the change under test.
+
+## The API opens its port before it reads a single filings footer (2026-09-13)
+
+The first deploy of the per-company layout still never came up. Two reasons, both measured
+against the live lake from a sandbox: binding a multi-file table reads the footer of every
+file (about a second each over object storage), and start-up bound `filings` (126 files)
+plus the four raw FSDS tables (278 files) before the port opened. Then the warm-up counted
+`filings WHERE cik = 0`, which on an uncompacted lake reads every row group, while holding
+the one serving lock, so `/health` waited behind it and the platform never saw the service
+healthy.
+
+Rules: the serving API binds neither `filings` nor the FSDS tables at start-up. `warm()`
+binds `filings` on its own DuckDB connection (connections share the catalog and the parquet
+metadata cache) and counts it, which is answered from footers alone; until it finishes the
+table reads as empty. The FSDS tables are ingestion's and are never bound when serving.
+`/health` never waits on the lake: it gives the serving lock a second and otherwise reports
+`busy`. Ingestion keeps binding everything up front.
+
+The other cost was per file, not per table: DuckDB asks fsspec for a file's size and
+modification time about seven times per file it reads, and with no listing cache each was a
+HEAD request (0.2s through the sandbox proxy; a company's seventy statement files took 84s).
+The DuckDB filesystem now keeps directory listings for a minute, which answers those lookups
+from the listing the glob already fetched: the same seventy files read in 7.8s cold and 1s
+warm, and the 126-file filings table binds and counts in 18s. `Storage` writes and deletes drop
+the listing they touch, so a process still sees its own writes at once; another process's new
+partition is seen within a minute. Per-company statement compaction (one file per company
+instead of one per filing) remains the next step for the company page.

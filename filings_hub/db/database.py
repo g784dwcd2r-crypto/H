@@ -65,9 +65,22 @@ PARTITIONED_TABLES = {
 
 
 class Database:
-    def __init__(self, url: str | None = None, storage: Storage | None = None, local_cache: bool = True):
+    def __init__(
+        self,
+        url: str | None = None,
+        storage: Storage | None = None,
+        local_cache: bool = True,
+        lazy_remote_views: bool = False,
+    ):
+        """`lazy_remote_views`: the serving API's mode over a remote lake. Binding the year-partitioned
+        filings table reads the footer of every file (about a second each over object storage, a
+        hundred-odd files) and the raw FSDS tables are never served, so start-up binds neither:
+        `warm()` binds filings on its own connection while the API already answers, and until then
+        the table reads as empty. Ingestion keeps the default and binds everything up front."""
         self.url = url or ""
         self.storage = storage
+        self.lazy_remote_views = lazy_remote_views
+        self.filings_ready = True
         self._local_dir: str | None = None
         self._local_stamp: dict[str, tuple[int, str]] = {}
         self._local_checked = 0.0
@@ -204,7 +217,10 @@ class Database:
         # On a remote lake the per-company tables get no whole-table view (binding one lists every
         # object in the table); they read from the typed empty stand-in and `table()` scopes real
         # reads to one company's partition.
-        views = self.duck.create_views(partitioned=not self.is_remote_lake)
+        lazy = self.lazy_remote_views and self.is_remote_lake
+        views = self.duck.create_views(partitioned=not self.is_remote_lake, filings=not lazy, fsds=not lazy)
+        if lazy:
+            self.filings_ready = False
         if self._local_dir is not None:
             for name, rel in LOCAL_TABLES.items():
                 if self._localise(name, rel):
@@ -218,8 +234,10 @@ class Database:
             # has no partition, and a missing dataset's view points at it until the data arrives
             self.duck.register(f"_empty_{name}", schema.empty_table())
             if not views.get(name):
-                if not (self.is_remote_lake and name in PER_COMPANY_TABLES):
-                    self._missing_views.add(name)  # per-company tables are never retried as whole views
+                if not (self.is_remote_lake and name in PER_COMPANY_TABLES) and not (lazy and name == "filings"):
+                    # per-company tables are never retried as whole views; lazily bound filings
+                    # belong to warm(), not to the periodic probe that runs under the serving lock
+                    self._missing_views.add(name)
                 self.duck.sql(f"CREATE OR REPLACE VIEW {name} AS SELECT * FROM _empty_{name}")
         # periods_serving adds the statements source and check outcome to each period
         self.duck.sql(f"CREATE OR REPLACE VIEW periods_serving AS {PERIODS_SERVING_SQL}")
@@ -287,14 +305,49 @@ class Database:
         )
 
     def warm(self) -> None:
-        """Touch the year-partitioned filings table once so its parquet footers are cached before the
-        first company page asks for them (a cold read over object storage takes several seconds)."""
+        """Bind the year-partitioned filings table (when start-up left it lazy) and read every file's
+        footer once so they are cached before the first company page asks for them.
+
+        Runs on its own DuckDB connection, so the serving connection and its lock stay free: DuckDB
+        connections share the catalog and the parquet metadata cache. A bare count(*) is answered
+        from row-group metadata and never scans a column; the filtered count this replaced read
+        every row group of an uncompacted lake while holding the serving lock for many minutes,
+        during which nothing answered, the health check included."""
         if not self.is_remote_lake:
             return
+        started = time.monotonic()
         try:
-            self.duck.fetch_dicts("SELECT count(*) AS n FROM filings WHERE cik = 0")
+            cursor = self.duck.con.cursor()
+            try:
+                if not self.filings_ready:
+                    if not self.storage.any_parquet_under(layout.FILINGS):
+                        log.info("filings warm-up: the lake has no filings yet")
+                        return
+                    cursor.execute(
+                        f"CREATE OR REPLACE VIEW filings AS SELECT * FROM {self.duck.scan(Duck.FILINGS_GLOB)}"
+                    )
+                    self.filings_ready = True
+                rows = cursor.execute("SELECT count(*) FROM filings").fetchone()
+            finally:
+                cursor.close()
+            log.info(
+                "filings warm-up: %s rows, footers cached in %.0fs", rows[0] if rows else 0, time.monotonic() - started
+            )
         except Exception as e:  # pragma: no cover - warming is best effort
             log.warning("filings warm-up failed: %s", e)
+
+    def query_if_idle(self, sql: str, params: Sequence[Any] = (), timeout: float = 1.0) -> list[dict[str, Any]] | None:
+        """Like `query`, but gives up and returns None when the DuckDB connection is busy for longer
+        than `timeout` seconds (a warm-up or a slow lake read on another thread). For callers that
+        must answer quickly whatever the lake is doing, such as the health check."""
+        if self.backend != "duckdb":
+            return self.query(sql, params)
+        if not self.duck._lock.acquire(timeout=timeout):
+            return None
+        try:
+            return self.query(sql, params)
+        finally:
+            self.duck._lock.release()
 
     def query(self, sql: str, params: Sequence[Any] = ()) -> list[dict[str, Any]]:
         if self.backend == "duckdb":
