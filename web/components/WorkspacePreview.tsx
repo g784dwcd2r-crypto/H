@@ -2,7 +2,6 @@
 
 import Link from "next/link";
 import { useState } from "react";
-import { DisclosureMark } from "@/components/Brand";
 import { ArrowIcon, DocumentIcon, SearchIcon, SettingsIcon, StarIcon } from "@/components/Icons";
 import { EXAMPLE_ANNUAL, EXAMPLE_RELEASE, EXAMPLE_ROWS, EXAMPLE_SOURCE } from "@/lib/example-data";
 
@@ -14,7 +13,7 @@ export default function WorkspacePreview() {
     <div className="preview-frame" id="platform">
       <div className="preview-workspace">
         <aside className="preview-sidebar" aria-label="Example workspace shortcuts">
-          <div className="preview-brand"><DisclosureMark /><span>Disclosure</span></div>
+          <div className="preview-brand">Disclosure</div>
           <a href="#site-search" className="selected"><SearchIcon /> Research</a>
           <Link href="/watchlist"><StarIcon /> Watchlist</Link>
           <Link href="/settings"><SettingsIcon /> Settings</Link>

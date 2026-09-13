@@ -134,7 +134,7 @@ export default function AdminConsole() {
   const page = view === "research" ? data?.failures : data;
   const tableItems: Data[] = page?.items || [];
   return <div className={styles.console}>
-    <header className={styles.top}><Link href="/" className={styles.brand}>D <span>Disclosure</span></Link><span className={styles.environment}>Platform administration</span>{session && <button onClick={logout} disabled={busy}>Sign out operator</button>}</header>
+    <header className={styles.top}><Link href="/" className={styles.brand}><span>Disclosure</span></Link><span className={styles.environment}>Platform administration</span>{session && <button onClick={logout} disabled={busy}>Sign out operator</button>}</header>
     {initializing ? <div className={styles.auth}><p role="status">Checking administrator session…</p></div> : loginOrChange ? <section className={styles.auth}>
       <p className={styles.eyebrow}>Separate operator access</p><h1>{session ? "Choose your own password." : "Manage the platform."}</h1>
       <p>{session ? "Your initial credential cannot open management controls. Choose a unique passphrase to finish setup." : "Accounts, source health and privileged changes in one operational workspace."}</p>

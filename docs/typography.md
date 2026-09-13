@@ -1,30 +1,53 @@
-# Disclosure typography
+# Disclosure visual identity
 
-The interface uses ivory `#FAFAF9`, ink `#0F0E0D`, muted plum `#373340`, and blush `#D9CDCC`. Blush is a surface and border accent; body copy and interactive text use ink, plum, or the darker muted token. Semantic gain/loss and warning colours stay distinct.
+The agreed September 2026 visual identity kit is the reference for the public site, research workspace and platform administration. It supersedes the earlier Sabon / Neue Haas Unica and plum / blush proposal.
+
+## Colours
+
+| Token | Value | Use |
+| --- | --- | --- |
+| Ivory | `#FAFAF9` | Primary canvas |
+| Ink | `#0F0E0D` | Reading text and high-contrast sections |
+| Royal blue | `#274BD8` | Primary actions, focus indicators and emphasis |
+| Pale periwinkle | `#EEF2FF` | Selected cells, source context and selected navigation surfaces |
+| White | `#FFFFFF` | Cards and inputs |
+| Surface | `#F2F1F0` | Quiet secondary surfaces |
+| Border | `#E5E5E3` | Fine separators and card borders |
+
+The interface stays predominantly ivory/white. Blue is used for actions; periwinkle is a background, never low-contrast text. Text, underlines, icons and labels identify selected, warning and error states in addition to colour. Gain/loss and warning colours remain semantically distinct. Darker muted text and blue hover colours are functional derivatives; the primary kit colours remain exact.
+
+## Typography and layout
 
 | Role | Family | Desktop / mobile | Weight | Line height |
 | --- | --- | --- | --- | --- |
-| Homepage hero | Sabon LT Pro | 72 / 44px | 400 | 1.08 |
-| Page titles / editorial sections | Sabon LT Pro | 48 / 34px | 400 | 1.12 |
-| Card headings | Neue Haas Unica | 24 / 22px | 500 | 1.25 |
-| Introductions | Neue Haas Unica | 20 / 18px | 400 | 1.5 |
-| Body copy | Neue Haas Unica | 16 / 16px | 400 | 1.5 |
-| Navigation / buttons | Neue Haas Unica | 14 / 14px | 500 | 1.2 |
-| Tables / labels | Neue Haas Unica | 14 / 14px | 400 / 500 | 1.4 |
+| Homepage hero | EB Garamond | 72 / 44px | Regular 400 | 1.08 |
+| Page titles / editorial sections | EB Garamond | 48 / 34px | Regular 400 | 1.12 |
+| Card headings | Albert Sans | 24 / 22px | Medium 500 | 1.25 |
+| Introductions | Albert Sans | 20 / 18px | Regular 400 | 1.5 |
+| Body copy | Albert Sans | 16 / 16px | Regular 400 | 1.5 |
+| Navigation / buttons | Albert Sans | 14 / 14px | Medium 500 | 1.2 |
+| Tables / labels | Albert Sans | 14 / 14px | Regular 400 / Medium 500 | 1.4 |
 
-Mobile type starts at 640px. The homepage hero uses three explicit lines. Introductions target 55ch, with 24–32px after the heading. Major desktop homepage sections use 96px spacing. Card internals and research toolbars remain more compact. Text inputs stay at 16px for readability and to avoid focus zoom on mobile browsers. Figures use tabular numerals; source XML and diff code retain monospace. Existing reduced-motion support remains enabled.
+Headings use natural tracking. The wordmark uses EB Garamond Regular. Main homepage content uses a 12-column desktop grid with 24px gutters and a five/seven-column hero, 48px outer margins and one column below 1180px. Mobile outer margins are 20px. Mobile typography begins at 640px. Introductions target 55ch; headline-to-description spacing is 24–32px. Major sections use 96px desktop / 64px mobile spacing, with tighter spacing inside research tools.
+
+Controls have 8px corners; cards use 12px, larger panels 16px. Shadows stay minimal except where an overlay must be distinguished from the page underneath. Financial tables use tabular sans-serif numerals and contained horizontal scrolling. Raw XML and document diffs retain monospace; the original filing iframe retains source formatting. Existing finite animations and reduced-motion support are preserved.
 
 ## Font delivery
 
-Exact font binaries are **not bundled**. The default build currently renders Georgia / Arial unless the named fonts are already installed. A CSS family name alone does not download a font.
+The actual supplied EB Garamond and Albert Sans fonts are bundled under `web/public/fonts` and loaded through `web/app/fonts.css`. There is no Adobe project, account, API key or external font service dependency. The old `ADOBE_FONTS_KIT_ID` setting is no longer used.
 
-Both families are offered by Adobe Fonts:
+Normal EB Garamond Regular and Albert Sans Regular are preloaded. Albert Sans Medium loads when used; genuine italic faces are available on demand. `font-display: swap` keeps text visible if a font request is slow. Synthetic weights/styles are disabled; emphasis uses the supplied Medium face. The three normal faces total 185,044 bytes before HTTP overhead.
 
-- [Sabon](https://fonts.adobe.com/fonts/sabon)
-- [Neue Haas Unica](https://fonts.adobe.com/fonts/neue-haas-unica)
+Files were converted from the supplied TTFs to WOFF2 using fontTools 4.65.0 and Brotli 1.2.0, retaining the full character maps and font names. The original SIL Open Font License and copyright notices are included for each family. `web/public/fonts/manifest.json` records each source archive entry, source/output SHA-256 digest, byte size and weight.
 
-To activate them, create a licensed Adobe Fonts **web project** containing Sabon regular and Neue Haas Unica regular, medium, and semibold. Select `font-display: swap` in that project's settings, then configure `ADOBE_FONTS_KIT_ID` in the web server environment with the seven-character project ID. The root layout loads the corresponding official `https://use.typekit.net/<id>.css` stylesheet. The CSS stacks use Adobe's `sabon` and `neue-haas-unica` family names. Restart the web server after configuration. No external font request is made when the ID is absent or invalid.
+To reproduce a conversion with an extracted source TTF:
 
-See [Adobe's website setup instructions](https://helpx.adobe.com/fonts/web/introduction/add-fonts-website.html). Adobe-hosted web projects do not provide self-hosting rights; use a suitable Monotype webfont licence if self-hosting is preferred. Do not commit licensed font binaries to this public repository without distribution permission.
+```python
+from fontTools.ttLib import TTFont
 
-After activation, verify in browser network/font tools that the stylesheet and font files load, then recheck desktop/mobile wrapping with the real font metrics. The current visual acceptance is for the fallback rendering, not proof of the licensed fonts being active.
+font = TTFont("AlbertSans-Regular.ttf", recalcTimestamp=False)
+font.flavor = "woff2"
+font.save("albert-sans-regular.woff2")
+```
+
+The browser smoke test checks that all six font faces load successfully from this application, including real Regular and Medium weights. Review hero wrapping, live contrast, selected table cells, keyboard focus, menus and horizontal overflow at desktop/tablet/mobile widths when changing the identity.

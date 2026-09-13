@@ -25,6 +25,35 @@ async function visit(route) {
 }
 const scaleControl = () => page.locator(".toolbar .prefctl").filter({ hasText: "Show in" }).locator("select").first();
 try {
+  await check("Identity fonts load locally with genuine regular, medium and italic faces", async () => {
+    const remoteFonts = [];
+    const recordFontRequest = request => {
+      const url = new URL(request.url());
+      if (request.resourceType() === "font" && url.origin !== new URL(base).origin) remoteFonts.push(url.href);
+    };
+    page.on("request", recordFontRequest);
+    try {
+      await visit("/");
+      const loaded = await page.evaluate(async () => {
+        const faces = [
+          '400 16px "EB Garamond"', 'italic 400 16px "EB Garamond"',
+          '400 16px "Albert Sans"', '500 16px "Albert Sans"',
+          'italic 400 16px "Albert Sans"', 'italic 500 16px "Albert Sans"',
+        ];
+        return Promise.all(faces.map(async face => {
+          const fonts = await document.fonts.load(face, "Disclosure 123,456.78");
+          return { face, loaded: fonts.length > 0 && fonts.every(font => font.status === "loaded") };
+        }));
+      });
+      for (const font of loaded) assert.equal(font.loaded, true, font.face + " must load, not silently fall back");
+      assert.deepEqual(remoteFonts, [], "Identity fonts must be served by Disclosure");
+      for (const licence of ["OFL-EB-Garamond.txt", "OFL-Albert-Sans.txt"]) {
+        const response = await context.request.get(base + "/fonts/" + licence);
+        assert.equal(response.status(), 200);
+        assert.match(await response.text(), /SIL OPEN FONT LICENSE/);
+      }
+    } finally { page.off("request", recordFontRequest); }
+  });
   await check("Homepage source preview and exact ticker search", async () => {
     await visit("/");
     await page.getByRole("button", { name: /Net income.*FY 2023/i }).click();
