@@ -15,7 +15,10 @@ export default async function SettingsPage() {
     <>
       <p className="eyebrow">Settings</p>
       <h1>Your preferences</h1>
-      <p className="lead">Signed in as {user.email}. Every choice you make on a statement or a company page is kept here with the scope it applies to. Reset any of them; export them to share with a colleague.</p>
+      <p className="lead">
+        Signed in as {user.email}
+        {user.first_name ? ` (${user.first_name} ${user.last_name}${user.company ? `, ${user.company}` : ""}${user.title ? `, ${user.title}` : ""})` : ""}. Every choice you make on a statement or a company page is kept here with the scope it applies to. Reset any of them; export them to share with a colleague.
+      </p>
       <PrefsSettings initial={prefs} defaults={defaults} />
     </>
   );

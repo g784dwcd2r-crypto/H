@@ -223,3 +223,20 @@ table.prefs td, table.prefs th { font-size: 14px; }
 .tag.set { border-style: solid; background: var(--paper-2); color: var(--ink-2); }
 .saved { font-size: 12px; color: var(--ok); }
 .periods .linkbtn { margin-left: 6px; }
+
+/* sign-up */
+.narrow { max-width: 640px; }
+h1 .accent { font-style: italic; color: var(--ink-2); }
+.signup { display: flex; flex-direction: column; gap: 16px; margin-top: 28px; }
+.signup label { display: flex; flex-direction: column; gap: 6px; }
+.signup label > span { font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+.signup input, .signup select { padding: 12px 14px; font: 15px var(--sans); color: var(--ink); background: var(--paper-3); border: 1px solid var(--line-strong); border-radius: 10px; }
+.signup input:focus, .signup select:focus { outline: none; border-color: var(--ink); box-shadow: 0 0 0 3px rgba(20, 20, 20, 0.08); }
+.signup .two { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.signup label.check { flex-direction: row; align-items: flex-start; gap: 10px; }
+.signup label.check input { width: 18px; height: 18px; margin-top: 2px; }
+.signup label.check span { text-transform: none; letter-spacing: 0; font-size: 13px; color: var(--ink-2); }
+.signup .err, .err { color: var(--bad); font-style: normal; font-size: 13px; }
+.btn.wide { width: 100%; padding: 14px 22px; font-size: 15px; }
+header.top nav .user .cta { padding: 6px 12px; border: 1px solid var(--ink); border-radius: 999px; }
+@media (max-width: 640px) { .signup .two { grid-template-columns: 1fr; } }

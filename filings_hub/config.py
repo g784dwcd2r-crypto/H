@@ -33,6 +33,7 @@ class Settings(BaseSettings):
     google_client_id: str = ""
     google_client_secret: str = ""
     auth_dev_links: bool = Field(default=False, description="Return magic links in the API response (dev only).")
+    signup_business_email_only: bool = Field(default=False, description="Reject free-mail domains at sign-up.")
     api_rate_limit_per_minute: int = 60
 
     edgar_requests_per_second: float = 10.0

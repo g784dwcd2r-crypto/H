@@ -5,9 +5,10 @@ export default async function UserMenu() {
   const user = await currentUser();
   if (!user)
     return (
-      <Link href="/signin" className="user">
-        Sign in
-      </Link>
+      <span className="user">
+        <Link href="/signin">Sign in</Link>
+        <Link href="/signup" className="cta">Get started</Link>
+      </span>
     );
   return (
     <span className="user">

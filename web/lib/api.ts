@@ -167,10 +167,26 @@ async function get<T>(path: string, revalidate = 300, session?: string | null): 
 export class NotFound extends Error {}
 export class Unauthorized extends Error {}
 
-export type User = { id: string; email: string; plan: string; locale: string; timezone: string; created_at: string };
+export type User = {
+  id: string;
+  email: string;
+  plan: string;
+  locale: string;
+  timezone: string;
+  created_at: string;
+  first_name?: string;
+  last_name?: string;
+  company?: string;
+  phone?: string;
+  role?: string;
+  specialty?: string;
+  title?: string;
+  country?: string;
+  marketing_opt_in?: boolean;
+};
 export type Pref = { scope: string; scope_key: string; key: string; value: unknown; source: string; updated_at: string };
 export type Resolved = Record<string, { value: unknown; scope: string; scope_key: string; source: string }>;
-export type AuthConfig = { email_link: boolean; google_client_id: string | null; site_url: string };
+export type AuthConfig = { email_link: boolean; google_client_id: string | null; site_url: string; business_email_only?: boolean };
 
 export const api = {
   search: (q: string) => get<{ results: Company[] }>(`/search?q=${encodeURIComponent(q)}`, 60),
