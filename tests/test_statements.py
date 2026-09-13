@@ -563,3 +563,52 @@ def test_template_comes_from_the_same_kind_of_filing(lake_copy: Storage):
     assert all("S-1 prospectus" not in (r["label"] or "") for r in annual)
     # the quarterly template is the last 10-Q's structure
     assert [r["concept"] for r in quarterly if r["statement"] == "IS"] == [t[3] for t in fx.APPLE_PRE if t[0] == "IS"]
+
+
+def test_fallback_template_ignores_lines_without_statement_or_position():
+    """The FSDS `pre` table occasionally leaves statement or line blank; such a line has nowhere to go."""
+    from datetime import date
+
+    from filings_hub.ingest.sync_statements import build_fallback_rows
+
+    template = [
+        {
+            "statement": None,
+            "is_parenthetical": None,
+            "line_order": None,
+            "concept": "Revenues",
+            "label": "x",
+            "negating": False,
+            "is_abstract": False,
+            "standard_label": None,
+            "taxonomy": "us-gaap/2025",
+        },
+        {
+            "statement": "IS",
+            "is_parenthetical": False,
+            "line_order": 2,
+            "concept": "Revenues",
+            "label": "Sales",
+            "negating": False,
+            "is_abstract": False,
+            "standard_label": None,
+            "taxonomy": "us-gaap/2025",
+        },
+    ]
+    facts = [
+        {
+            "taxonomy": "us-gaap/2025",
+            "concept": "Revenues",
+            "unit": "USD",
+            "value": 5.0,
+            "label": "Revenues",
+            "period_start": date(2026, 1, 1),
+            "period_end": date(2026, 3, 31),
+            "duration_days": 90,
+        },
+    ]
+    rows, _checks = build_fallback_rows(
+        1, "0000000001-26-000001", "10-Q", date(2026, 5, 1), date(2026, 3, 31), 1, facts, template
+    )
+    assert [r["concept"] for r in rows if r["statement"] == "IS"] == ["Revenues"]
+    assert all(r["statement"] for r in rows)

@@ -57,6 +57,24 @@ def backfill(
 
 
 @app.command()
+def finish(verbose: bool = False) -> None:
+    """Finish a backfill that stopped after the statements were built: provisional statements for the
+    periods the SEC has not published yet, then company metrics. Nothing else is repeated."""
+    _setup_logging(verbose)
+    import time
+
+    from filings_hub.ingest import metrics, sync_statements
+
+    storage = _storage()
+    step = time.monotonic()
+    built = sync_statements.fill_all_fallbacks(storage)
+    typer.echo(f"fallbacks: {built} provisional statements ({time.monotonic() - step:.0f}s)")
+    step = time.monotonic()
+    n = metrics.build_company_metrics(storage)
+    typer.echo(f"metrics: {n} companies ({time.monotonic() - step:.0f}s)")
+
+
+@app.command()
 def refresh(
     index_date: str | None = typer.Option(
         None, "--date", help="daily index date (YYYY-MM-DD); default = catch up to yesterday"
