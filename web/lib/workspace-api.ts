@@ -6,12 +6,12 @@ const base = (/^https?:\/\//.test(configured) ? configured : `http://${configure
 
 /** Private server transport. User-supplied identity headers never enter this request. */
 export async function workspaceRequest<T>(path: string, method: "GET" | "POST" | "PATCH" | "DELETE" = "GET", body?: unknown, timeoutMs = 20_000):
-  Promise<{ ok: boolean; status: number; data: T | null; error: string | null }> {
+  Promise<{ ok: boolean; status: number; data: T | null; error: string | null; retryAfter?: string | null }> {
   try {
     const response = await fetch(`${base}${path}`, { method, headers: { ...await requestHeaders(), ...(body === undefined ? {} : { "Content-Type": "application/json" }) }, ...(body === undefined ? {} : { body: JSON.stringify(body) }), cache: "no-store", signal: AbortSignal.timeout(timeoutMs) });
     const payload = await response.json().catch(() => null);
     const detail = typeof payload?.detail === "string" ? payload.detail : typeof payload?.error === "string" ? payload.error : null;
-    return { ok: response.ok, status: response.status, data: response.ok ? payload as T : null, error: response.ok ? null : detail };
+    return { ok: response.ok, status: response.status, data: response.ok ? payload as T : null, error: response.ok ? null : detail, retryAfter: response.headers.get("retry-after") };
   } catch {
     return { ok: false, status: 502, data: null, error: null };
   }

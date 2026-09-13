@@ -15,6 +15,7 @@ import hashlib
 import hmac
 import json
 import logging
+import posixpath
 import secrets
 import threading
 import time
@@ -22,6 +23,7 @@ import uuid
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime, timedelta
 from typing import Any, Protocol
+from urllib.parse import unquote, urlencode, urlsplit
 
 from filings_hub.lake.storage import Storage
 
@@ -709,11 +711,51 @@ def token_hash(token: str) -> str:
     return hashlib.sha256(token.encode()).hexdigest()
 
 
+def auth_return_context(next_path: Any = None, region: Any = None) -> dict[str, str]:
+    """Allow only local app destinations; preserve this context in the actual emailed link."""
+    result = {}
+    if next_path is not None:
+        if not isinstance(next_path, str) or not next_path or len(next_path) > 2048:
+            raise ValueError("The sign-in destination must be a local page path.")
+        decoded = next_path
+        for _ in range(4):
+            decoded = unquote(decoded)
+        if (
+            not decoded.startswith("/")
+            or decoded.startswith("//")
+            or "\\" in decoded
+            or any(ord(char) < 32 or ord(char) == 127 for char in decoded)
+        ):
+            raise ValueError("The sign-in destination must be a local page path.")
+        parsed = urlsplit(decoded)
+        path = posixpath.normpath(parsed.path).casefold()
+        if (
+            parsed.netloc
+            or parsed.scheme
+            or any(path == part or path.startswith(part + "/") for part in ("/api", "/auth"))
+        ):
+            raise ValueError("The sign-in destination must be a public or workspace page.")
+        result["next"] = next_path
+    if region is not None:
+        if not isinstance(region, str) or region not in {"US", "UK", "EU", "AU", "ROW"}:
+            raise ValueError("Choose a supported sign-in region.")
+        result["region"] = region
+        result.setdefault("next", "/")
+    return result
+
+
 def issue_magic_link(
-    store: UserStore, email: str, site_url: str, profile: dict[str, Any] | None = None
+    store: UserStore,
+    email: str,
+    site_url: str,
+    profile: dict[str, Any] | None = None,
+    *,
+    next_path: str | None = None,
+    region: str | None = None,
 ) -> tuple[str, str]:
     """(token, link). The store keeps only the hash; the link carries the token once. A sign-up's
     profile rides along and is applied when the link is redeemed."""
+    context = auth_return_context(next_path, region)
     token = secrets.token_urlsafe(32)
     store.put_token(
         token_hash(token),
@@ -725,7 +767,7 @@ def issue_magic_link(
         },
     )
     base = site_url.rstrip("/") if site_url else ""
-    return token, f"{base}/auth/callback?token={token}"
+    return token, f"{base}/auth/callback?{urlencode({'token': token, **context})}"
 
 
 def redeem_magic_link(store: UserStore, token: str) -> User | None:

@@ -5,15 +5,18 @@ import { usePathname } from "next/navigation";
 import type { ReactNode } from "react";
 import Brand from "@/components/Brand";
 import { SearchIcon, StarIcon } from "@/components/Icons";
+import PublicHeader from "./PublicHeader";
+import LaunchAnnouncement from "./LaunchAnnouncement";
+import { isPublicPath } from "@/lib/public-navigation";
 
 export default function AppShell({ children, userMenu }: { children: ReactNode; userMenu: ReactNode }) {
   const path = usePathname();
   if (path === "/admin" || path.startsWith("/admin/")) return <main id="main-content">{children}</main>;
-  const home = path === "/";
+  const home = isPublicPath(path);
   return (
     <div className={home ? "app-shell public-shell" : "app-shell workspace-shell"}>
       <a className="skip-link" href="#main-content">Skip to content</a>
-      <header className="top">
+      {home ? <><LaunchAnnouncement /><PublicHeader userMenu={userMenu} /></> : <header className="top">
         <div className="inner">
           <Brand />
           <nav aria-label="Main navigation" className="main-nav">
@@ -21,13 +24,13 @@ export default function AppShell({ children, userMenu }: { children: ReactNode; 
           </nav>
           <div className="account-nav">{userMenu}</div>
         </div>
-      </header>
+      </header>}
       <main id="main-content">{children}</main>
       <footer className="bottom">
         <div className="inner">
           <div><Link href="/" className="footer-brand">Disclosure</Link><p>Company filings. Clearly organised.</p></div>
-          <nav aria-label="Footer navigation"><Link href="/coverage">Coverage & sources</Link><Link href="/watchlist">Your watchlist</Link><Link href="/settings">Preferences</Link><Link href="/settings/security">Sessions & security</Link><a href="https://www.sec.gov/edgar" target="_blank" rel="noreferrer">SEC EDGAR ↗</a></nav>
-          <p className="footer-keys"><kbd>/</kbd> Search <span>·</span> <kbd>w</kbd> Watchlist</p>
+          <nav aria-label="Footer navigation"><Link href="/coverage">Coverage & sources</Link>{home ? <><Link href="/resources">Research guides</Link><Link href="/security">Security</Link><Link href="/privacy">Privacy</Link><Link href="/company/contact">Contact</Link></> : <><Link href="/watchlist">Your watchlist</Link><Link href="/settings">Preferences</Link><Link href="/settings/security">Sessions & security</Link></>}<a href="https://www.sec.gov/edgar" target="_blank" rel="noreferrer">SEC EDGAR ↗</a></nav>
+          {!home && <p className="footer-keys"><kbd>/</kbd> Search <span>·</span> <kbd>w</kbd> Watchlist</p>}
         </div>
         <div className="footer-note">Reported figures and supported calculations retain their source context. Availability varies by company and period.</div>
       </footer>

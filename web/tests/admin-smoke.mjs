@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { randomUUID } from "node:crypto";
 import { mkdir } from "node:fs/promises";
 import path from "node:path";
 import { chromium } from "playwright";
@@ -33,6 +34,7 @@ try {
     await analyst.getByRole("link", { name: "open the link" }).click();
     await analyst.waitForURL(base + "/");
     assert.equal((await ordinary.request.get(base + "/api/platform-admin/users", { headers: { "X-Admin-Session": "disclosure.forged", "X-Role": "superadmin" } })).status(), 401);
+    for (const route of ["demo-requests", "launch-memberships"]) assert.equal((await ordinary.request.get(base + "/api/platform-admin/" + route)).status(), 401);
     assert.equal((await ordinary.request.post(base + "/api/platform-admin/login", { headers: { Origin: "https://attacker.example" }, data: { username: "disclosure", password: "1234" } })).status(), 403);
     assert.equal((await ordinary.request.get(base + "/api/sessions")).status(), 200);
   });
@@ -55,6 +57,76 @@ try {
     assert.ok(!(await page.evaluate(() => document.cookie)).includes("disclosure_admin_dev"));
     await page.getByRole("heading", { name: "Recent ingestion runs" }).waitFor();
     await page.screenshot({ path: path.join(artifacts, "admin-overview.png"), fullPage: true });
+  });
+  await check("Enquiries preserve submitted details and reviewed status changes with an audit", async () => {
+    const reference = randomUUID();
+    const workflow = `Synthetic demo enquiry ${reference}: compare filings across reporting periods.`;
+    const sent = await ordinary.request.post(base + "/api/demo-requests", { headers: { Origin: base }, data: {
+      request_id: reference, name: "Synthetic Enquiry Analyst", email: `demo-${reference}@example.test`,
+      organisation: "Synthetic Research", region: "ROW", workflow,
+    } });
+    assert.equal(sent.status(), 201, await sent.text());
+    assert.deepEqual(await sent.json(), { received: true, reference });
+    assert.equal((await ordinary.request.post(base + `/api/platform-admin/demo-requests/${reference}/status`, { headers: { Origin: base }, data: { status: "completed" } })).status(), 401);
+    await navigate("Enquiries");
+    await page.getByLabel("Search Enquiries").fill(reference);
+    await page.getByRole("button", { name: "Search", exact: true }).click();
+    const enquiry = page.getByRole("row").filter({ hasText: `demo-${reference}@example.test` });
+    await enquiry.getByText("new", { exact: true }).waitFor();
+    await enquiry.getByText("Read enquiry", { exact: true }).click();
+    await enquiry.getByText(workflow, { exact: true }).waitFor();
+    await enquiry.getByLabel(`Change enquiry status for demo-${reference}@example.test`).selectOption("contacted");
+    const reason = `Synthetic enquiry review ${reference}`;
+    await review(reason);
+    await page.getByRole("dialog").waitFor({ state: "hidden" });
+    await page.getByRole("status").filter({ hasText: "Update enquiry status completed" }).waitFor();
+    const saved = await operator.request.get(base + `/api/platform-admin/demo-requests?q=${reference}`);
+    assert.equal(saved.status(), 200);
+    const records = (await saved.json()).items;
+    assert.equal(records.length, 1);
+    assert.equal(records[0].status, "contacted");
+    assert.equal(records[0].revision, 2);
+    assert.equal(records[0].workflow, workflow);
+    assert.equal(records[0].caller_hash, undefined);
+    const audit = (await (await operator.request.get(base + `/api/platform-admin/audit?q=${reference}`)).json()).items;
+    assert.ok(audit.some(row => row.action === "demo.status" && row.metadata.reason === reason && row.metadata.status === "contacted"));
+    await page.reload();
+    await page.getByRole("heading", { name: "Overview", exact: true, level: 1 }).waitFor();
+    await navigate("Enquiries");
+    await page.getByLabel("Filter by status").selectOption("contacted");
+    await page.getByLabel("Search Enquiries").fill(reference);
+    await page.getByRole("button", { name: "Search", exact: true }).click();
+    await page.getByRole("row").filter({ hasText: `demo-${reference}@example.test` }).getByText("contacted", { exact: true }).waitFor();
+    await page.screenshot({ path: path.join(artifacts, "admin-enquiries.png"), fullPage: true });
+  });
+  await check("Founding group shows durable individual reservations without allocation controls", async () => {
+    const joined = await ordinary.request.post(base + "/api/launch/membership", { headers: { Origin: base }, data: { region: "EU", accept_terms: true } });
+    assert.equal(joined.status(), 200, await joined.text());
+    const first = await joined.json();
+    assert.equal(first.membership.status, "reserved");
+    assert.equal(first.entitlement.active, false);
+    const repeated = await ordinary.request.post(base + "/api/launch/membership", { headers: { Origin: base }, data: { region: "ROW", accept_terms: true } });
+    assert.equal(repeated.status(), 200);
+    assert.deepEqual((await repeated.json()).membership, first.membership);
+    assert.equal((await repeated.json()).campaign.allocated, first.campaign.allocated);
+    await navigate("Founding group");
+    await page.getByLabel("Search Founding group").fill("analyst-admin-smoke@example.test");
+    await page.getByRole("button", { name: "Search", exact: true }).click();
+    const row = page.getByRole("row").filter({ hasText: "analyst-admin-smoke@example.test" });
+    await row.getByText("reserved", { exact: true }).waitFor();
+    await row.getByText("EU", { exact: true }).waitFor();
+    assert.equal(await row.getByRole("button").count(), 0);
+    assert.equal(await row.getByRole("combobox").count(), 0);
+    const roster = await operator.request.get(base + "/api/platform-admin/launch-memberships?q=analyst-admin-smoke@example.test&status=reserved&limit=1");
+    assert.equal(roster.status(), 200);
+    const record = await roster.json();
+    assert.equal(record.total, 1);
+    assert.equal(record.items[0].region, "EU");
+    assert.equal(record.items[0].benefit_starts_at, "2026-11-01T00:00:00+00:00");
+    assert.equal(record.items[0].benefit_ends_at, "2027-05-01T00:00:00+00:00");
+    assert.equal(record.campaign.capacity, 20);
+    assert.equal((await operator.request.post(base + "/api/platform-admin/launch-memberships", { headers: { Origin: base }, data: {} })).status(), 404);
+    await page.screenshot({ path: path.join(artifacts, "admin-founding-group.png"), fullPage: true });
   });
   let uid;
   await check("Reviewed suspension handles failure and then revokes real user access", async () => {

@@ -15,7 +15,7 @@ function route({ token = 'opaque-admin-token', status = 200, data = {}, origin =
     fetch:async(url,options)=>{calls.push({url,options});return {ok:status>=200&&status<300,status,json:async()=>({...data})};},
     require(name){if(name==='next/server')return {NextResponse:{json}};if(name==='next/headers')return {cookies:async()=>({get:()=>token?{value:token}:undefined})};throw new Error(name);}});
   async function request(path, method='GET', headers={}) {
-    return module.exports[method]({method,headers:new Headers({Origin:origin,'X-Admin-CSRF':'csrf',...headers}),nextUrl:new URL('https://admin.example.test/api/platform-admin/'+path),text:async()=>'{}'}, {params:Promise.resolve({segments:path.split('/')})});
+    return module.exports[method]({method,headers:new Headers({Origin:origin,'X-Admin-CSRF':'csrf',...headers}),nextUrl:new URL('https://admin.example.test/api/platform-admin/'+path),text:async()=>'{}'}, {params:Promise.resolve({segments:path.split('?')[0].split('/')})});
   }
   return {request,calls};
 }
@@ -46,4 +46,26 @@ test('logout failures keep the cookie; verified invalid sessions finish logout',
   assert.equal(failed.status,503);assert.equal(failed.cookieWrites.length,0);
   const invalid=await route({status:401,data:{detail:'Revoked'}}).request('logout','POST');
   assert.equal(invalid.status,200);assert.equal(invalid.data.already_invalid,true);assert.equal(invalid.cookieWrites[0][2].maxAge,0);
+});
+
+test('launch admin routes preserve bounded filters and reject roster writes',async()=>{
+  const gateway=route();
+  await gateway.request('launch-memberships?q=founder&status=reserved&limit=25&offset=25&role=owner');
+  const url=new URL(gateway.calls[0].url);
+  assert.equal(url.pathname,'/platform-admin/launch-memberships');
+  assert.equal(url.searchParams.get('status'),'reserved'); assert.equal(url.searchParams.get('offset'),'25');
+  assert.equal(url.searchParams.has('role'),false);
+  assert.equal((await gateway.request('launch-memberships','POST')).status,404);
+  const absent=route({token:null});
+  assert.equal((await absent.request('demo-requests')).status,401);
+  assert.equal((await absent.request('launch-memberships')).status,401);
+});
+test('demo status updates accept real UUIDs and use reviewed operator credentials',async()=>{
+  const gateway=route();
+  const id='b1bc808e-90e4-4c0e-9975-5b1f030df621';
+  await gateway.request('demo-requests/'+id+'/status','POST',{'X-Admin-Session':'forged','X-Admin-CSRF':'review-csrf'});
+  assert.equal(gateway.calls[0].options.headers['X-Admin-Session'],'opaque-admin-token');
+  assert.equal(gateway.calls[0].options.headers['X-Admin-CSRF'],'review-csrf');
+  assert.equal((await gateway.request('demo-requests/not-an-id/status','POST')).status,404);
+  assert.equal(gateway.calls.length,1);
 });

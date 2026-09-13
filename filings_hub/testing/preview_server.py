@@ -1,7 +1,7 @@
 """Loopback-only synthetic data server for browser acceptance tests. Never uses a live lake."""
 
 import os
-from datetime import date, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
 import httpx
@@ -69,6 +69,8 @@ def main() -> None:
 
     provider = FixtureResearchProvider()
     app = create_app(settings, edgar_client=client, research_provider=provider)
+    # Only this explicitly marked synthetic preview freezes campaign time. Session expiry stays real.
+    app.state.launch.clock = lambda: datetime(2026, 9, 13, tzinfo=UTC).timestamp()
     # Populate the same durable index used by production, using only the mocked SEC transport.
     from filings_hub.research_index import open_index
     from filings_hub.research_ingest import discover_batch, index_documents_batch

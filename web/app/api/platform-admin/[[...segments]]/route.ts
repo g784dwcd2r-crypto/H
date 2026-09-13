@@ -12,8 +12,8 @@ const noStore = { "Cache-Control": "private, no-store", "X-Content-Type-Options"
 async function forward(request: NextRequest, context: Context) {
   const { segments = [] } = await context.params;
   const path = segments.join("/");
-  const read = /^(session|overview|users(?:\/[a-z0-9]{32})?|organizations(?:\/[a-z0-9]{32})?|audit|research|jobs|sources|configuration)$/;
-  const write = /^(login|password|reauthenticate|logout|configuration|users\/[a-z0-9]{32}\/(status|revoke-sessions)|organizations\/[a-z0-9]{32}\/members\/[a-z0-9]{32}|jobs\/[a-z0-9]{32}\/(retry|cancel))$/;
+  const read = /^(session|overview|demo-requests|launch-memberships|users(?:\/[a-z0-9]{32})?|organizations(?:\/[a-z0-9]{32})?|audit|research|jobs|sources|configuration)$/;
+  const write = /^(login|password|reauthenticate|logout|configuration|demo-requests\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\/status|users\/[a-z0-9]{32}\/(status|revoke-sessions)|organizations\/[a-z0-9]{32}\/members\/[a-z0-9]{32}|jobs\/[a-z0-9]{32}\/(retry|cancel))$/;
   if (!(request.method === "GET" ? read : write).test(path)) return NextResponse.json({ error: "Administrator route not found." }, { status: 404, headers: noStore });
   if (!origin) return NextResponse.json({ error: "Administrator gateway is not configured." }, { status: 503, headers: noStore });
   if (request.method !== "GET" && request.headers.get("origin") !== origin) return NextResponse.json({ error: "The request origin does not match." }, { status: 403, headers: noStore });
@@ -33,7 +33,7 @@ async function forward(request: NextRequest, context: Context) {
     try { JSON.parse(body); } catch { return NextResponse.json({ error: "A JSON request is required." }, { status: 400, headers: noStore }); }
   }
   const query = new URLSearchParams();
-  for (const key of ["q", "limit", "offset"]) {
+  for (const key of ["q", "limit", "offset", "status"]) {
     const value = request.nextUrl.searchParams.get(key);
     if (value !== null) query.set(key, value);
   }

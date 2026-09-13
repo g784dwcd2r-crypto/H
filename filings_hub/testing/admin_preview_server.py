@@ -1,7 +1,7 @@
 """Loopback admin acceptance fixture. Never uses real accounts, credentials or a live lake."""
 
 import os
-from datetime import date
+from datetime import UTC, date, datetime
 from pathlib import Path
 
 import httpx
@@ -49,6 +49,8 @@ def main():
     )
     client = EdgarClient("Fixture fixture@example.test", transport=httpx.MockTransport(fx.edgar_document_handler))
     app = create_app(settings, edgar_client=client)
+    # Only this explicitly marked synthetic preview freezes campaign time. Session expiry stays real.
+    app.state.launch.clock = lambda: datetime(2026, 9, 13, tzinfo=UTC).timestamp()
     store = app.state.platform_admin
     with store.transaction() as tx:
         exists = tx.get("platform_admins", "disclosure") is not None

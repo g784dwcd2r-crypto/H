@@ -3,19 +3,17 @@ import { NextRequest, NextResponse } from "next/server";
 import { api } from "@/lib/server-api";
 import { SESSION_COOKIE, SESSION_DAYS } from "@/lib/session";
 import { deviceLabel } from "@/lib/device-label";
+import { authHref, authRegion, REGION_COOKIE, safeAuthNext } from "@/lib/auth-navigation";
 
 export async function GET(req: NextRequest) {
   const token = req.nextUrl.searchParams.get("token") ?? "";
-  const r = await api.post("/auth/verify", { token, device_label: deviceLabel(req.headers.get("user-agent") ?? "") });
-  if (!r.ok || typeof r.data.session !== "string") {
-    return NextResponse.redirect(new URL("/signin?error=link", req.nextUrl.origin));
+  const next = safeAuthNext(req.nextUrl.searchParams.get("next"));
+  const region = authRegion(req.nextUrl.searchParams.get("region"), req.cookies.get(REGION_COOKIE)?.value);
+  const r = await api.post("/auth/verify", { token, device_label: deviceLabel(req.headers.get("user-agent") ?? "") }).catch(() => null);
+  if (!r?.ok || typeof r.data.session !== "string") {
+    return NextResponse.redirect(new URL(authHref("/signin", next, region, "link"), req.nextUrl.origin));
   }
-  let next = new URL("/", req.nextUrl.origin);
-  try {
-    const candidate = new URL(req.nextUrl.searchParams.get("next") || "/", req.nextUrl.origin);
-    if (candidate.origin === req.nextUrl.origin) next = candidate;
-  } catch { /* Malformed return paths go to the homepage. */ }
-  const res = NextResponse.redirect(next);
+  const res = NextResponse.redirect(new URL(next, req.nextUrl.origin));
   res.cookies.set(SESSION_COOKIE, r.data.session, {
     httpOnly: true,
     sameSite: "lax",
@@ -23,5 +21,6 @@ export async function GET(req: NextRequest) {
     path: "/",
     maxAge: SESSION_DAYS * 86400,
   });
+  if (region) res.cookies.set(REGION_COOKIE, region, { sameSite: "lax", secure: req.nextUrl.protocol === "https:", path: "/", maxAge: 31536000 });
   return res;
 }
