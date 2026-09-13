@@ -135,3 +135,42 @@ def test_refresh_against_s3(s3_env):
     assert storage.exists(layout.raw_api_companyfacts(date(2026, 11, 3), fx.APPLE))
     labels = {r["period_label"] for r in storage.read_parquet(layout.PERIODS).to_pylist() if r["cik"] == fx.APPLE}
     assert "FY2026" in labels
+
+
+def test_remote_lake_serves_small_tables_from_local_copies(s3_env):
+    """Over object storage the whole-universe tables are copied next to the process and re-synced
+    when the remote file changes, so search does not pull them from the bucket per query."""
+    from filings_hub.db.database import LOCAL_TABLES, Database
+    from filings_hub.ingest.backfill import run_backfill
+    from filings_hub.lake import layout
+    from filings_hub.lake.storage import Storage
+    from filings_hub.testing import edgar_fixtures as fx
+
+    storage = Storage(os.environ["LAKE_ROOT"])
+    if not storage.exists(layout.COMPANIES):
+        fx.seed_raw(storage, date(2026, 9, 11))
+        assert (
+            run_backfill(storage, workers=1, skip_download=True, load_db=False, today=date(2026, 9, 11)).status == "ok"
+        )
+
+    db = Database("", storage)
+    try:
+        assert db._local_dir and sorted(os.listdir(db._local_dir)) == sorted(f"{n}.parquet" for n in LOCAL_TABLES)
+        assert db.query("SELECT count(*) AS n FROM companies")[0]["n"] == len(fx.COMPANIES)
+        assert db.maybe_resync(ttl=0) is False  # nothing changed remotely
+
+        # a refresh rewrites companies.parquet in the bucket: the next check picks it up
+        t = storage.read_parquet(layout.COMPANIES)
+        storage.write_parquet(layout.COMPANIES, t.slice(0, 1))
+        assert db.maybe_resync(ttl=0) is True
+        assert db.query("SELECT count(*) AS n FROM companies")[0]["n"] == 1
+        assert db.maybe_resync(ttl=3600) is False  # within the TTL no remote round trip is made
+        storage.write_parquet(layout.COMPANIES, t)  # restore for later tests in the module
+        local_dir = db._local_dir
+    finally:
+        db.close()
+    assert not os.path.exists(local_dir)
+
+    local = Database("", Storage(str(__import__("tempfile").mkdtemp())))
+    assert local._local_dir is None  # local lakes read in place
+    local.close()

@@ -7,16 +7,25 @@ GET /companies/{cik}/filings?form=&from=&to=       other filings
 GET /companies/{cik}/statements?periods=           as-reported lines (grid)
 GET /companies/{cik}/export.xlsx?periods=          workbook
 GET /companies/{cik}/facts?concept=                XBRL fact history from the lake (restatements)
+GET /companies/{cik}/documents?accessions=         exhibit-level contents of filings, plain names
+GET /companies/{cik}/filings/{acc}/document?file=  a filing document, sanitised, with a table of contents
+GET /companies/{cik}/search?q=                     phrase search inside the company's results filings
+GET /companies/{cik}/peers                         same industry, by size
+GET /filings/recent?ciks=                          what the followed companies filed lately
+POST /subscriptions                                email alerts for followed companies
+POST /requests                                     coverage requests (other regions)
 GET /health
 """
 
 from __future__ import annotations
 
 import logging
-from datetime import date
+import re
+import uuid
+from datetime import date, timedelta
 from typing import Any
 
-from fastapi import Depends, FastAPI, HTTPException, Query, Response
+from fastapi import Body, Depends, FastAPI, HTTPException, Query, Response
 
 from filings_hub import __version__
 from filings_hub.api.security import RateLimiter, make_auth
@@ -24,9 +33,13 @@ from filings_hub.config import Settings, get_settings
 from filings_hub.db.database import Database
 from filings_hub.export.excel import export_excel
 from filings_hub.export.grid import build_grid
-from filings_hub.ingest.periods import next_expected_results
+from filings_hub.ingest import digest, documents
+from filings_hub.ingest.edgar_client import EdgarClient, EdgarError, client_from_settings
+from filings_hub.ingest.metrics import METRIC_NAMES, period_metrics
+from filings_hub.ingest.periods import base_form, next_expected_results
 from filings_hub.lake import layout
 from filings_hub.lake.storage import Storage
+from filings_hub.reader import DocumentCache, render_document, search_text
 
 log = logging.getLogger(__name__)
 
@@ -103,7 +116,12 @@ def search_params(q: str, limit: int) -> list[Any]:
     return [f"%{q.strip().lower()}%", sym, sym, cik, sym, limit]
 
 
-def create_app(settings: Settings | None = None, db: Database | None = None) -> FastAPI:
+EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+
+
+def create_app(
+    settings: Settings | None = None, db: Database | None = None, edgar_client: EdgarClient | None = None
+) -> FastAPI:
     s = settings or get_settings()
     storage = Storage(s.resolved_lake_root())
     database = db or Database(s.database_url, storage)
@@ -111,9 +129,14 @@ def create_app(settings: Settings | None = None, db: Database | None = None) -> 
     auth = make_auth(s.api_key, limiter)
     if not s.api_key:
         log.warning("API_KEY is empty: the API is unauthenticated (dev mode)")
+    client = edgar_client
+    if client is None and "@" in (s.sec_user_agent or ""):
+        client = client_from_settings()
+    docs_cache = DocumentCache(storage, client)
 
     app = FastAPI(title="Filings Hub API", version=__version__, docs_url="/docs")
     app.state.db = database
+    app.state.edgar = client
 
     def resolve_cik(cik: str) -> int:
         if cik.isdigit():
@@ -138,11 +161,13 @@ def create_app(settings: Settings | None = None, db: Database | None = None) -> 
 
     @app.get("/search")
     def search(q: str = Query(min_length=1), limit: int = Query(20, le=100), _: str = Depends(auth)) -> dict[str, Any]:
+        database.maybe_resync()
         rows = database.query(SEARCH_SQL, search_params(q, limit))
         return {"query": q, "results": rows}
 
     @app.get("/companies/{cik}")
     def company(cik: str, _: str = Depends(auth)) -> dict[str, Any]:
+        database.maybe_resync()
         c = resolve_cik(cik)
         rows = database.query("SELECT * FROM companies WHERE cik = ?", [c])
         if not rows:
@@ -175,6 +200,9 @@ def create_app(settings: Settings | None = None, db: Database | None = None) -> 
             f"WHERE p.cik = ? ORDER BY p.period_end DESC LIMIT ?",
             [c, limit],
         )
+        metrics = period_metrics(database.query, c)
+        for r in rows:
+            r["metrics"] = metrics.get(r["results_accession"]) or dict.fromkeys(METRIC_NAMES)
         return {"cik": c, "periods": rows}
 
     @app.get("/companies/{cik}/filings")
@@ -262,6 +290,220 @@ def create_app(settings: Settings | None = None, db: Database | None = None) -> 
             sql += " AND is_current"
         sql += " ORDER BY period_end, period_start NULLS FIRST, filed"
         return {"cik": c, "concept": concept, "facts": duck.fetch_dicts(sql, params)}
+
+    @app.get("/companies/{cik}/peers")
+    def company_peers(cik: str, limit: int = Query(12, le=50), _: str = Depends(auth)) -> dict[str, Any]:
+        """Same industry code, biggest first (latest annual revenue, else total assets)."""
+        c = resolve_cik(cik)
+        me = database.query("SELECT sic, sic_description FROM companies WHERE cik = ?", [c])
+        if not me:
+            raise HTTPException(404, f"unknown CIK {c}")
+        sic = me[0]["sic"]
+        peers = (
+            database.query(
+                "SELECT c.cik, c.name, c.ticker, c.exchange, m.fiscal_year, m.revenue, m.net_income, m.total_assets "
+                "FROM companies c LEFT JOIN company_metrics m ON m.cik = c.cik "
+                "WHERE c.sic = ? AND c.cik <> ? AND c.is_active "
+                "ORDER BY coalesce(m.revenue, m.total_assets, 0) DESC, c.filing_count DESC LIMIT ?",
+                [sic, c, limit],
+            )
+            if sic
+            else []
+        )
+        return {"cik": c, "sic": sic, "sic_description": me[0]["sic_description"], "peers": peers}
+
+    def _filing_rows(c: int, accessions: list[str]) -> list[dict[str, Any]]:
+        if not accessions:
+            return []
+        marks = ", ".join("?" for _ in accessions)
+        return database.query(
+            f"SELECT accession, form, items, primary_doc, primary_doc_url, filed_date FROM filings "
+            f"WHERE cik = ? AND accession IN ({marks})",
+            [c, *accessions],
+        )
+
+    def _period_accessions(c: int, limit: int) -> list[str]:
+        """Results filings, earnings releases and amendments of the latest `limit` periods, newest first."""
+        rows = database.query(
+            f"SELECT results_accession, earnings_release_accession, amendment_accessions "
+            f"FROM {database.periods_table} WHERE cik = ? ORDER BY period_end DESC LIMIT ?",
+            [c, limit],
+        )
+        out: list[str] = []
+        for r in rows:
+            for a in (r["results_accession"], r["earnings_release_accession"], *(r["amendment_accessions"] or [])):
+                if a and a not in out:
+                    out.append(a)
+        return out
+
+    @app.get("/companies/{cik}/documents")
+    def company_documents(
+        cik: str,
+        accessions: str | None = None,
+        limit: int = Query(8, le=60),
+        all: bool = False,
+        _: str = Depends(auth),
+    ) -> dict[str, Any]:
+        """Exhibit-level contents of filings with plain names, fetched from EDGAR once and kept."""
+        c = resolve_cik(cik)
+        accs = [a.strip() for a in accessions.split(",") if a.strip()] if accessions else _period_accessions(c, limit)
+        filings = _filing_rows(c, accs)
+        table, failures = documents.ensure_documents(storage, client, c, filings)
+        grouped: dict[str, list[dict[str, Any]]] = {a: [] for a in accs}
+        for d in sorted(table.to_pylist(), key=lambda d: (d["rank"], d["seq"])):
+            if d["kind"] == "support" and not all:
+                continue
+            grouped.setdefault(d["accession"], []).append(
+                {
+                    k: d[k]
+                    for k in (
+                        "seq",
+                        "doc_type",
+                        "description",
+                        "filename",
+                        "url",
+                        "size",
+                        "label",
+                        "kind",
+                        "is_primary",
+                    )
+                }
+            )
+        return {"cik": c, "documents": grouped, "failures": failures, "fetch_enabled": client is not None}
+
+    @app.get("/companies/{cik}/filings/{accession}/document")
+    def filing_document(cik: str, accession: str, file: str | None = None, _: str = Depends(auth)) -> dict[str, Any]:
+        """A filing document, sanitised for the reader, with a table of contents."""
+        c = resolve_cik(cik)
+        rows = _filing_rows(c, [accession])
+        if not rows:
+            raise HTTPException(404, f"unknown filing {accession}")
+        filename = file or rows[0]["primary_doc"]
+        if not filename or "/" in filename or ".." in filename:
+            raise HTTPException(404, "no document")
+        try:
+            raw = docs_cache.fetch_document(c, accession, filename)
+        except (EdgarError, RuntimeError) as e:
+            raise HTTPException(502, f"could not fetch the document from EDGAR: {e}") from e
+        folder = documents.document_url(c, accession, "")
+        rendered = render_document(raw.decode("utf-8", errors="replace"), folder)
+        return {
+            "cik": c,
+            "accession": accession,
+            "form": rows[0]["form"],
+            "filed_date": rows[0]["filed_date"],
+            "filename": filename,
+            "source_url": documents.document_url(c, accession, filename),
+            **rendered,
+        }
+
+    @app.get("/companies/{cik}/search")
+    def company_search(
+        cik: str, q: str = Query(min_length=2, max_length=200), filings: int = Query(20, le=40), _: str = Depends(auth)
+    ) -> dict[str, Any]:
+        """Where did they last mention it: phrase search over the company's results filings and
+        earnings releases, newest first, with context."""
+        c = resolve_cik(cik)
+        accs = _period_accessions(c, filings)
+        rows = {r["accession"]: r for r in _filing_rows(c, accs)}
+        table, _f = documents.ensure_documents(storage, client, c, list(rows.values()))
+        docs = table.to_pylist()
+        results = []
+        searched = 0
+        for a in accs:
+            r = rows.get(a)
+            if not r:
+                continue
+            form = base_form(r["form"] or "")
+            # the release exhibit for an 8-K, the report itself otherwise
+            target = r["primary_doc"]
+            label = form_label(r["form"])
+            if form == "8-K":
+                rel = [d for d in docs if d["accession"] == a and d["kind"] == "release"]
+                if rel:
+                    target, label = rel[0]["filename"], rel[0]["label"]
+            if not target:
+                continue
+            try:
+                text = docs_cache.fetch_text(c, a, target)
+            except (EdgarError, RuntimeError) as e:
+                log.warning("search: could not fetch %s/%s: %s", a, target, e)
+                continue
+            searched += 1
+            hits = search_text(text, q)
+            if hits:
+                results.append(
+                    {
+                        "accession": a,
+                        "form": r["form"],
+                        "label": label,
+                        "filed_date": r["filed_date"],
+                        "filename": target,
+                        "hits": hits,
+                    }
+                )
+        return {"cik": c, "query": q, "searched": searched, "results": results, "fetch_enabled": client is not None}
+
+    @app.get("/filings/recent")
+    def recent_filings(
+        ciks: str = Query(min_length=1),
+        days: int = Query(7, le=90),
+        since: date | None = None,
+        limit: int = Query(100, le=500),
+        _: str = Depends(auth),
+    ) -> dict[str, Any]:
+        """What the followed companies filed since `since` (default: the last `days` days), newest first."""
+        ids = sorted({int(x) for x in ciks.split(",") if x.strip().isdigit()})[:200]
+        if not ids:
+            return {"filings": []}
+        marks = ", ".join("?" for _ in ids)
+        rows = database.query(
+            f"SELECT f.cik, c.name, c.ticker, f.accession, f.form, f.filed_date, f.items, f.primary_doc_url, "
+            f"f.filing_index_url FROM filings f LEFT JOIN companies c ON c.cik = f.cik "
+            f"WHERE f.cik IN ({marks}) AND f.filed_date >= ? "
+            f"ORDER BY f.filed_date DESC, f.accession DESC LIMIT ?",
+            [*ids, since or (date.today() - timedelta(days=days)), limit],
+        )
+        for r in rows:
+            r["label"] = form_label(r["form"])
+            r["is_results"] = digest.is_results_filing(r)
+        return {"filings": rows}
+
+    def _store(rel: str, payload: dict[str, Any]) -> None:
+        import json
+
+        try:
+            storage.write_text(rel, json.dumps(payload))
+        except Exception as e:
+            log.warning("could not store %s: %s", rel, e)
+            raise HTTPException(503, "this deployment cannot store submissions (read-only lake)") from e
+
+    @app.post("/subscriptions")
+    def subscribe(payload: dict[str, Any] = Body(...), _: str = Depends(auth)) -> dict[str, Any]:
+        email = str(payload.get("email") or "").strip()
+        ciks = payload.get("ciks") or []
+        if not EMAIL_RE.match(email):
+            raise HTTPException(422, "a valid email is required")
+        if not isinstance(ciks, list) or not all(str(c).isdigit() for c in ciks) or not 0 < len(ciks) <= 200:
+            raise HTTPException(422, "ciks must be a list of 1 to 200 CIKs")
+        rec = {
+            "email": email.lower(),
+            "ciks": sorted({int(c) for c in ciks}),
+            "created": date.today().isoformat(),
+        }
+        _store(f"{layout.SUBSCRIPTIONS}/{digest.subscription_id(email)}.json", rec)
+        return {"stored": True, "email": rec["email"], "ciks": len(rec["ciks"])}
+
+    @app.post("/requests")
+    def coverage_request(payload: dict[str, Any] = Body(...), _: str = Depends(auth)) -> dict[str, Any]:
+        region = str(payload.get("region") or "").strip()[:40]
+        note = str(payload.get("note") or "").strip()[:2000]
+        email = str(payload.get("email") or "").strip()[:200]
+        if not region or not note:
+            raise HTTPException(422, "region and note are required")
+        rid = uuid.uuid4().hex[:12]
+        _store(f"{layout.REQUESTS}/{rid}.json", {"id": rid, "region": region, "note": note, "email": email})
+        return {"stored": True, "id": rid}
 
     @app.get("/metrics")
     def metrics(days: int = Query(30, le=365), _: str = Depends(auth)) -> dict[str, Any]:

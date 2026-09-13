@@ -29,6 +29,18 @@ log = logging.getLogger(__name__)
 MIGRATIONS_DIR = Path(__file__).parent / "migrations"
 
 TABLE_COLUMNS: dict[str, list[str]] = {
+    "company_metrics": [
+        "cik",
+        "period_label",
+        "fiscal_year",
+        "period_end",
+        "results_accession",
+        "revenue",
+        "net_income",
+        "eps_diluted",
+        "total_assets",
+        "operating_cash_flow",
+    ],
     "companies": [
         "cik",
         "name",
@@ -285,6 +297,10 @@ def load_full(storage: Storage, database_url: str, all_periods: bool = False, ba
                 )
             counts["filings"] = n
         counts["periods"] = _replace_all(conn, "periods", serving_periods(duck))
+        if views["company_metrics"]:
+            counts["company_metrics"] = _replace_all(
+                conn, "company_metrics", duck.fetch_arrow("SELECT * FROM company_metrics")
+            )
         if views["statements"]:
             with conn.cursor() as cur:
                 cur.execute("TRUNCATE statements")
@@ -338,6 +354,10 @@ def load_incremental(
         if views["tickers"]:
             counts["tickers"] = _replace_all(conn, "tickers", duck.fetch_arrow("SELECT * FROM tickers"))
         counts["periods"] = _replace_all(conn, "periods", serving_periods(duck))
+        if views["company_metrics"]:
+            counts["company_metrics"] = _replace_all(
+                conn, "company_metrics", duck.fetch_arrow("SELECT * FROM company_metrics")
+            )
         if views["filings"] and (cik_list or accessions):
             rows = duck.fetch_arrow(
                 "SELECT * FROM filings WHERE cik IN (SELECT unnest(?::BIGINT[])) "

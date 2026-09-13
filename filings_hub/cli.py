@@ -319,3 +319,58 @@ def golden(
                 )
     finally:
         db.close()
+
+
+@app.command()
+def metrics(verbose: bool = False) -> None:
+    """Rebuild company_metrics/ (latest annual key numbers per company) from the lake's statements."""
+    _setup_logging(verbose)
+    from filings_hub.ingest.metrics import build_company_metrics
+
+    typer.echo(f"company_metrics: {build_company_metrics(_storage())} companies")
+
+
+@app.command()
+def documents(
+    tickers: str = typer.Option("", help="comma-separated tickers or CIKs; empty = every active company"),
+    periods: int = typer.Option(8, help="latest N periods per company (results filing, earnings release, amendments)"),
+    verbose: bool = False,
+) -> None:
+    """Prefetch exhibit-level filing contents (index pages) so company pages open without waiting on EDGAR."""
+    _setup_logging(verbose)
+    from filings_hub.db.database import Database
+    from filings_hub.ingest.documents import ensure_documents
+    from filings_hub.ingest.edgar_client import client_from_settings
+
+    storage = _storage()
+    db = Database("", storage)
+    if tickers:
+        ciks = [_resolve_ticker(db, t.strip()) if not t.strip().isdigit() else int(t) for t in tickers.split(",")]
+    else:
+        ciks = [r["cik"] for r in db.query("SELECT cik FROM companies WHERE is_active ORDER BY cik")]
+    fetched = failed = 0
+    with client_from_settings() as client:
+        for i, cik in enumerate(ciks, 1):
+            rows = db.query(
+                f"SELECT results_accession, earnings_release_accession, amendment_accessions FROM {db.periods_table} "
+                f"WHERE cik = ? ORDER BY period_end DESC LIMIT ?",
+                [cik, periods],
+            )
+            accs: list[str] = []
+            for r in rows:
+                for a in (r["results_accession"], r["earnings_release_accession"], *(r["amendment_accessions"] or [])):
+                    if a and a not in accs:
+                        accs.append(a)
+            if not accs:
+                continue
+            marks = ", ".join("?" for _ in accs)
+            filings = db.query(
+                f"SELECT accession, form, items, primary_doc FROM filings WHERE cik = ? AND accession IN ({marks})",
+                [cik, *accs],
+            )
+            _, failures = ensure_documents(storage, client, cik, filings, max_fetch=len(filings))
+            fetched += len(filings) - len(failures)
+            failed += len(failures)
+            if i % 50 == 0 or i == len(ciks):
+                typer.echo(f"{i}/{len(ciks)} companies, {fetched} filings, {failed} failed")
+    db.close()

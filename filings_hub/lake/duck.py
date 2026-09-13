@@ -115,6 +115,8 @@ class Duck:
             "tickers": self.view("tickers", layout.TICKERS, hive=False),
             "filings": self.view("filings", f"{layout.FILINGS}/*/*.parquet"),
             "periods": self.view("periods", layout.PERIODS, hive=False),
+            "company_metrics": self.view("company_metrics", layout.COMPANY_METRICS, hive=False),
+            "documents": self.view("documents", f"{layout.DOCUMENTS}/*/*.parquet"),
             "facts": self.view("facts", f"{layout.FACTS}/*/*.parquet"),
             "statements": self.view("statements", f"{layout.STATEMENTS}/*/*.parquet"),
             "statement_checks": self.view("statement_checks", f"{layout.STATEMENT_CHECKS}/*/*.parquet"),

@@ -54,20 +54,48 @@ class FakeEdgar:
         self.calls.append(f"get {url}")
         return None  # no new FSDS quarter published
 
+    def get(self, url: str):
+        import httpx
+
+        from filings_hub.ingest.edgar_client import EdgarError
+
+        self.calls.append(f"get {url}")
+        resp = fx.edgar_document_handler(httpx.Request("GET", url))
+        if resp.status_code >= 400:
+            raise EdgarError(f"GET {url} -> HTTP {resp.status_code}")
+        return resp
+
 
 def _periods(storage: Storage, cik: int) -> dict[str, dict]:
     return {r["period_label"]: r for r in storage.read_parquet(layout.PERIODS).to_pylist() if r["cik"] == cik}
 
 
 def test_refresh_new_10k(lake_copy: Storage, monkeypatch: pytest.MonkeyPatch):
+    from filings_hub.ingest import alerts as A
+    from filings_hub.ingest import digest as D
+
     alerts: list[tuple[str, str]] = []
+    emails: list[tuple[str, str, str]] = []
     monkeypatch.setattr(R, "notify", lambda subject, body, **kw: alerts.append((subject, body)))
+    monkeypatch.setattr(A, "send_email", lambda to, subject, body, **kw: emails.append((to, subject, body)) or True)
+    D.save_subscription(lake_copy, "Analyst@Example.com", [fx.APPLE, fx.JPM])
+    D.save_subscription(lake_copy, "other@example.com", [fx.RBC])
     today = date(2026, 11, 3)  # Tuesday
     monday = date(2026, 11, 2)
     fake = FakeEdgar({monday: [(fx.APPLE, "10-K", fx.APPLE_10K_FY2026), (fx.JPM, "4", "0000019617-26-000050")]})
 
     run = R.run_refresh(lake_copy, fake, today=today, index_date=monday, load_db=False)
     assert run.status == "ok", run.summary()
+    # the new filings' documents were fetched from their index pages and kept in the lake
+    docs = lake_copy.read_parquet(f"{layout.documents_cik_dir(fx.APPLE)}/part-0.parquet").to_pylist()
+    by_acc = {}
+    for d in docs:
+        by_acc.setdefault(d["accession"], set()).add(d["label"])
+    assert "Annual report" in by_acc[fx.APPLE_10K_FY2026] and "Subsidiaries" in by_acc[fx.APPLE_10K_FY2026]
+    assert "Earnings release" in by_acc[fx.APPLE_8K_FY2026]
+    # one digest to the subscriber who follows Apple; the other follows a company that did not file
+    assert run.emails_sent == 1 and [e[0] for e in emails] == ["analyst@example.com"]
+    assert "Apple Inc." in emails[0][2] and "10-K" in emails[0][2]
     assert run.index_dates == ["2026-11-02"] and run.new_filings == 2 and run.ciks_refreshed == 1
     assert run.facts_rows > 0 and run.statements_built == 1 and run.error is None and run.failures == []
     # the Form 4 filer was not refreshed via the API (only results forms / 8-K trigger it) but the stub row exists

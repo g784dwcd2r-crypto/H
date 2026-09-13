@@ -19,6 +19,24 @@ def test_cli_demo_export_quality_golden(tmp_path, monkeypatch):
     assert r.exit_code == 0 and (tmp_path / "a.xlsx").stat().st_size > 5000
     r = runner.invoke(app, ["export", "320193"])
     assert r.exit_code == 0 and (tmp_path / "320193-statements.xlsx").exists()
+    r = runner.invoke(app, ["metrics"])
+    assert r.exit_code == 0 and "company_metrics:" in r.output, r.output
+
+    import httpx
+
+    from filings_hub.ingest import edgar_client as ec
+    from filings_hub.lake import layout
+    from filings_hub.lake.storage import Storage
+    from filings_hub.testing import edgar_fixtures as fx
+
+    monkeypatch.setattr(
+        ec,
+        "client_from_settings",
+        lambda **kw: ec.EdgarClient("Test test@example.com", transport=httpx.MockTransport(fx.edgar_document_handler)),
+    )
+    r = runner.invoke(app, ["documents", "--tickers", "AAPL", "--periods", "2"])
+    assert r.exit_code == 0 and "1/1 companies" in r.output, r.output
+    assert Storage(str(tmp_path / "lake")).exists(f"{layout.documents_cik_dir(fx.APPLE)}/part-0.parquet")
     assert runner.invoke(app, ["export", "NOPE"]).exit_code == 2
     (tmp_path / "t.txt").write_text("AAPL\nJPM\n")
     r = runner.invoke(app, ["quality", "--since", "2024", "--tickers-file", str(tmp_path / "t.txt")])

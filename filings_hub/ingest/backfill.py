@@ -6,7 +6,7 @@ import logging
 import time
 from datetime import date
 
-from filings_hub.ingest import bulk, fsds, sync_facts, sync_filings, sync_statements, sync_universe
+from filings_hub.ingest import bulk, fsds, metrics, sync_facts, sync_filings, sync_statements, sync_universe
 from filings_hub.ingest.edgar_client import EdgarClient, client_from_settings
 from filings_hub.ingest.refresh import RunLog, write_run_log
 from filings_hub.ingest.sync_periods import rebuild_periods
@@ -95,6 +95,10 @@ def run_backfill(
         step = time.monotonic()
         run.statements_built = sync_statements.fill_all_fallbacks(storage)
         run.step("fallbacks", time.monotonic() - step)
+
+        step = time.monotonic()
+        metrics.build_company_metrics(storage)
+        run.step("metrics", time.monotonic() - step)
 
         if load_db:
             url = database_url
