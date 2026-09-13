@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import StatementTabs from "@/components/StatementTabs";
 import { api, NotFound } from "@/lib/api";
+import { resolvedPrefs } from "@/lib/session";
 
 export const dynamic = "force-dynamic";
 
@@ -14,7 +15,9 @@ export default async function StatementsPage({
 }) {
   const { cik } = await params;
   const { periods, limit } = await searchParams;
-  const n = Math.min(Math.max(parseInt(limit ?? "8", 10) || 8, 1), 40);
+  const { prefs, signedIn } = await resolvedPrefs({ cik });
+  const remembered = Number(prefs.periods_shown?.value) || 8;
+  const n = Math.min(Math.max(parseInt(limit ?? String(remembered), 10) || remembered, 1), 40);
   let grid;
   try {
     grid = await api.statements(cik, periods, n);
@@ -33,7 +36,7 @@ export default async function StatementsPage({
         As-reported statements · {grid.periods.length} period{grid.periods.length === 1 ? "" : "s"}
         {periods ? "" : <> · <Link href={`/companies/${id}/statements?limit=${Math.min(n + 8, 40)}`}>show more periods</Link></>}
       </p>
-      <StatementTabs grid={grid} downloadHref={download} />
+      <StatementTabs grid={grid} downloadHref={download} cik={id} prefs={prefs} signedIn={signedIn} periodsShown={n} explicitLimit={!!limit} />
     </>
   );
 }

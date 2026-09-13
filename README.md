@@ -119,6 +119,12 @@ GET /companies/{cik}/facts?concept=&history=true` | XBRL fact history from the l
 * **Keys.** `/` focuses search, `w` opens the watchlist, `1`–`3` switch statements, `m`/`t`/`u` change the scale.
 * **International as a promise.** UK, Europe and rest-of-world tabs take coverage requests.
 
+## Accounts and preferences (the spine of "the user decides")
+
+Sign in with an email link (`SMTP_*`) or Google (`GOOGLE_CLIENT_ID`/`SECRET`, redirect URI `{SITE_URL}/auth/google/callback`). Sessions are signed tokens (`SESSION_SECRET`) in an httpOnly cookie. The user store follows the serving data: Postgres when `DATABASE_URL` is set (migration `0006`), JSON documents in the lake otherwise, so the API needs a writable lake on the free layout.
+
+Preferences are one record per `(scope, scope_key, key)` with a `source` (explicit, inferred, preset), resolved **statement → company → sector → global → default**; every resolution names the scope that answered, and the UI shows it ("set for this company", "everywhere"). Today the scale, the statement that opens first and the number of periods shown read and write it; signed-out visitors keep the same choices in their browser. `/settings` lists everything with reset, export and import as JSON. API: `GET /me`, `GET/PUT/DELETE /me/prefs`, `GET /me/prefs/resolve?cik=&statement=`, `POST /me/prefs/export|import|reset`.
+
 ## Web app (Phase 3)
 
 ```bash

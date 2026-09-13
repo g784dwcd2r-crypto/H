@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import Shortcuts from "@/components/Shortcuts";
+import UserMenu from "@/components/UserMenu";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -28,6 +29,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               <Link href="/">Search</Link>
               <Link href="/watchlist">Watchlist</Link>
               <a href="https://www.sec.gov/edgar" target="_blank" rel="noreferrer">EDGAR</a>
+              <UserMenu />
             </nav>
           </div>
         </header>
