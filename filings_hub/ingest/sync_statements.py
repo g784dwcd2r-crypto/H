@@ -546,8 +546,11 @@ def build_fallback_rows(
 
     lines: dict[tuple[str, bool], list[dict[str, Any]]] = defaultdict(list)
     used: set[str] = set()
+    # a template line without a statement or a position cannot be placed: the FSDS `pre` table
+    # occasionally leaves both blank, and sorting None against a string crashed a whole backfill
+    template = [t for t in template or [] if t.get("statement") and t.get("line_order") is not None]
     if template:
-        ordered = sorted(template, key=lambda t: (t["statement"], t["is_parenthetical"], t["line_order"]))
+        ordered = sorted(template, key=lambda t: (t["statement"], bool(t["is_parenthetical"]), t["line_order"]))
         # How many lines of a statement carry each concept. A cash flow or equity statement presents the
         # same concept twice, as opening and closing balances, and each line takes its own instant --
         # filling both from the whole fact set would print the closing balance on the opening line.
@@ -762,6 +765,7 @@ def _template_for(duck: Duck, cik: int, family: str) -> list[dict[str, Any]] | N
         SELECT DISTINCT statement, is_parenthetical, line_order, concept, label, negating, is_abstract,
                standard_label, taxonomy
         FROM statements WHERE accession = (SELECT accession FROM latest)
+          AND statement IS NOT NULL AND line_order IS NOT NULL
         ORDER BY statement, is_parenthetical, line_order
         """,
         list(forms),
