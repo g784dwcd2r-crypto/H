@@ -104,8 +104,10 @@ try {
     await page.screenshot({ path: path.join(artifacts, "watchlist-desktop.png"), fullPage: true });
   });
   await check("Mobile search and bounded page width", async () => {
-    await page.setViewportSize({ width: 390, height: 844 });
+    await page.setViewportSize({ width: 320, height: 844 });
     await visit("/");
+    assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), "Homepage fits a 320px phone");
+    await page.setViewportSize({ width: 390, height: 844 });
     await page.screenshot({ path: path.join(artifacts, "home-mobile.png"), fullPage: true });
     assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth));
     await page.getByRole("combobox").fill("JPM");
@@ -113,6 +115,27 @@ try {
     await page.waitForURL("**/companies/19617");
     await page.getByRole("heading", { name: /JPMorgan/ }).waitFor();
     assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth));
+  });
+  await check("Reduced motion and readable content without JavaScript", async () => {
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await visit("/");
+    await page.locator(".research-section").scrollIntoViewIfNeeded();
+    await page.waitForFunction(() => document.getAnimations().every(animation => animation.playState !== "running"));
+    assert.equal(await page.locator(".research-section").evaluate(element => getComputedStyle(element).opacity), "1");
+    await page.getByRole("button", { name: /Net income.*FY 2023/i }).click();
+    assert.match(await page.locator(".preview-evidence").innerText(), /Net income.*FY 2023/s);
+    const staticContext = await browser.newContext({ javaScriptEnabled: false });
+    try {
+      const staticPage = await staticContext.newPage();
+      await staticPage.goto(base);
+      for (const selector of [".landing-copy", ".feature-triptych", ".research-section", ".coverage-callout"]) {
+        assert.ok(await staticPage.locator(selector).isVisible(), `${selector} requires no JavaScript to read`);
+        assert.equal(await staticPage.locator(selector).evaluate(element => getComputedStyle(element).opacity), "1");
+      }
+      assert.ok(await staticPage.getByRole("link", { name: "Explore an example" }).isVisible());
+    } finally {
+      await staticContext.close();
+    }
   });
   assert.deepEqual(errors, [], "Browser runtime exceptions");
   console.log(JSON.stringify({ passed: passed.length, scenarios: passed, runtimeErrors: errors }, null, 2));

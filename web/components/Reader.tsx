@@ -7,7 +7,7 @@ export default function Reader({ html, toc }: { html: string; toc: { id: string;
   const frame = useRef<HTMLIFrameElement>(null);
   const [current, setCurrent] = useState<string | null>(null);
   const doc = `<!doctype html><html><head><meta charset="utf-8"><base target="_blank"><style>
-    html{scroll-behavior:smooth} body{margin:0;padding:24px 28px;font:15px/1.55 Georgia,"Times New Roman",serif;color:#141414;background:#fbfaf7;max-width:980px}
+    html{scroll-behavior:smooth}@media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}} body{margin:0;padding:24px 28px;font:15px/1.55 Georgia,"Times New Roman",serif;color:#101522;background:#fff;max-width:980px}
     table{max-width:100%} img{max-width:100%;height:auto} [id^="fh-"]{scroll-margin-top:16px}
   </style></head><body>${html}</body></html>`;
 
