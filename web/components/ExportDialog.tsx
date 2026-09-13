@@ -36,6 +36,7 @@ export default function ExportDialog({
   const [rememberScope, setRememberScope] = useState<Scope>("company");
   const [profileName, setProfileName] = useState("");
   const [msg, setMsg] = useState<string | null>(null);
+  const [downloading, setDownloading] = useState(false);
   const profiles = prefs.list.filter((p) => p.scope === "export" && p.key === "profile").map((p) => ({ name: p.scope_key, cfg: p.value as Partial<ExportConfig> }));
 
   useEffect(() => {
@@ -51,19 +52,28 @@ export default function ExportDialog({
   }, [open]);
 
   const upd = <K extends keyof ExportConfig>(k: K, v: ExportConfig[K]) => setCfg((c) => ({ ...c, [k]: v }));
-  const download = () => {
-    logEvent("export.download", { layout: cfg.layout, orientation: cfg.orientation, subtotals: cfg.subtotals, period_mode: cfg.period_mode, scale: cfg.scale }, signedIn);
-    window.location.href = `/api/export?${exportQuery(cik, cfg, periods)}`;
+  const download = async () => {
+    setDownloading(true); setMsg(null);
+    try {
+      const response = await fetch(`/api/export?${exportQuery(cik, cfg, periods)}`);
+      if (!response.ok) throw new Error("Export unavailable");
+      const blob = await response.blob();
+      const filename = response.headers.get("Content-Disposition")?.match(/filename="?([^";]+)"?/i)?.[1] ?? "Disclosure-financials.xlsx";
+      const url = URL.createObjectURL(blob); const link = document.createElement("a"); link.href = url; link.download = filename; document.body.appendChild(link); link.click(); link.remove(); setTimeout(() => URL.revokeObjectURL(url), 60000);
+      logEvent("export.download", { layout: cfg.layout, orientation: cfg.orientation, subtotals: cfg.subtotals, period_mode: cfg.period_mode, scale: cfg.scale }, signedIn);
+      setMsg("Your workbook is ready. Check your downloads.");
+    } catch { setMsg("The workbook could not be generated. Please try again or choose fewer periods."); }
+    finally { setDownloading(false); }
   };
   const remember = async () => {
-    await prefs.set("export_config", cfg, rememberScope, ctx);
+    if (!await prefs.set("export_config", cfg, rememberScope, ctx)) { setMsg("Export settings could not be saved. Please try again."); return; }
     logEvent("export.remember", { scope: rememberScope }, signedIn);
     setMsg(`Export settings saved ${scopeWords(rememberScope)}.`);
   };
   const saveProfile = async () => {
     const name = profileName.trim().slice(0, 40);
     if (!name) return;
-    await prefs.set("profile", cfg, "export", { profile: name }); // the export scope's key is the profile name
+    if (!await prefs.set("profile", cfg, "export", { profile: name })) { setMsg("Profile could not be saved. Please try again."); return; } // the export scope's key is the profile name
     logEvent("export.profile.save", { name }, signedIn);
     setMsg(`Profile “${name}” saved.`);
     setProfileName("");
@@ -76,7 +86,7 @@ export default function ExportDialog({
     setMsg(`Loaded “${name}”.`);
   };
   const deleteProfile = async (name: string) => {
-    await prefs.reset("profile", "export", { profile: name });
+    if (!await prefs.reset("profile", "export", { profile: name })) { setMsg("Profile could not be removed. Please try again."); return; }
     setMsg(`Profile “${name}” removed.`);
   };
 
@@ -102,6 +112,7 @@ export default function ExportDialog({
           </p>
         )}
 
+        {periods && <p className="notice">Exporting your selected periods: {periods}. Open the full company financials to choose a different range.</p>}
         <div className="dlg-grid">
           <label>
             <span>Periods</span>
@@ -114,8 +125,8 @@ export default function ExportDialog({
           </label>
           <label>
             <span>How many</span>
-            <select value={cfg.limit} onChange={(e) => upd("limit", parseInt(e.target.value, 10))}>
-              {[4, 8, 12, 16, 20, 40].map((n) => <option key={n} value={n}>{n} periods</option>)}
+            <select disabled={!!periods} value={cfg.limit} onChange={(e) => upd("limit", parseInt(e.target.value, 10))}>
+              {Array.from(new Set([cfg.limit, 4, 6, 8, 12, 16, 20, 40])).sort((a, b) => a - b).map((n) => <option key={n} value={n}>{n} periods</option>)}
             </select>
           </label>
           <label>
@@ -171,7 +182,7 @@ export default function ExportDialog({
 
         <fieldset className="dlg-checks">
           <legend className="muted">Include</legend>
-          <label><input type="checkbox" checked={cfg.restated} onChange={(e) => upd("restated", e.target.checked)} /> latest-filed comparatives (restated)</label>
+          <label><input type="checkbox" checked={cfg.restated} onChange={(e) => upd("restated", e.target.checked)} /> latest-filed comparatives</label>
           <label><input type="checkbox" checked={cfg.include_source} onChange={(e) => upd("include_source", e.target.checked)} /> Source sheet</label>
           <label><input type="checkbox" checked={cfg.include_checks} onChange={(e) => upd("include_checks", e.target.checked)} /> arithmetic checks column</label>
           <label><input type="checkbox" checked={cfg.include_concepts} onChange={(e) => upd("include_concepts", e.target.checked)} /> XBRL concept names</label>
@@ -192,7 +203,7 @@ export default function ExportDialog({
         </fieldset>
 
         <div className="dlg-actions">
-          <button type="button" className="btn" onClick={download} disabled={cfg.statements.length === 0}>Download Excel</button>
+          <button type="button" className="btn" onClick={() => void download()} disabled={downloading || cfg.statements.length === 0}>{downloading ? "Preparing workbook…" : "Download Excel"}</button>
           <span className="row">
             <button type="button" className="btn secondary" onClick={() => void remember()}>Remember these settings</button>
             <select value={rememberScope} onChange={(e) => setRememberScope(e.target.value as Scope)} aria-label="Where to remember the export settings">
@@ -203,10 +214,10 @@ export default function ExportDialog({
           </span>
         </div>
         <div className="row profile-row">
-          <input value={profileName} onChange={(e) => setProfileName(e.target.value)} placeholder="Save as a named profile, e.g. Model input" maxLength={40} />
+          <input value={profileName} onChange={(e) => setProfileName(e.target.value)} aria-label="Export profile name" placeholder="Save as a named profile, e.g. Model input" maxLength={40} />
           <button type="button" className="btn secondary" onClick={() => void saveProfile()} disabled={!profileName.trim()}>Save profile</button>
         </div>
-        {msg && <p className="muted small">{msg}</p>}
+        {msg && <p className="muted small" role="status">{msg}</p>}
         {!signedIn && <p className="muted small">Settings and profiles are kept in this browser; sign in to keep them on every device.</p>}
       </form>
     </dialog>

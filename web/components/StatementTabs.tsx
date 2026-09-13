@@ -1,5 +1,7 @@
 "use client";
 
+import Link from "next/link";
+import { DocumentIcon } from "@/components/Icons";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import ExportDialog from "@/components/ExportDialog";
@@ -8,23 +10,11 @@ import ProposalStrip from "@/components/ProposalStrip";
 import type { ColumnOrder, Grid, PeriodMode, Pref } from "@/lib/api";
 import { logEvent, scopeWords, type PrefContext, type Scope } from "@/lib/prefs-client";
 import { usePrefs } from "@/lib/use-prefs";
+import { formatFinancialValue as fmt, isUnscaled, type Scale } from "@/lib/number-format";
 
-type Scale = "units" | "thousands" | "millions" | "billions";
-const FACTORS: Record<Scale, number> = { units: 1, thousands: 1e3, millions: 1e6, billions: 1e9 };
 const SCALES: Scale[] = ["units", "thousands", "millions", "billions"];
 const ALL_SCOPES: Scope[] = ["statement", "company", "sector", "global"];
 const MODE_WORDS: Record<PeriodMode, string> = { as_filed: "as filed", quarterly: "quarterly", annual: "annual", ltm: "trailing twelve months" };
-
-function fmt(v: number | null, unit: string | null, scale: Scale, negative: string): string {
-  if (v === null || v === undefined) return "";
-  const perShare = !!unit && unit.includes("/");
-  const factor = perShare ? 1 : FACTORS[scale];
-  const x = v / factor;
-  const s = perShare
-    ? Math.abs(x).toFixed(2)
-    : Math.abs(x).toLocaleString("en-US", { maximumFractionDigits: factor === 1 ? 0 : x % 1 === 0 ? 0 : 1 });
-  return x < 0 ? (negative === "minus" ? `-${s}` : `(${s})`) : s;
-}
 
 export default function StatementTabs({
   grid,
@@ -52,6 +42,7 @@ export default function StatementTabs({
   const [active, setActive] = useState(codes.includes(preferredStmt) ? preferredStmt : (codes[0] ?? "IS"));
   const [saved, setSaved] = useState<string | null>(null);
   const [exportOpen, setExportOpen] = useState(false);
+  const [selected, setSelected] = useState<{ line: string; period: string } | null>(null);
   useEffect(() => {
     const st = String(prefs.get("statement", { cik })?.value ?? "");
     if (st && codes.includes(st)) setActive(st);
@@ -71,11 +62,10 @@ export default function StatementTabs({
     setTimeout(() => setSaved(null), 1800);
   };
   const changeStatement = async (code: string) => {
-    setActive(code);
-    await prefs.set("statement", code, "company", { cik });
+    if (await prefs.set("statement", code, "company", { cik })) { setActive(code); setSelected(null); }
   };
   const rememberPeriods = async () => {
-    await prefs.set("periods_shown", periodsShown, "company", { cik });
+    if (!await prefs.set("periods_shown", periodsShown, "company", { cik })) return;
     flash(`${periodsShown} periods remembered for this company`);
   };
   // period mode and restated change what the API computes: save, then reload with the choice in the URL
@@ -104,8 +94,7 @@ export default function StatementTabs({
       if (key) {
         // the shortcut writes where the scale is currently set from (company when it is the default)
         const scope: Scope = ALL_SCOPES.includes(scaleWhere?.scope as Scope) ? (scaleWhere!.scope as Scope) : "company";
-        void prefs.set("scale", key, scope, ctx);
-        flash(`Scale saved ${scopeWords(scope)}`);
+        void prefs.set("scale", key, scope, ctx).then((ok) => { if (ok) flash(`Scale saved ${scopeWords(scope)}`); });
       }
     };
     window.addEventListener("keydown", onKey);
@@ -117,11 +106,16 @@ export default function StatementTabs({
     return (
       <div className="empty">
         <p>No as-reported statements for these periods yet.</p>
-        <p className="muted">Statements appear once the filing&apos;s XBRL is processed, usually the same day; provisional ones come from the company&apos;s facts before the SEC data set catches up.</p>
+        <p className="muted">Availability depends on the filing and its processing status. Check the company’s filings or coverage page for available documents.</p>
       </div>
     );
   const derived = periods.some((p) => p.basis === "derived");
   const restatedCols = periods.filter((p) => p.basis === "restated");
+  const selectedLine = selected ? stmt.lines.find((line) => line.key === selected.line) : undefined;
+  const selectedPeriod = selected ? periods.find((period) => period.period_label === selected.period) : undefined;
+  const metadata = selectedLine && selectedPeriod ? selectedLine.value_metadata?.[selectedPeriod.period_label] : undefined;
+  const selectedValue = selectedLine && selectedPeriod ? selectedLine.values[selectedPeriod.period_label] : null;
+  const sourceStatus = metadata?.status === "derived" ? "Calculated from reported inputs" : metadata?.status === "latest_presentation" ? "Latest available presentation" : metadata?.status === "unavailable" || selectedValue == null ? "Value unavailable" : "Reported observation";
   return (
     <>
       <ProposalStrip signedIn={signedIn} />
@@ -147,13 +141,14 @@ export default function StatementTabs({
           ctx={ctx}
           scopes={["statement", "company", "sector", "global"]}
           onSaved={flash}
-          title="Per-share amounts are never scaled."
+          title="Per-share amounts and share counts are never scaled."
         />
         <PrefControl
           prefs={prefs}
           prefKey="period_mode"
           label="Periods"
-          fallback={"as_filed" as PeriodMode}
+          fallback={grid.period_mode}
+          valueOverride={grid.period_mode}
           options={[
             { value: "as_filed", label: "as filed" },
             { value: "quarterly", label: "quarterly (Q4 derived)" },
@@ -198,7 +193,8 @@ export default function StatementTabs({
             prefKey="restated"
             label="latest-filed comparatives"
             kind="toggle"
-            fallback={false}
+            fallback={grid.restated}
+            valueOverride={grid.restated}
             options={[
               { value: true, label: "on" },
               { value: false, label: "off" },
@@ -227,25 +223,27 @@ export default function StatementTabs({
           Export to Excel…
         </button>
       </div>
+      {prefs.error && <p className="notice" role="alert">{prefs.error}</p>}
       <ExportDialog
         cik={cik}
         ctx={companyCtx}
         prefs={prefs}
         signedIn={signedIn}
-        current={{ period_mode: grid.period_mode, restated: grid.restated, column_order: order, limit: periodsShown }}
+        current={{ period_mode: grid.period_mode, restated: grid.restated, column_order: order, limit: periodsShown, scale, negative_style: negative === "minus" ? "minus" : "parentheses" }}
         periods={periodsParam}
         open={exportOpen}
         onClose={() => setExportOpen(false)}
       />
       <p className="muted small">
-        Per-share amounts are never scaled. Labels and line order are the company&apos;s own.
+        Per-share amounts and share counts are never scaled. Labels and line order are the company&apos;s own.
         {grid.period_mode !== "as_filed" && <> Showing {MODE_WORDS[grid.period_mode]}.</>}
-        {derived && grid.period_mode === "quarterly" && <> Derived columns are shaded: Q4 is the fiscal year less nine months; cash flow quarters are differences of the year-to-date columns; derived per-share amounts are approximations.</>}
-        {derived && grid.period_mode === "ltm" && <> LTM columns are shaded: year to date plus the prior fiscal year less the prior year to date; per-share amounts derived this way are approximations.</>}
-        {restatedCols.length > 0 && <> Restated columns take their numbers from the latest filing that presents the period.</>}
+        {derived && grid.period_mode === "quarterly" && <> Derived columns are shaded: Q4 is the fiscal year less nine months; cash flow quarters are differences of the year-to-date columns; unsupported per-share and non-additive calculations remain unavailable.</>}
+        {derived && grid.period_mode === "ltm" && <> LTM columns are shaded: year to date plus the prior fiscal year less the prior year to date; unsupported per-share and non-additive calculations remain unavailable.</>}
+        {restatedCols.length > 0 && <> Latest-presentation columns use the newest filing that presents the period; a later presentation may be a reclassification rather than a restatement.</>}
         {!signedIn && " Choices are kept in this browser; sign in to keep them on every device."}
       </p>
-      <div className="stmt">
+      <p className="source-hint">Select a number to inspect its reporting period, source and calculation. A dash means unavailable; select it for details.</p>
+      <div className={"statement-workspace" + (selectedLine && selectedPeriod ? " has-evidence" : "")}><div className="stmt">
         <table>
           <thead>
             <tr>
@@ -256,7 +254,7 @@ export default function StatementTabs({
                   {p.period_label}
                   {p.is_provisional && <span className="chip warn">provisional</span>}
                   {p.basis === "derived" && <span className="chip derived">derived</span>}
-                  {p.basis === "restated" && <span className="chip">restated</span>}
+                  {p.basis === "restated" && <span className="chip">latest presentation</span>}
                   <div className="muted" style={{ fontWeight: 400, textTransform: "none" }}>{p.period_end}</div>
                 </th>
               ))}
@@ -268,8 +266,15 @@ export default function StatementTabs({
                 <td>{ln.label}</td>
                 <td className="muted">{ln.is_abstract ? "" : ln.unit ?? ""}</td>
                 {periods.map((p) => (
-                  <td key={p.period_label} className={"num" + (p.is_provisional ? " provisional" : p.basis === "derived" ? " derived" : "")}>
-                    {ln.is_abstract ? "" : fmt(ln.values[p.period_label] ?? null, ln.unit, scale, negative)}
+                  <td key={p.period_label} className={"num" + (!ln.is_abstract ? " inspectable" : "") + (p.is_provisional ? " provisional" : p.basis === "derived" ? " derived" : "")}>
+                    {ln.is_abstract ? "" : <button type="button"
+                      className={"cell-value" + (selected?.line === ln.key && selected?.period === p.period_label ? " selected" : "") + (ln.values[p.period_label] == null ? " unavailable" : "")}
+                      aria-pressed={selected?.line === ln.key && selected?.period === p.period_label}
+                      aria-label={`${ln.label}, ${p.period_label}: ${fmt(ln.values[p.period_label] ?? null, ln.unit, scale, negative, ln.concept) || "unavailable"}. Inspect evidence.`}
+                      aria-controls="statement-evidence"
+                      onClick={() => setSelected({ line: ln.key, period: p.period_label })}>
+                      {fmt(ln.values[p.period_label] ?? null, ln.unit, scale, negative, ln.concept) || "—"}
+                    </button>}
                   </td>
                 ))}
               </tr>
@@ -277,6 +282,18 @@ export default function StatementTabs({
           </tbody>
         </table>
       </div>
+      <section id="statement-evidence" aria-label="Selected number evidence" aria-live="polite">
+        {selectedLine && selectedPeriod && <div className="evidence-panel">
+          <div className="evidence-top"><button className="evidence-close linkbtn" type="button" onClick={() => setSelected(null)} aria-label="Close number evidence">Close ×</button><div><p className="eyebrow">{sourceStatus}</p><h3>{selectedLine.labels?.[selectedPeriod.period_label] ?? selectedLine.label}</h3><p>{selectedPeriod.period_label} · Period ending {selectedPeriod.period_end}</p></div><div className="evidence-value">{fmt(selectedValue ?? null, selectedLine.unit, scale, negative, selectedLine.concept) || "Unavailable"}<p>{selectedLine.unit ?? "Unit not specified"}{isUnscaled(selectedLine.unit, selectedLine.concept) ? "" : ` · ${scale}`}</p></div></div>
+          {selectedLine.labels?.[selectedPeriod.period_label] && selectedLine.labels[selectedPeriod.period_label] !== selectedLine.label && <p>Displayed row: {selectedLine.label}. The heading above preserves this period’s original wording.</p>}
+          {metadata?.reason && <p>{metadata.reason}</p>}
+          {metadata?.formula && <p className="evidence-formula">Calculation: {metadata.formula}</p>}
+          {metadata?.sources.length ? <ul className="evidence-sources">{metadata.sources.map((source, i) => <li key={`${source.accession}-${source.concept}-${source.period_end}-${i}`}>
+            <DocumentIcon /><div className="source-detail"><strong>{source.concept}</strong><span>{source.period_start ? `${source.period_start} to ` : "Ending "}{source.period_end ?? "date unavailable"}{source.qtrs != null ? ` · ${source.qtrs === 0 ? "At a date" : `${source.qtrs} quarter${source.qtrs === 1 ? "" : "s"}`}` : ""}{source.filed_date ? ` · Filed ${source.filed_date}` : ""}</span><span>Reported input: {source.value == null ? "unavailable" : source.value.toLocaleString("en-US", { maximumFractionDigits: 6 })} {source.unit ?? ""}{source.coefficient != null && source.coefficient !== 1 ? ` · coefficient ${source.coefficient}` : ""}</span>{source.unit_note && <span>{source.unit_note}</span>}{source.date_note && <span>{source.date_note}</span>}</div><Link href={`/companies/${cik}/filings/${encodeURIComponent(source.accession)}`}>Read filing →</Link>{source.document_url && /^https?:\/\//.test(source.document_url) && <a href={source.document_url} target="_blank" rel="noreferrer">Original ↗</a>}
+          </li>)}</ul> : <p>Detailed source observations are not available for this value.{selectedPeriod.accession && <> <Link href={`/companies/${cik}/filings/${encodeURIComponent(selectedPeriod.accession)}`}>Open the period’s filing →</Link></>}</p>}
+          <p>Sources open the supporting filing. An exact table or page location is shown only when it is available.</p>
+        </div>}
+      </section></div>
       <p className="muted" style={{ marginTop: 16 }}>
         Source: SEC EDGAR XBRL, via the SEC&apos;s Financial Statement Data Sets. Provisional columns are built from XBRL facts before the SEC publishes the quarter&apos;s data set and are replaced automatically.
       </p>

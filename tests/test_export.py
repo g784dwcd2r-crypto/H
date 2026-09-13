@@ -152,6 +152,8 @@ def test_grid_restated_takes_the_latest_comparative(db: Database):
 def test_grid_annual_and_column_order(db: Database):
     g = build_grid(db, fx.APPLE, None, limit=5, period_mode="annual")
     assert [p.period_label for p in g.periods] == ["FY2024", "FY2025"]
+    selected = build_grid(db, fx.APPLE, ["FY2025", "Q1 2026"], period_mode="annual")
+    assert [p.period_label for p in selected.periods] == ["FY2025"]
     left = build_grid(db, fx.APPLE, None, limit=3, column_order="newest_left")
     assert [p.period_label for p in left.periods] == ["Q3 2026", "Q2 2026", "Q1 2026"]
     assert left.column_order == "newest_left"
@@ -189,6 +191,98 @@ def test_grid_ltm(db: Database):
     col = next(p for p in g.periods if p.period_label == "LTM Q2 2026")
     assert col.basis == "derived" and col.filed_label == "Q2 2026"
     assert _line(g, "BS", "Assets").values["LTM Q2 2026"] == 372_000_000_000.0
+    metadata = ni.value_metadata["LTM Q2 2026"]
+    assert metadata["status"] == "derived"
+    assert sum(s["value"] * s["coefficient"] for s in metadata["sources"]) == ni.values["LTM Q2 2026"]
+    assert all(s["period_start"] and s["period_end"] and s["document_url"] for s in metadata["sources"])
+    eps = _line(g, "IS", "EarningsPerShareDiluted")
+    assert eps.values["LTM Q2 2026"] is None
+    assert eps.value_metadata["LTM Q2 2026"]["status"] == "unavailable"
+    assert "Per-share" in eps.value_metadata["LTM Q2 2026"]["reason"]
+
+
+def test_latest_presentation_source_is_per_cell(db: Database, monkeypatch):
+    query = db.query
+
+    def without_one_comparative(sql, params=()):
+        found = query(sql, params)
+        if "FROM statements WHERE accession IN" in sql:
+            return [
+                r
+                for r in found
+                if not (
+                    r["accession"] == fx.APPLE_10K_FY2025
+                    and r["concept"] == "NetIncomeLoss"
+                    and not r["is_primary_period"]
+                )
+            ]
+        return found
+
+    monkeypatch.setattr(db, "query", without_one_comparative)
+    grid = build_grid(db, fx.APPLE, ["FY2024"], restated=True)
+    # Revenue is the later comparative, but the omitted income line keeps its original source.
+    revenue = _line(grid, "IS", "RevenueFromContractWithCustomerExcludingAssessedTax")
+    income = _line(grid, "IS", "NetIncomeLoss")
+    assert revenue.value_metadata["FY2024"]["status"] == "latest_presentation"
+    meta = income.value_metadata["FY2024"]
+    assert meta["status"] == "reported" and meta["sources"][0]["accession"] == fx.APPLE_10K_FY2024
+    assert "original reported value is retained" in meta["reason"]
+
+
+def test_fsds_pershare_currency_unit_is_normalized_before_scaling(db: Database, monkeypatch):
+    """Real SEC FSDS shape: UOM USD plus datatype perShare, not the fixture's USD/shares."""
+    query = db.query
+
+    def currency_only_unit(sql, params=()):
+        found = query(sql, params)
+        if "FROM statements WHERE accession IN" in sql:
+            for r in found:
+                if r["concept"] == "EarningsPerShareDiluted":
+                    r["unit"], r["datatype"] = "USD", "perShare"
+        return found
+
+    monkeypatch.setattr(db, "query", currency_only_unit)
+    grid = build_grid(db, fx.APPLE, ["FY2025"], period_mode="annual")
+    eps = _line(grid, "IS", "EarningsPerShareDiluted")
+    assert eps.unit == "USD/shares" and eps.values["FY2025"] == 7.46
+    source = eps.value_metadata["FY2025"]["sources"][0]
+    assert source["unit"] == "USD/shares" and source["reported_unit"] == "USD"
+    ws = workbook_from_grid(grid, ExportOptions(scale="millions"))["Income Statement"]
+    values = [r for r in ws.iter_rows(min_row=7) if r[1].value == "EarningsPerShareDiluted"]
+    assert values[0][3].value == 7.46 and values[0][3].number_format.startswith("0.00")
+    assert "taxonomy datatype" in values[0][3].comment.text
+
+
+def test_unique_concept_label_changes_align_without_losing_original_labels(db: Database, monkeypatch):
+    query = db.query
+
+    def renamed_income(sql, params=()):
+        found = query(sql, params)
+        if "FROM statements WHERE accession IN" in sql:
+            for r in found:
+                if r["accession"] == fx.APPLE_10K_FY2024 and r["concept"] == "NetIncomeLoss":
+                    r["label"] = "Net income/(loss)"
+        return found
+
+    monkeypatch.setattr(db, "query", renamed_income)
+    grid = build_grid(db, fx.APPLE, ["FY2024", "FY2025"], period_mode="annual")
+    income = [ln for s in grid.statements if s.code == "IS" for ln in s.lines if ln.concept == "NetIncomeLoss"]
+    assert len(income) == 1
+    assert income[0].values == {"FY2025": 112_861_000_000.0, "FY2024": 93_736_000_000.0}
+    assert income[0].labels["FY2024"] == "Net income/(loss)"
+    serialized = next(ln for ln in grid.to_dict()["statements"][0]["lines"] if ln["concept"] == "NetIncomeLoss")
+    assert serialized["labels"]["FY2024"] == "Net income/(loss)"
+
+
+@pytest.mark.parametrize("orientation", ["periods_across", "periods_down"])
+def test_export_comments_preserve_derived_evidence_and_unavailable_reason(db: Database, orientation):
+    grid = build_grid(db, fx.APPLE, period_mode="ltm")
+    wb = workbook_from_grid(grid, ExportOptions(orientation=orientation))
+    comments = [c.comment.text for ws in wb for row in ws for c in row if c.comment]
+    assert any("Current YTD + prior FY" in text and "coefficient -1" in text for text in comments)
+    assert any("Per-share amounts and weighted averages" in text for text in comments)
+    without = workbook_from_grid(grid, ExportOptions(include_source=False, orientation=orientation))
+    assert not any(c.comment for ws in without for row in ws for c in row)
 
 
 def test_export_options_validation():

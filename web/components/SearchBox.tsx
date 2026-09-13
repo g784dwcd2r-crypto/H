@@ -1,128 +1,80 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
+import { ArrowIcon, SearchIcon } from "@/components/Icons";
 import type { Company } from "@/lib/api";
 
-// One box, then the right thing: suggestions as you type, Enter on an exact ticker opens the company.
 export default function SearchBox({ initial = "", autoFocus = true }: { initial?: string; autoFocus?: boolean }) {
   const [q, setQ] = useState(initial);
   const [items, setItems] = useState<Company[]>([]);
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(-1);
   const [busy, setBusy] = useState(false);
-  const [dirty, setDirty] = useState(false); // suggestions only once the person has typed here
+  const [dirty, setDirty] = useState(false);
+  const [status, setStatus] = useState<"idle" | "loading" | "ready" | "error">("idle");
   const router = useRouter();
   const box = useRef<HTMLInputElement>(null);
-  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const listId = useId();
+  const resultTerm = useRef("");
 
+  useEffect(() => { setQ(initial); setBusy(false); }, [initial]);
   useEffect(() => {
-    if (timer.current) clearTimeout(timer.current);
     const term = q.trim();
-    if (term.length < 1 || !dirty) {
-      setItems([]);
-      setOpen(false);
-      return;
-    }
-    timer.current = setTimeout(async () => {
+    setItems([]);
+    setActive(-1);
+    resultTerm.current = "";
+    if (!term || !dirty) { setOpen(false); setStatus("idle"); return; }
+    const controller = new AbortController();
+    setStatus("loading");
+    const timer = setTimeout(async () => {
       try {
-        const r = await fetch(`/api/search?q=${encodeURIComponent(term)}`);
-        const data = (await r.json()) as { results: Company[] };
+        const response = await fetch(`/api/search?q=${encodeURIComponent(term)}`, { signal: controller.signal });
+        if (!response.ok) throw new Error("Search unavailable");
+        const data = (await response.json()) as { results: Company[] };
+        if (controller.signal.aborted) return;
         setItems(data.results);
-        setOpen(true);
-        setActive(-1);
+        resultTerm.current = term;
+        setStatus("ready");
+        setOpen(document.activeElement === box.current);
       } catch {
-        setItems([]);
+        if (controller.signal.aborted) return;
+        setItems([]); setStatus("error"); setOpen(document.activeElement === box.current);
       }
-    }, 120);
-    return () => {
-      if (timer.current) clearTimeout(timer.current);
-    };
+    }, 150);
+    return () => { clearTimeout(timer); controller.abort(); };
   }, [q, dirty]);
 
-  const go = (c: Company) => {
-    setOpen(false);
-    router.push(`/companies/${c.cik}`);
-  };
-
-  const submit = async () => {
+  const go = (c: Company) => { setOpen(false); router.push(`/companies/${c.cik}`); };
+  const submit = () => {
     const term = q.trim();
-    if (!term) return;
-    const exact = items.find((c) => (c.ticker ?? "").toUpperCase() === term.toUpperCase()) ?? (items.length === 1 ? items[0] : null);
-    if (active >= 0 && items[active]) return go(items[active]);
+    if (!term) { box.current?.focus(); return; }
+    const matches = resultTerm.current === term ? items : [];
+    if (active >= 0 && matches[active]) return go(matches[active]);
+    const exact = matches.find((c) => (c.ticker ?? "").toUpperCase() === term.toUpperCase() || String(c.cik) === term);
     if (exact) return go(exact);
-    setBusy(true);
-    router.push(`/?q=${encodeURIComponent(term)}`);
+    if (matches.length === 1) return go(matches[0]);
+    setBusy(true); setOpen(false); router.push(`/?q=${encodeURIComponent(term)}`);
+    // A repeat query may reuse the current route without a component update.
+    setTimeout(() => setBusy(false), 1000);
   };
-
   return (
-    <form
-      className="search"
-      role="search"
-      onSubmit={(e) => {
-        e.preventDefault();
-        void submit();
-      }}
-    >
+    <form className="search" role="search" onSubmit={(e) => { e.preventDefault(); submit(); }}>
       <div className="search-field">
-        <input
-          id="site-search"
-          ref={box}
-          value={q}
-          onChange={(e) => {
-            setDirty(true);
-            setQ(e.target.value);
-          }}
-          onFocus={() => items.length && setOpen(true)}
-          onBlur={() => setTimeout(() => setOpen(false), 150)}
+        <SearchIcon className="search-glyph" />
+        <input id="site-search" ref={box} value={q} onChange={(e) => { setDirty(true); setQ(e.target.value); setBusy(false); }}
+          onFocus={() => dirty && status !== "idle" && setOpen(true)} onBlur={() => setOpen(false)}
           onKeyDown={(e) => {
-            if (!open || !items.length) return;
-            if (e.key === "ArrowDown") {
-              e.preventDefault();
-              setActive((a) => Math.min(a + 1, items.length - 1));
-            } else if (e.key === "ArrowUp") {
-              e.preventDefault();
-              setActive((a) => Math.max(a - 1, -1));
-            } else if (e.key === "Escape") {
-              setOpen(false);
-            }
+            if (e.key === "Escape") { setOpen(false); return; }
+            if (!items.length) return;
+            if (e.key === "ArrowDown") { e.preventDefault(); setOpen(true); setActive((a) => Math.min(a + 1, items.length - 1)); }
+            else if (e.key === "ArrowUp") { e.preventDefault(); setActive((a) => Math.max(a - 1, -1)); }
           }}
-          placeholder="Company name, ticker or CIK"
-          aria-label="Search companies"
-          aria-autocomplete="list"
-          aria-expanded={open}
-          autoComplete="off"
-          autoFocus={autoFocus}
-        />
-        {open && items.length > 0 && (
-          <ul className="suggest" role="listbox">
-            {items.map((c, i) => (
-              <li
-                key={c.cik}
-                role="option"
-                aria-selected={i === active}
-                className={i === active ? "active" : ""}
-                onMouseDown={(e) => {
-                  e.preventDefault();
-                  go(c);
-                }}
-                onMouseEnter={() => setActive(i)}
-              >
-                <span className="s-name">{c.name}</span>
-                <span className="s-meta">
-                  {c.ticker ?? ""}
-                  {c.exchange ? ` · ${c.exchange}` : ""}
-                  {!c.is_active && " · inactive"}
-                </span>
-              </li>
-            ))}
-            <li className="hint">↵ opens the top match · ↑↓ to choose</li>
-          </ul>
-        )}
+          placeholder="Search company or ticker" aria-label="Search company, ticker or CIK" role="combobox" aria-autocomplete="list" aria-controls={listId}
+          aria-expanded={open} aria-activedescendant={open && active >= 0 ? `${listId}-${active}` : undefined} autoComplete="off" autoFocus={autoFocus} />
+        {open && <div className="suggest-panel"><ul className="suggest" id={listId} role="listbox" aria-label="Matching companies">{items.map((c, i) => <li id={`${listId}-${i}`} key={c.cik} role="option" aria-selected={i === active} className={i === active ? "active" : ""} onMouseDown={(e) => { e.preventDefault(); go(c); }} onMouseEnter={() => setActive(i)}><span className="s-name">{c.name}</span><span className="s-meta">{c.ticker ?? ""}{c.exchange ? ` · ${c.exchange}` : ""}{!c.is_active && " · inactive"}</span></li>)}</ul><p className="suggest-status" role="status">{status === "error" ? "Search is temporarily unavailable. Please try again." : status === "loading" ? "Searching companies…" : items.length ? "↑ ↓ to choose · Enter to open · Esc to close" : "No match. Try a ticker, CIK or a shorter name."}</p></div>}
       </div>
-      <button type="submit" disabled={busy}>
-        Search
-      </button>
+      <button type="submit" disabled={busy} aria-label={busy ? "Opening search results" : "Search companies"}><ArrowIcon /></button>
     </form>
   );
 }

@@ -1,6 +1,6 @@
 // Inferred proposals ("you chose this on three companies; make it your default?").
 import { NextRequest } from "next/server";
-import { api } from "@/lib/api";
+import { api } from "@/lib/server-api";
 import { sessionToken } from "@/lib/session";
 
 export async function GET() {

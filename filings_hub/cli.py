@@ -79,6 +79,7 @@ def refresh(
     index_date: str | None = typer.Option(
         None, "--date", help="daily index date (YYYY-MM-DD); default = catch up to yesterday"
     ),
+    since: str | None = typer.Option(None, help="reconcile every weekday from YYYY-MM-DD, in resumable batches"),
     load_db: bool = typer.Option(True, help="load serving tables into Postgres when DATABASE_URL is set"),
     alert: bool = typer.Option(True, help="send alerts on failure / empty weekday"),
     verbose: bool = False,
@@ -88,11 +89,19 @@ def refresh(
     from filings_hub.ingest.edgar_client import client_from_settings
     from filings_hub.ingest.refresh import run_refresh
 
+    if index_date and since:
+        raise typer.BadParameter("--date and --since cannot be used together")
+    try:
+        selected_date = date.fromisoformat(index_date) if index_date else None
+        start_date = date.fromisoformat(since) if since else None
+    except ValueError as exc:
+        raise typer.BadParameter("dates must use YYYY-MM-DD") from exc
     with client_from_settings() as client:
         run = run_refresh(
             _storage(),
             client,
-            index_date=date.fromisoformat(index_date) if index_date else None,
+            index_date=selected_date,
+            since=start_date,
             load_db=load_db,
             alert=alert,
         )
@@ -146,7 +155,9 @@ def _resolve_ticker(db, ticker: str) -> int:
 def load(
     full: bool = typer.Option(True, help="full reload (default) instead of incremental for --ciks"),
     ciks: str | None = typer.Option(None, help="comma-separated CIKs for an incremental load"),
-    all_periods: bool = typer.Option(False, help="load comparative period columns too (bigger)"),
+    all_periods: bool = typer.Option(
+        True, help="retain comparative and YTD columns required by financial period views (default)"
+    ),
     verbose: bool = False,
 ) -> None:
     """Load serving tables from the lake into Postgres (DATABASE_URL)."""

@@ -1,6 +1,6 @@
 // Preference reads and writes for the signed-in person; the session cookie never leaves the server.
 import { NextRequest } from "next/server";
-import { api } from "@/lib/api";
+import { api } from "@/lib/server-api";
 import { sessionToken } from "@/lib/session";
 
 export async function GET() {

@@ -18,6 +18,7 @@ export default function PrefControl<T extends string | number | boolean>({
   label,
   options,
   fallback,
+  valueOverride,
   ctx,
   scopes,
   defaultScope = "company",
@@ -31,6 +32,7 @@ export default function PrefControl<T extends string | number | boolean>({
   label: string;
   options: Option<T>[];
   fallback: T;
+  valueOverride?: T;
   ctx: PrefContext;
   scopes: Scope[];
   defaultScope?: Scope;
@@ -40,16 +42,21 @@ export default function PrefControl<T extends string | number | boolean>({
   kind?: "select" | "toggle";
 }) {
   const where = prefs.get(prefKey, ctx);
-  const value = (where && options.some((o) => o.value === where.value) ? where.value : fallback) as T;
+  const value = (valueOverride !== undefined ? valueOverride : where && options.some((o) => o.value === where.value) ? where.value : fallback) as T;
   const available = scopes.filter((s) => scopeKeyFor(s, ctx) !== null);
   const [writeScope, setWriteScope] = useState<Scope>(() =>
     where && available.includes(where.scope as Scope) ? (where.scope as Scope) : available.includes(defaultScope) ? defaultScope : available[0],
   );
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const save = async (v: T, scope: Scope = writeScope) => {
+    setPending(true); setError(null);
+    const ok = await prefs.set(prefKey, v, scope, ctx);
+    setPending(false);
+    if (!ok) { setError("Couldn’t save. Please try again."); return; }
     setWriteScope(scope);
-    onChange?.(v);
-    await prefs.set(prefKey, v, scope, ctx);
     onSaved?.(`${label} saved ${scopeWords(scope)}`);
+    onChange?.(v);
   };
   const parse = (raw: string): T => {
     const o = options.find((x) => String(x.value) === raw);
@@ -64,12 +71,12 @@ export default function PrefControl<T extends string | number | boolean>({
     <span className="prefctl" title={title}>
       {kind === "toggle" ? (
         <label className="muted check">
-          <input type="checkbox" checked={Boolean(value)} onChange={(e) => void save(e.target.checked as T)} /> {label}
+          <input type="checkbox" disabled={pending} checked={Boolean(value)} onChange={(e) => void save(e.target.checked as T)} /> {label}
         </label>
       ) : (
         <label className="muted">
           {label}{" "}
-          <select value={String(value)} onChange={(e) => void save(parse(e.target.value))}>
+          <select disabled={pending} value={String(value)} onChange={(e) => void save(parse(e.target.value))}>
             {options.map((o) => (
               <option key={String(o.value)} value={String(o.value)}>
                 {o.label}
@@ -79,7 +86,7 @@ export default function PrefControl<T extends string | number | boolean>({
         </label>
       )}
       <label className="scopetag" title="Where this choice applies. Statement, then company, then industry, then everywhere; the most specific wins.">
-        <select value={writeScope} onChange={(e) => setScope(e.target.value as Scope)} aria-label={`Where ${label} applies`}>
+        <select disabled={pending} value={writeScope} onChange={(e) => setScope(e.target.value as Scope)} aria-label={`Where ${label} applies`}>
           {available.map((s) => (
             <option key={s} value={s}>
               {scopeWords(s)}
@@ -88,6 +95,7 @@ export default function PrefControl<T extends string | number | boolean>({
         </select>
         <span className={"tag " + (where ? "set" : "")}>{tag}</span>
       </label>
+      {error && <span className="err" role="alert">{error}</span>}
     </span>
   );
 }

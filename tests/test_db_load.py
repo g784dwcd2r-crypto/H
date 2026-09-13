@@ -30,11 +30,19 @@ def test_full_and_incremental_load(built_lake, pg_url):
         items = db.query("SELECT items FROM filings WHERE accession = ?", [fx._acc(fx.APPLE, 2025, 77)])
         assert items == [{"items": ["2.02", "9.01"]}]
         # the same grid comes out of Postgres as out of DuckDB
-        g_pg = build_grid(db, fx.APPLE, ["FY2025", "Q1 2026"]).to_dict()
         duck = Database("", built_lake)
-        g_duck = build_grid(duck, fx.APPLE, ["FY2025", "Q1 2026"]).to_dict()
-        duck.close()
-        assert g_pg == g_duck
+        try:
+            for opts in (
+                {},
+                {"restated": True},
+                {"period_mode": "annual"},
+                {"period_mode": "quarterly"},
+                {"period_mode": "ltm"},
+            ):
+                assert build_grid(db, fx.APPLE, **opts).to_dict() == build_grid(duck, fx.APPLE, **opts).to_dict()
+            assert db.query("SELECT count(*) AS n FROM statements WHERE NOT is_primary_period")[0]["n"] > 0
+        finally:
+            duck.close()
         # incremental: patch Apple only, then everything still adds up (no duplicates)
         before = db.query("SELECT count(*) AS n FROM statements")[0]["n"]
         counts2 = load_incremental(
@@ -47,6 +55,17 @@ def test_full_and_incremental_load(built_lake, pg_url):
         assert counts2["statements"] > 0 and counts2["filings"] == len(fx.APPLE_FILINGS)
         after = db.query("SELECT count(*) AS n FROM statements")[0]["n"]
         assert before == after
+        duck = Database("", built_lake)
+        try:
+            for opts in (
+                {"restated": True},
+                {"period_mode": "annual"},
+                {"period_mode": "quarterly"},
+                {"period_mode": "ltm"},
+            ):
+                assert build_grid(db, fx.APPLE, **opts).to_dict() == build_grid(duck, fx.APPLE, **opts).to_dict()
+        finally:
+            duck.close()
         assert db.query("SELECT count(*) AS n FROM statement_checks WHERE cik = ?", [fx.APPLE])[0]["n"] > 0
         # every migration is recorded exactly once, however many times the loader runs
         from filings_hub.db.load import MIGRATIONS_DIR
@@ -56,7 +75,27 @@ def test_full_and_incremental_load(built_lake, pg_url):
         db.execute("SELECT 1")
     finally:
         db.close()
-    assert load_full(built_lake, pg_url, all_periods=True)["statements"] > counts["statements"]
+    assert load_full(built_lake, pg_url, all_periods=False)["statements"] < counts["statements"]
+    assert load_full(built_lake, pg_url)["statements"] == counts["statements"]
+
+
+def test_accession_only_incremental_keeps_all_periods(built_lake, pg_url):
+    load_full(built_lake, pg_url)
+    db = Database(pg_url, built_lake)
+    try:
+        accession = fx.APPLE_10K_FY2025
+        before = db.query("SELECT count(*) AS n FROM statements WHERE accession = ?", [accession])[0]["n"]
+        db.execute("DELETE FROM statements WHERE accession = ?", [accession])
+        loaded = load_incremental(built_lake, pg_url, set(), accessions={accession})
+        assert loaded["statements"] == before
+        assert (
+            db.query("SELECT count(*) AS n FROM statements WHERE accession = ? AND NOT is_primary_period", [accession])[
+                0
+            ]["n"]
+            > 0
+        )
+    finally:
+        db.close()
 
 
 def test_duckdb_backend_on_empty_lake(tmp_path):

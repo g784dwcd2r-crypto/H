@@ -25,7 +25,7 @@ export async function savePref(p: PrefWrite, signedIn: boolean): Promise<boolean
     try {
       window.localStorage.setItem(localKey(p), JSON.stringify(p.value));
     } catch {
-      /* ignore */
+      return false;
     }
     return true;
   }
@@ -38,7 +38,7 @@ export async function resetPref(p: Omit<PrefWrite, "value" | "source">, signedIn
     try {
       window.localStorage.removeItem(localKey(p));
     } catch {
-      /* ignore */
+      return false;
     }
     return true;
   }
@@ -69,10 +69,13 @@ export function listLocalPrefs(): PrefWrite[] {
     for (let i = 0; i < window.localStorage.length; i++) {
       const k = window.localStorage.key(i);
       if (!k || !k.startsWith("fh:pref:")) continue;
-      const [, , scope, scope_key, ...rest] = k.split(":");
-      const key = rest.join(":");
-      if (!scope || !key) continue;
-      out.push({ scope: scope as Scope, scope_key: scope_key ?? "", key, value: JSON.parse(window.localStorage.getItem(k) ?? "null") });
+      const parts = k.slice("fh:pref:".length).split(":");
+      const scope = parts.shift();
+      const key = parts.pop();
+      const scope_key = parts.join(":");
+      if (!scope || !key || !["global", "sector", "company", "statement", "export"].includes(scope)) continue;
+      try { out.push({ scope: scope as Scope, scope_key, key, value: JSON.parse(window.localStorage.getItem(k) ?? "null") }); }
+      catch { /* A malformed entry must not hide the remaining saved preferences. */ }
     }
   } catch {
     /* ignore */

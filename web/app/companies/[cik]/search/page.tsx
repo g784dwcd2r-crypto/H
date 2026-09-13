@@ -1,6 +1,8 @@
+import CompanyNav from "@/components/CompanyNav";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { api, fmtDate, NotFound } from "@/lib/api";
+import { api, NotFound } from "@/lib/server-api";
+import { fmtDate } from "@/lib/api";
 
 export const dynamic = "force-dynamic";
 
@@ -29,6 +31,7 @@ export default async function FilingSearchPage({
       <p className="crumb"><Link href={`/companies/${id}`}>← {name}</Link></p>
       <p className="eyebrow">Search inside filings</p>
       <h1>{name}</h1>
+      <CompanyNav cik={id} />
       <form className="findin" action={`/companies/${id}/search`} method="get">
         <input name="q" defaultValue={term} placeholder="A word or phrase, e.g. buyback, restructuring, guidance" aria-label="Search inside filings" minLength={2} required autoFocus />
         <button className="btn" type="submit">Find</button>

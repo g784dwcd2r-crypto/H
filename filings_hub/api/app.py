@@ -128,7 +128,6 @@ def create_app(
     storage = Storage(s.resolved_lake_root())
     database = db or Database(s.database_url, storage)
     limiter = RateLimiter(s.api_rate_limit_per_minute)
-    auth = make_auth(s.api_key, limiter)
     if not s.api_key:
         log.warning("API_KEY is empty: the API is unauthenticated (dev mode)")
     client = edgar_client
@@ -137,6 +136,8 @@ def create_app(
     docs_cache = DocumentCache(storage, client)
     users = accounts.store_from_settings(storage, s.database_url)
     signer = accounts.SessionSigner(s.session_secret, s.session_days)
+    auth = make_auth(s.api_key, limiter, signer.verify)
+    admin_emails = {email.strip().lower() for email in s.admin_emails.split(",") if email.strip()}
     magic_limiter = RateLimiter(3)
 
     app = FastAPI(title="Disclosure API", version=__version__, docs_url="/docs")
@@ -152,6 +153,11 @@ def create_app(
         user = users.get_user(uid) if uid else None
         if user is None:
             raise HTTPException(401, "sign in required")
+        return user
+
+    def current_admin(user: accounts.User = Depends(current_user)) -> accounts.User:
+        if user.email.lower() not in admin_emails:
+            raise HTTPException(403, "administrator access required")
         return user
 
     def resolve_cik(cik: str) -> int:
@@ -566,20 +572,38 @@ def create_app(
             raise HTTPException(503, "this deployment cannot store submissions (read-only lake)") from e
 
     @app.post("/subscriptions")
-    def subscribe(payload: dict[str, Any] = Body(...), _: str = Depends(auth)) -> dict[str, Any]:
-        email = str(payload.get("email") or "").strip()
+    def subscribe(payload: dict[str, Any] = Body(...), user: accounts.User = Depends(current_user)) -> dict[str, Any]:
+        email = user.email
         ciks = payload.get("ciks") or []
-        if not EMAIL_RE.match(email):
-            raise HTTPException(422, "a valid email is required")
+        if payload.get("email") and str(payload["email"]).strip().lower() != email.lower():
+            raise HTTPException(403, "alerts can only be sent to your verified account email")
         if not isinstance(ciks, list) or not all(str(c).isdigit() for c in ciks) or not 0 < len(ciks) <= 200:
             raise HTTPException(422, "ciks must be a list of 1 to 200 CIKs")
         rec = {
             "email": email.lower(),
             "ciks": sorted({int(c) for c in ciks}),
             "created": date.today().isoformat(),
+            "user_id": user.id,
         }
         _store(f"{layout.SUBSCRIPTIONS}/{digest.subscription_id(email)}.json", rec)
         return {"stored": True, "email": rec["email"], "ciks": len(rec["ciks"])}
+
+    @app.get("/subscriptions")
+    def subscription(user: accounts.User = Depends(current_user)) -> dict[str, Any]:
+        import json
+
+        path = f"{layout.SUBSCRIPTIONS}/{digest.subscription_id(user.email)}.json"
+        if not storage.exists(path):
+            return {"subscribed": False, "ciks": []}
+        record = json.loads(storage.read_text(path))
+        return {"subscribed": True, "ciks": record.get("ciks", [])}
+
+    @app.delete("/subscriptions")
+    def unsubscribe(user: accounts.User = Depends(current_user)) -> dict[str, Any]:
+        path = f"{layout.SUBSCRIPTIONS}/{digest.subscription_id(user.email)}.json"
+        if storage.exists(path):
+            storage.delete(path)
+        return {"subscribed": False, "ciks": []}
 
     @app.post("/requests")
     def coverage_request(payload: dict[str, Any] = Body(...), _: str = Depends(auth)) -> dict[str, Any]:
@@ -693,12 +717,43 @@ def create_app(
 
     @app.get("/me")
     def me(user: accounts.User = Depends(current_user)) -> dict[str, Any]:
-        return {"user": user.to_dict()}
+        return {"user": {**user.to_dict(), "is_admin": user.email.lower() in admin_emails}}
 
     # -- preferences -------------------------------------------------------------------------------
+    @app.get("/me/watchlist")
+    def get_watchlist(user: accounts.User = Depends(current_user)) -> dict[str, Any]:
+        value = next((p.value for p in users.list_prefs(user.id) if p.ident == ("global", "", "watchlist")), [])
+        return {"user_id": user.id, "companies": value if isinstance(value, list) else []}
+
+    @app.post("/me/watchlist")
+    def mutate_watchlist(
+        payload: dict[str, Any] = Body(...), user: accounts.User = Depends(current_user)
+    ) -> dict[str, Any]:
+        if payload.get("expected_user_id") != user.id:
+            raise HTTPException(409, "account changed; reload the watchlist before making changes")
+        action = payload.get("action")
+        if action not in ("toggle", "remove"):
+            raise HTTPException(422, "action must be toggle or remove")
+        cik = payload.get("cik")
+        if type(cik) is not int or cik <= 0:
+            raise HTTPException(422, "a positive integer CIK is required")
+        rows = database.query("SELECT cik, name, ticker FROM companies WHERE cik = ?", [cik])
+        if action == "toggle" and not rows:
+            raise HTTPException(404, "company not found")
+        company = rows[0] if rows else {"cik": cik, "name": "", "ticker": None}
+        try:
+            companies = users.mutate_watchlist(user.id, company, action)
+        except ValueError as exc:
+            raise HTTPException(422, str(exc)) from exc
+        return {"user_id": user.id, "companies": companies, "followed": any(c.get("cik") == cik for c in companies)}
+
     @app.get("/me/prefs")
     def list_prefs(user: accounts.User = Depends(current_user)) -> dict[str, Any]:
-        return {"prefs": [p.to_dict() for p in users.list_prefs(user.id)], "defaults": accounts.DEFAULTS}
+        return {
+            "user_id": user.id,
+            "prefs": [p.to_dict() for p in users.list_prefs(user.id)],
+            "defaults": accounts.DEFAULTS,
+        }
 
     @app.put("/me/prefs")
     def put_pref(payload: dict[str, Any] = Body(...), user: accounts.User = Depends(current_user)) -> dict[str, Any]:
@@ -802,17 +857,19 @@ def create_app(
         raise HTTPException(422, "action must be accept or dismiss")
 
     @app.get("/metrics/prefs")
-    def metrics_prefs(days: int = Query(30, le=365), _: str = Depends(auth)) -> dict[str, Any]:
+    def metrics_prefs(days: int = Query(30, ge=1, le=365), _: accounts.User = Depends(current_admin)) -> dict[str, Any]:
         """Which options people touch: preference writes by key, scope and value; UI events by name."""
-        try:
-            events = users.recent_events(days)
-        except Exception as e:  # a read-only lake, or no events folder yet
-            log.warning("events unavailable: %s", e)
-            events = []
+        events = users.recent_events(days)
         return accounts.touch_report(events, days)
 
+    @app.get("/coverage")
+    def coverage(_: str = Depends(auth)) -> dict[str, Any]:
+        from filings_hub.coverage import coverage_summary
+
+        return coverage_summary(database)
+
     @app.get("/metrics")
-    def metrics(days: int = Query(30, le=365), _: str = Depends(auth)) -> dict[str, Any]:
+    def metrics(days: int = Query(30, ge=1, le=365), _: accounts.User = Depends(current_admin)) -> dict[str, Any]:
         """Phase 4 dashboard feed: filings/day, refresh runs, checks pass rate."""
         filings_per_day = database.query(
             "SELECT filed_date, count(*) AS filings FROM filings "
@@ -848,7 +905,9 @@ def create_app(
         }
 
     @app.get("/quality/failed")
-    def quality_failed(limit: int = Query(100, le=1000), offset: int = 0, _: str = Depends(auth)) -> dict[str, Any]:
+    def quality_failed(
+        limit: int = Query(100, ge=1, le=1000), offset: int = Query(0, ge=0), _: accounts.User = Depends(current_admin)
+    ) -> dict[str, Any]:
         """Phase 4 data-quality queue: statements whose arithmetic checks failed, newest first."""
         rows = database.query(
             "SELECT k.accession, k.cik, c.name, c.ticker, k.statement, k.check_name, k.lhs, k.rhs, k.difference, "

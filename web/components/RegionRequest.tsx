@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 
-// US now; UK and Europe as a visible promise with a place to say which companies you need.
+// Explain available coverage and collect interest without promising unbuilt regions.
 export default function RegionRequest() {
   const [region, setRegion] = useState<"US" | "UK" | "Europe" | "Rest of world">("US");
   const [note, setNote] = useState("");
@@ -15,7 +15,7 @@ export default function RegionRequest() {
         {regions.map((r) => (
           <button key={r} role="tab" aria-selected={region === r} className={region === r ? "active" : ""} onClick={() => setRegion(r)}>
             {r}
-            {r !== "US" && <span className="soon">soon</span>}
+            {r !== "US" && <span className="soon">request</span>}
           </button>
         ))}
       </div>
@@ -30,18 +30,18 @@ export default function RegionRequest() {
           }}
         >
           {state === "done" ? (
-            <p className="muted">Noted. {region} coverage is on the list, and the companies you named go first.</p>
+            <p className="muted">Thanks. Your interest in {region} coverage has been recorded.</p>
           ) : (
             <>
-              <p className="muted">{region} filings are coming. Tell us which companies you need and they go to the front of the queue.</p>
+              <p className="muted">Interested in {region} filings? Tell us which companies you need. This helps us plan future coverage.</p>
               <div className="row">
-                <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Companies, tickers, or what you look at" required />
-                <input value={email} onChange={(e) => setEmail(e.target.value)} placeholder="Email (optional)" type="email" />
+                <input value={note} onChange={(e) => setNote(e.target.value)} aria-label="Companies or tickers requested" placeholder="Companies, tickers, or what you look at" required />
+                <input value={email} onChange={(e) => setEmail(e.target.value)} aria-label="Email for coverage updates (optional)" placeholder="Email (optional)" type="email" />
                 <button className="btn" type="submit" disabled={state === "sending"}>
                   Send
                 </button>
               </div>
-              {state === "error" && <p className="muted">That did not go through. Email us instead, and sorry.</p>}
+              {state === "error" && <p className="muted">Your request could not be sent. Please try again.</p>}
             </>
           )}
         </form>

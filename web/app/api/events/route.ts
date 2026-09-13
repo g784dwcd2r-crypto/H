@@ -1,6 +1,6 @@
 // UI events for the option touch report; only signed-in people are counted.
 import { NextRequest } from "next/server";
-import { api } from "@/lib/api";
+import { api } from "@/lib/server-api";
 import { sessionToken } from "@/lib/session";
 
 export async function POST(req: NextRequest) {

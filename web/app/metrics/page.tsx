@@ -1,4 +1,7 @@
-import { api, fmtDate, type Dashboard, type TouchReport } from "@/lib/api";
+import { api } from "@/lib/server-api";
+import { fmtDate, type Dashboard, type TouchReport } from "@/lib/api";
+import { currentUser, sessionToken } from "@/lib/session";
+import { notFound } from "next/navigation";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Metrics Â· Disclosure" };
@@ -7,19 +10,21 @@ const n = (v: number | null | undefined) => (v === null || v === undefined ? "â€
 const VALUE_WORDS = (v: unknown) => (typeof v === "object" && v !== null ? "settings" : String(v));
 
 export default async function MetricsPage({ searchParams }: { searchParams: Promise<{ days?: string }> }) {
+  const [user, token] = await Promise.all([currentUser(), sessionToken()]);
+  if (!user?.is_admin || !token) notFound();
   const { days: d } = await searchParams;
   const days = Math.min(Math.max(parseInt(d ?? "30", 10) || 30, 1), 365);
   let dash: Dashboard | null = null;
   let touch: TouchReport | null = null;
   try {
-    [dash, touch] = await Promise.all([api.dashboard(days), api.touchReport(days)]);
+    [dash, touch] = await Promise.all([api.dashboard(days, token), api.touchReport(days, token)]);
   } catch {
     /* rendered as unavailable below */
   }
   return (
     <>
       <p className="eyebrow">Metrics</p>
-      <h1>How the hub is doing</h1>
+      <h1>How Disclosure is doing</h1>
       <p className="lead">Coverage and freshness of the lake, then which options people actually touch. Last {days} days.</p>
       <p className="muted small">
         Window:{" "}

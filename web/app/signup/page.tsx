@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import SignUpForm from "@/components/SignUpForm";
-import { api } from "@/lib/api";
+import { api } from "@/lib/server-api";
 import { currentUser } from "@/lib/session";
 
 export const dynamic = "force-dynamic";

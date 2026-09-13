@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import { api } from "@/lib/api";
+import { api } from "@/lib/server-api";
 
 export async function GET(req: NextRequest) {
   const ciks = (req.nextUrl.searchParams.get("ciks") ?? "")

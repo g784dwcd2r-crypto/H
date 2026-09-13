@@ -51,6 +51,14 @@ LOCAL_TABLES = {
     "company_metrics": layout.COMPANY_METRICS,
 }
 LOCAL_CACHE_TTL = 600.0
+MISSING_VIEW_TTL = 30.0
+PARTITIONED_TABLES = {
+    "filings": layout.FILINGS,
+    "documents": layout.DOCUMENTS,
+    "facts": layout.FACTS,
+    "statements": layout.STATEMENTS,
+    "statement_checks": layout.STATEMENT_CHECKS,
+}
 
 
 class Database:
@@ -60,6 +68,9 @@ class Database:
         self._local_dir: str | None = None
         self._local_stamp: dict[str, tuple[int, str]] = {}
         self._local_checked = 0.0
+        self._remote_checked = 0.0
+        self._missing_checked = 0.0
+        self._missing_views: set[str] = set()
         if self.url.startswith(("postgresql://", "postgres://")):
             self.backend = "postgres"
             import psycopg
@@ -82,7 +93,7 @@ class Database:
             info = self.storage.fs.info(self.storage.full(rel))
         except FileNotFoundError:
             return None
-        return int(info.get("size") or 0), str(info.get("LastModified") or info.get("mtime") or "")
+        return int(info.get("size") or 0), str(info.get("ETag") or info.get("LastModified") or info.get("mtime") or "")
 
     def _localise(self, name: str, rel: str) -> bool:
         """Copy `rel` next to the process and point the view at it. False when the table is absent."""
@@ -90,29 +101,62 @@ class Database:
         stamp = self._remote_stamp(rel)
         if stamp is None:
             return False
+        path = os.path.join(self._local_dir, f"{name}.parquet")
         if self._local_stamp.get(name) != stamp:
-            path = os.path.join(self._local_dir, f"{name}.parquet")
             tmp = path + ".part"
             with self.storage.open(rel, "rb") as src, open(tmp, "wb") as dst:
                 shutil.copyfileobj(src, dst)
             os.replace(tmp, path)
             self._local_stamp[name] = stamp
-            self.duck.sql(f"CREATE OR REPLACE VIEW {name} AS SELECT * FROM read_parquet('{path}')")
             log.info("local copy of %s refreshed (%d bytes)", rel, stamp[0])
+        # An explicit refresh_views() may just have rebound this view to the remote object.
+        self.duck.sql(f"CREATE OR REPLACE VIEW {name} AS SELECT * FROM read_parquet('{path}')")
         return True
 
     def maybe_resync(self, ttl: float = LOCAL_CACHE_TTL) -> bool:
-        """Re-check the remote small tables at most every `ttl` seconds; True when something changed."""
-        if self._local_dir is None or time.monotonic() - self._local_checked < ttl:
+        """Refresh remote small-table caches and replace empty views as datasets arrive.
+
+        Missing tables are probed at most every 30 seconds, including on local lakes. Existing
+        partition scans remain live; whole-universe remote copies keep their longer cache TTL.
+        """
+        if self.backend != "duckdb":
             return False
-        self._local_checked = time.monotonic()
-        before = dict(self._local_stamp)
+        now = time.monotonic()
+        cache_due = self._local_dir is not None and now - self._local_checked >= ttl
+        remote_due = self.storage is not None and self.storage.is_remote and now - self._remote_checked >= ttl
+        missing_due = bool(self._missing_views) and now - self._missing_checked >= min(ttl, MISSING_VIEW_TTL)
+        if not cache_due and not missing_due and not remote_due:
+            return False
         with self.duck._lock:
-            for name, rel in LOCAL_TABLES.items():
-                self._localise(name, rel)
-            if self._local_stamp != before:
+            before = dict(self._local_stamp)
+            missing_before = set(self._missing_views)
+            if self.storage is not None and self.storage.is_remote and (remote_due or cache_due or missing_due):
+                # A separate ingestion process cannot invalidate this process's S3 directory cache.
+                # Refresh listings even when all views exist and local small-table caching is off.
+                self.storage.fs.invalidate_cache()
+                self._remote_checked = now
+            if cache_due:
+                self._local_checked = now
+                for name, rel in LOCAL_TABLES.items():
+                    if self._localise(name, rel):
+                        self._missing_views.discard(name)
+            if missing_due:
+                self._missing_checked = now
+                assert self.storage is not None
+                for name in sorted(self._missing_views):
+                    if name in LOCAL_TABLES:
+                        rel = LOCAL_TABLES[name]
+                        found = self._localise(name, rel) if self._local_dir else self.duck.view(name, rel, hive=False)
+                    elif name == "run_log":
+                        found = self.duck.view(name, f"{layout.RUN_LOG}/*.parquet", hive=False)
+                    else:
+                        found = self.duck.view(name, f"{PARTITIONED_TABLES[name]}/*/*.parquet")
+                    if found:
+                        self._missing_views.discard(name)
+            changed = self._local_stamp != before or self._missing_views != missing_before
+            if changed:
                 self.duck.sql(f"CREATE OR REPLACE VIEW periods_serving AS {PERIODS_SERVING_SQL}")
-        return self._local_stamp != before
+        return changed
 
     @staticmethod
     def _empty_table_schemas() -> dict[str, pa.Schema]:
@@ -153,8 +197,12 @@ class Database:
                 if self._localise(name, rel):
                     views[name] = True
             self._local_checked = time.monotonic()
+        self._missing_views = set()
+        self._missing_checked = time.monotonic()
+        self._remote_checked = self._missing_checked
         for name, schema in self._empty_table_schemas().items():
             if not views.get(name):
+                self._missing_views.add(name)
                 self.duck.register(f"_empty_{name}", schema.empty_table())
                 self.duck.sql(f"CREATE OR REPLACE VIEW {name} AS SELECT * FROM _empty_{name}")
         # periods_serving adds the statements source and check outcome to each period
@@ -162,7 +210,8 @@ class Database:
 
     def refresh_views(self) -> None:
         if self.backend == "duckdb":
-            self._prepare_duck_views()
+            with self.duck._lock:
+                self._prepare_duck_views()
 
     @property
     def periods_table(self) -> str:
@@ -170,6 +219,7 @@ class Database:
 
     def query(self, sql: str, params: Sequence[Any] = ()) -> list[dict[str, Any]]:
         if self.backend == "duckdb":
+            self.maybe_resync()
             return self.duck.fetch_dicts(sql, list(params))
         with self.conn.cursor() as cur:
             cur.execute(sql.replace("?", "%s"), list(params))
@@ -196,6 +246,7 @@ class Database:
     # -- facts always come from the lake --------------------------------------------------------
     def facts_duck(self) -> Duck:
         if self.backend == "duckdb":
+            self.maybe_resync()
             return self.duck
         if self.storage is None:
             raise RuntimeError("facts need a lake Storage")

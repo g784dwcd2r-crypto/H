@@ -16,6 +16,7 @@ import hmac
 import json
 import logging
 import secrets
+import threading
 import time
 import uuid
 from dataclasses import asdict, dataclass, field
@@ -50,6 +51,11 @@ USERS = "users"
 PREFS = "prefs"
 TOKENS = "auth_tokens"
 EVENTS = "pref_events"
+WATCHLIST_LIMIT = 200
+# One lock per lake in this API process, shared by store instances. A remote lake still requires one
+# API writer process; use Postgres when account writes span processes or hosts.
+_LAKE_LOCKS: dict[str, Any] = {}
+_LAKE_LOCKS_GUARD = threading.Lock()
 
 
 def _now() -> datetime:
@@ -203,6 +209,7 @@ class UserStore(Protocol):
     def put_pref(self, user_id: str, pref: Pref) -> None: ...
     def delete_pref(self, user_id: str, scope: str, scope_key: str, key: str) -> bool: ...
     def delete_all_prefs(self, user_id: str) -> int: ...
+    def mutate_watchlist(self, user_id: str, company: dict[str, Any], action: str) -> list[dict[str, Any]]: ...
     def add_event(self, user_id: str, event: dict[str, Any]) -> None: ...
     def list_events(self, user_id: str, limit: int = 500) -> list[dict[str, Any]]: ...
     def recent_events(self, days: int = 30, limit: int = 20000) -> list[dict[str, Any]]: ...
@@ -212,33 +219,69 @@ def _email_key(email: str) -> str:
     return hashlib.sha256(email.strip().lower().encode()).hexdigest()[:24]
 
 
+def _watchlist_company(company: dict[str, Any], action: str) -> dict[str, Any]:
+    if action not in ("toggle", "remove"):
+        raise ValueError("watchlist action must be toggle or remove")
+    if not isinstance(company, dict) or type(company.get("cik")) is not int or not 0 < company["cik"] < 10**10:
+        raise ValueError("watchlist company needs a valid CIK")
+    if not isinstance(company.get("name"), str) or not company["name"].strip() or len(company["name"]) > 200:
+        raise ValueError("watchlist company needs a name of 1 to 200 characters")
+    ticker = company.get("ticker")
+    if ticker is not None and (not isinstance(ticker, str) or len(ticker) > 32):
+        raise ValueError("watchlist ticker must be a short string or null")
+    return {"cik": company["cik"], "name": company["name"], "ticker": ticker}
+
+
+def _watchlist_rows(value: Any) -> list[dict[str, Any]]:
+    if not isinstance(value, list):
+        return []
+    return [
+        row
+        for row in value
+        if isinstance(row, dict)
+        and type(row.get("cik")) is int
+        and 0 < row["cik"] < 10**10
+        and isinstance(row.get("name"), str)
+        and (row.get("ticker") is None or isinstance(row.get("ticker"), str))
+    ]
+
+
 class LakeUserStore:
     """JSON documents in the lake. Fine for a small user base behind one API process."""
 
     def __init__(self, storage: Storage):
         self.storage = storage
+        with _LAKE_LOCKS_GUARD:
+            self._lock = _LAKE_LOCKS.setdefault(storage.root, threading.RLock())
 
     def _read(self, rel: str) -> dict[str, Any] | None:
-        if not self.storage.exists(rel):
-            return None
-        return json.loads(self.storage.read_text(rel))
+        with self._lock:
+            if not self.storage.exists(rel):
+                return None
+            return json.loads(self.storage.read_text(rel))
 
     def _write(self, rel: str, doc: dict[str, Any]) -> None:
-        self.storage.write_text(rel, json.dumps(doc))
+        with self._lock:
+            self.storage.write_text(rel, json.dumps(doc))
 
     def get_user(self, user_id: str) -> User | None:
         d = self._read(f"{USERS}/{user_id}.json")
         return User(**{k: v for k, v in d.items() if k in User.__dataclass_fields__}) if d else None
 
     def get_user_by_email(self, email: str) -> User | None:
-        d = self._read(f"{USERS}/by_email/{_email_key(email)}.json")
-        return self.get_user(d["id"]) if d else None
+        with self._lock:
+            d = self._read(f"{USERS}/by_email/{_email_key(email)}.json")
+            return self.get_user(d["id"]) if d else None
 
     def create_user(self, email: str, profile: dict[str, Any] | None = None) -> User:
-        user = User(id=uuid.uuid4().hex, email=email.strip().lower()).with_profile(profile or {})
-        self._write(f"{USERS}/{user.id}.json", user.to_dict())
-        self._write(f"{USERS}/by_email/{_email_key(email)}.json", {"id": user.id})
-        return user
+        with self._lock:
+            existing = self.get_user_by_email(email)
+            if existing is not None:
+                return existing
+            user = User(id=uuid.uuid4().hex, email=email.strip().lower()).with_profile(profile or {})
+            self._write(f"{USERS}/{user.id}.json", user.to_dict())
+            self._write(f"{USERS}/by_email/{_email_key(email)}.json", {"id": user.id})
+            return user
 
     def update_user(self, user: User) -> None:
         self._write(f"{USERS}/{user.id}.json", user.to_dict())
@@ -247,11 +290,12 @@ class LakeUserStore:
         self._write(f"{TOKENS}/{token_hash}.json", record)
 
     def pop_token(self, token_hash: str) -> dict[str, Any] | None:
-        rel = f"{TOKENS}/{token_hash}.json"
-        d = self._read(rel)
-        if d is not None:
-            self.storage.delete(rel)
-        return d
+        with self._lock:
+            rel = f"{TOKENS}/{token_hash}.json"
+            d = self._read(rel)
+            if d is not None:
+                self.storage.delete(rel)
+            return d
 
     def list_prefs(self, user_id: str) -> list[Pref]:
         d = self._read(f"{PREFS}/{user_id}.json")
@@ -261,25 +305,46 @@ class LakeUserStore:
         self._write(f"{PREFS}/{user_id}.json", {"prefs": [p.to_dict() for p in prefs]})
 
     def put_pref(self, user_id: str, pref: Pref) -> None:
-        prefs = [p for p in self.list_prefs(user_id) if p.ident != pref.ident]
-        prefs.append(pref)
-        self._save_prefs(user_id, prefs)
+        with self._lock:
+            prefs = [p for p in self.list_prefs(user_id) if p.ident != pref.ident]
+            prefs.append(pref)
+            self._save_prefs(user_id, prefs)
 
     def delete_pref(self, user_id: str, scope: str, scope_key: str, key: str) -> bool:
-        prefs = self.list_prefs(user_id)
-        kept = [p for p in prefs if p.ident != (scope, scope_key, key)]
-        if len(kept) == len(prefs):
-            return False
-        self._save_prefs(user_id, kept)
-        return True
+        with self._lock:
+            prefs = self.list_prefs(user_id)
+            kept = [p for p in prefs if p.ident != (scope, scope_key, key)]
+            if len(kept) == len(prefs):
+                return False
+            self._save_prefs(user_id, kept)
+            return True
 
     def delete_all_prefs(self, user_id: str) -> int:
-        n = len(self.list_prefs(user_id))
-        self._save_prefs(user_id, [])
-        return n
+        with self._lock:
+            n = len(self.list_prefs(user_id))
+            self._save_prefs(user_id, [])
+            return n
+
+    def mutate_watchlist(self, user_id: str, company: dict[str, Any], action: str) -> list[dict[str, Any]]:
+        company = _watchlist_company(company, action)
+        with self._lock:
+            value = next((p.value for p in self.list_prefs(user_id) if p.ident == ("global", "", "watchlist")), [])
+            rows = _watchlist_rows(value)
+            present = any(row["cik"] == company["cik"] for row in rows)
+            updated = [row for row in rows if row["cik"] != company["cik"]]
+            if action == "toggle" and not present:
+                if len(updated) >= WATCHLIST_LIMIT:
+                    raise ValueError(f"watchlist is limited to {WATCHLIST_LIMIT} companies")
+                updated.append(company)
+            self.put_pref(user_id, Pref("global", "", "watchlist", updated))
+            return updated
 
     def add_event(self, user_id: str, event: dict[str, Any]) -> None:
-        self._write(f"{EVENTS}/{user_id}/{int(time.time() * 1000)}-{uuid.uuid4().hex[:6]}.json", event)
+        event = analytics_event(event)
+        if event is None:
+            return
+        stamp = time.time_ns()
+        self._write(f"{EVENTS}/{user_id}/{stamp // 1_000_000}-{stamp:020d}-{uuid.uuid4().hex[:6]}.json", event)
 
     def list_events(self, user_id: str, limit: int = 500) -> list[dict[str, Any]]:
         """Newest first. File names start with a millisecond timestamp, so the listing sorts by time."""
@@ -364,13 +429,28 @@ class PostgresUserStore:
 
     def create_user(self, email: str, profile: dict[str, Any] | None = None) -> User:
         user = User(id=uuid.uuid4().hex, email=email.strip().lower()).with_profile(profile or {})
-        with self.conn.cursor() as cur:
-            cur.execute(
-                "INSERT INTO users (id, email, plan, locale, timezone, created_at) VALUES (%s, %s, %s, %s, %s, %s)",
-                (user.id, user.email, user.plan, user.locale, user.timezone, datetime.fromisoformat(user.created_at)),
-            )
-        self.update_user(user)
-        return user
+        # The uniqueness constraint arbitrates simultaneous first sign-ins. Return the existing
+        # account on conflict without overwriting its profile with a competing sign-up's defaults.
+        row = self._one(
+            "INSERT INTO users (id, email, plan, locale, timezone, created_at, first_name, last_name, "
+            "company, phone, role, specialty, title, country, marketing_opt_in, terms_accepted_at) "
+            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) "
+            "ON CONFLICT (email) DO UPDATE SET email = EXCLUDED.email RETURNING *",
+            (
+                user.id,
+                user.email,
+                user.plan,
+                user.locale,
+                user.timezone,
+                datetime.fromisoformat(user.created_at),
+                *(getattr(user, field) for field in PROFILE_FIELDS),
+                user.marketing_opt_in,
+                datetime.fromisoformat(user.terms_accepted_at) if user.terms_accepted_at else None,
+            ),
+        )
+        result = self._user(row)
+        assert result is not None
+        return result
 
     def update_user(self, user: User) -> None:
         with self.conn.cursor() as cur:
@@ -423,7 +503,7 @@ class PostgresUserStore:
                     scope=r["scope"],
                     scope_key=r["scope_key"],
                     key=r["key"],
-                    value=v if not isinstance(v, str) else json.loads(v),
+                    value=v,  # psycopg already decodes JSONB, including JSON string scalars
                     source=r["source"],
                     updated_at=_iso(r["updated_at"]) if isinstance(r["updated_at"], datetime) else str(r["updated_at"]),
                 )
@@ -461,7 +541,52 @@ class PostgresUserStore:
             cur.execute("DELETE FROM user_prefs WHERE user_id = %s", (user_id,))
             return cur.rowcount
 
+    def mutate_watchlist(self, user_id: str, company: dict[str, Any], action: str) -> list[dict[str, Any]]:
+        company = _watchlist_company(company, action)
+        encoded = json.dumps([company])
+        match = json.dumps([{"cik": company["cik"]}])
+        # One INSERT/ON CONFLICT statement locks and mutates the latest row version. A SELECT then
+        # UPDATE (even through a single Python store) would race other workers/connections.
+        row = self._one(
+            """
+            INSERT INTO user_prefs AS prefs (user_id, scope, scope_key, key, value, source, updated_at)
+            VALUES (%s, 'global', '', 'watchlist', %s::jsonb, 'explicit', clock_timestamp())
+            ON CONFLICT (user_id, scope, scope_key, key) DO UPDATE SET value = (
+                SELECT COALESCE(jsonb_agg(item) FILTER (WHERE item->'cik' <> to_jsonb(%s::bigint)), '[]'::jsonb)
+                    || CASE WHEN %s = 'toggle' AND NOT COALESCE(bool_or(item->'cik' = to_jsonb(%s::bigint)), false)
+                       THEN %s::jsonb ELSE '[]'::jsonb END
+                FROM jsonb_array_elements(CASE WHEN jsonb_typeof(prefs.value) = 'array'
+                    THEN prefs.value ELSE '[]'::jsonb END) AS items(item)
+                WHERE jsonb_typeof(item) = 'object' AND jsonb_typeof(item->'cik') = 'number'
+                    AND item->>'cik' ~ '^[1-9][0-9]{0,9}$' AND jsonb_typeof(item->'name') = 'string'
+                    AND (item->'ticker' IS NULL OR item->'ticker' = 'null'::jsonb
+                        OR jsonb_typeof(item->'ticker') = 'string')
+            ), source = 'explicit', updated_at = EXCLUDED.updated_at
+            WHERE %s = 'remove' OR COALESCE(prefs.value @> %s::jsonb, false)
+                OR jsonb_array_length(CASE WHEN jsonb_typeof(prefs.value) = 'array'
+                    THEN prefs.value ELSE '[]'::jsonb END) < %s
+            RETURNING value
+            """,
+            (
+                user_id,
+                encoded if action == "toggle" else "[]",
+                company["cik"],
+                action,
+                company["cik"],
+                encoded,
+                action,
+                match,
+                WATCHLIST_LIMIT,
+            ),
+        )
+        if row is None:
+            raise ValueError(f"watchlist is limited to {WATCHLIST_LIMIT} companies")
+        return row["value"]
+
     def add_event(self, user_id: str, event: dict[str, Any]) -> None:
+        event = analytics_event(event)
+        if event is None:
+            return
         with self.conn.cursor() as cur:
             cur.execute(
                 "INSERT INTO pref_events (user_id, key, scope, old, new, source, at) "
@@ -480,9 +605,7 @@ class PostgresUserStore:
     @staticmethod
     def _event(r: dict[str, Any]) -> dict[str, Any]:
         out = dict(r)
-        for k in ("old", "new"):
-            if isinstance(out.get(k), str):
-                out[k] = json.loads(out[k])
+        # JSONB old/new values are already decoded by psycopg.
         if isinstance(out.get("at"), datetime):
             out["at"] = _iso(out["at"])
         return out
@@ -667,6 +790,60 @@ def validate_pref(scope: str, scope_key: str, key: str, value: Any, source: str)
 # ---------------------------------------------------------------------------------------------
 UI_SCOPE = "ui"
 
+# Analytics is deliberately separate from the arbitrary JSON a preference can contain.
+# Never copy watchlists, company identifiers, profile names, filenames or UI props into events.
+ANALYTICS_VALUES = {
+    "scale": ("units", "thousands", "millions", "billions"),
+    "statement": ("IS", "BS", "CF", "EQ", "CI"),
+    "negative_style": ("parentheses", "minus"),
+    "column_order": ("newest_right", "newest_left"),
+    "period_mode": ("as_filed", "quarterly", "annual", "ltm"),
+}
+ANALYTICS_UI = frozenset(
+    (
+        "export.download",
+        "export.profile.load",
+        "export.profile.save",
+        "export.remember",
+        "export.open",
+        "card.preset",
+        "card.swap",
+        "proposal.shown",
+        "proposal.dismiss",
+    )
+)
+ANALYTICS_COUNTS_ONLY = frozenset(("headline_cards", "export_config"))
+
+
+def analytics_event(event: dict[str, Any]) -> dict[str, Any] | None:
+    """Allowlisted telemetry only. Applied on write and again when reading legacy events."""
+    key, scope = event.get("key"), event.get("scope")
+    if not isinstance(key, str) or not isinstance(scope, str):
+        return None
+    base = {"key": key, "scope": scope, "at": event.get("at", _iso(_now()))}
+    if scope == UI_SCOPE:
+        if key not in ANALYTICS_UI:
+            return None
+        return {**base, "old": None, "new": None, "source": "ui"}
+    if scope not in SCOPES or event.get("source") not in SOURCES:
+        return None
+
+    def safe_value(value: Any) -> bool:
+        if key in ANALYTICS_VALUES:
+            return isinstance(value, str) and value in ANALYTICS_VALUES[key]
+        if key == "periods_shown":
+            return type(value) is int and 1 <= value <= 60
+        return key == "restated" and type(value) is bool
+
+    if key in ANALYTICS_COUNTS_ONLY:
+        old, new = None, None
+    elif safe_value(event.get("new")):
+        old = event.get("old") if safe_value(event.get("old")) else None
+        new = event["new"]
+    else:
+        return None
+    return {**base, "old": old, "new": new, "source": event["source"]}
+
 
 def validate_event(payload: dict[str, Any]) -> str | None:
     name = payload.get("name")
@@ -765,8 +942,13 @@ def touch_report(events: list[dict[str, Any]], days: int) -> dict[str, Any]:
     users: set[str] = set()
     pref_keys: dict[str, dict[str, Any]] = {}
     ui: dict[str, dict[str, Any]] = {}
+    accepted = 0
     for e in events:
         uid = str(e.get("user_id") or "")
+        e = analytics_event(e)
+        if e is None:
+            continue
+        accepted += 1
         users.add(uid)
         key = str(e.get("key") or "")
         if e.get("scope") == UI_SCOPE:
@@ -780,8 +962,9 @@ def touch_report(events: list[dict[str, Any]], days: int) -> dict[str, Any]:
         d["writes"] += 1
         d["users"].add(uid)
         d["scopes"][str(e.get("scope"))] = d["scopes"].get(str(e.get("scope")), 0) + 1
-        v = json.dumps(e.get("new"), sort_keys=True)
-        d["values"][v] = d["values"].get(v, 0) + 1
+        if key not in ANALYTICS_COUNTS_ONLY:
+            v = json.dumps(e.get("new"), sort_keys=True)
+            d["values"][v] = d["values"].get(v, 0) + 1
         if e.get("source") == "inferred":
             d["inferred"] += 1
     prefs_out = []
@@ -801,7 +984,7 @@ def touch_report(events: list[dict[str, Any]], days: int) -> dict[str, Any]:
         {"name": d["name"], "count": d["count"], "users": len(d["users"])}
         for d in sorted(ui.values(), key=lambda d: -d["count"])
     ]
-    return {"days": days, "events": len(events), "users": len(users), "prefs": prefs_out, "ui": ui_out}
+    return {"days": days, "events": accepted, "users": len(users), "prefs": prefs_out, "ui": ui_out}
 
 
 __all__ = [

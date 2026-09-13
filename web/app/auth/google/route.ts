@@ -1,6 +1,6 @@
 // Start Google sign-in: send the person to Google's consent screen with a state cookie.
 import { NextRequest, NextResponse } from "next/server";
-import { api } from "@/lib/api";
+import { api } from "@/lib/server-api";
 
 export async function GET(req: NextRequest) {
   const cfg = await api.authConfig().catch(() => null);

@@ -45,6 +45,7 @@ export default function ProposalStrip({ signedIn }: { signedIn: boolean }) {
   const router = useRouter();
   const [p, setP] = useState<Proposal | null>(null);
   const [busy, setBusy] = useState(false);
+  const [error, setError] = useState(false);
   useEffect(() => {
     if (!signedIn) return;
     fetch("/api/proposals")
@@ -69,17 +70,22 @@ export default function ProposalStrip({ signedIn }: { signedIn: boolean }) {
   if (!p) return null;
   const act = async (action: "accept" | "dismiss") => {
     setBusy(true);
-    await fetch("/api/proposals", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ key: p.key, value: p.value, action }) });
+    try {
+    const response = await fetch("/api/proposals", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ key: p.key, value: p.value, action }) });
+    if (!response.ok) throw new Error("Proposal update failed");
+    setError(false);
     logEvent(`proposal.${action}`, { key: p.key }, true);
     setP(null);
     setBusy(false);
     if (action === "accept") router.refresh();
+    } catch { setError(true); } finally { setBusy(false); }
   };
   return (
     <div className="proposal" role="status">
       <span>
         You chose <strong>{describe(p)}</strong> on {p.companies.length} companies. Make it your default everywhere?
       </span>
+      {error && <span className="err" role="alert">Couldn’t save your choice. Please try again.</span>}
       <span className="row">
         <button type="button" className="btn small" disabled={busy} onClick={() => void act("accept")}>Yes, everywhere</button>
         <button type="button" className="linkbtn" disabled={busy} onClick={() => void act("dismiss")}>Not now</button>

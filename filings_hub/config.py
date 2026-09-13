@@ -27,6 +27,9 @@ class Settings(BaseSettings):
     smtp_password: str = ""
 
     api_key: str = ""
+    admin_emails: str = Field(
+        default="", description="Comma-separated verified account emails allowed to read operations and analytics."
+    )
     site_url: str = Field(default="", description="Public URL of the web app, used in alert emails.")
     session_secret: str = Field(default="", description="Signs session tokens; empty = random per process.")
     session_days: int = 30

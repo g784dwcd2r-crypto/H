@@ -18,8 +18,49 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v3
-      - run: uv venv --python 3.12 && uv pip install -e ".[dev]"
+      - run: uv lock --check && uv sync --frozen --python 3.12 --extra dev
       - run: .venv/bin/ruff check . && .venv/bin/ruff format --check .
       - run: .venv/bin/pytest --cov=filings_hub --cov-report=term
         env:
           TEST_DATABASE_URL: postgresql://test:test@localhost:5432/filings_test
+  web:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+      - run: npm audit --omit=dev --audit-level=high
+      - uses: astral-sh/setup-uv@v3
+      - run: uv sync --frozen --python 3.12 --extra dev
+        working-directory: .
+      - run: npx playwright install --with-deps chromium
+      - name: Start synthetic API and production web server
+        run: |
+          ../.venv/bin/python -m filings_hub.testing.preview_server > /tmp/disclosure-api.log 2>&1 &
+          npm start -- --hostname 127.0.0.1 --port 3100 > /tmp/disclosure-web.log 2>&1 &
+          for attempt in $(seq 1 60); do
+            if curl -fsS http://localhost:3100 >/dev/null && curl -fsS http://127.0.0.1:8100/health >/dev/null; then exit 0; fi
+            sleep 1
+          done
+          cat /tmp/disclosure-api.log /tmp/disclosure-web.log
+          exit 1
+        env:
+          FILINGS_API_URL: http://127.0.0.1:8100
+          FILINGS_API_KEY: preview
+          SMOKE_BASE_URL: http://localhost:3100
+      - run: npm run test:browser
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: browser-acceptance
+          path: web/.browser-results/

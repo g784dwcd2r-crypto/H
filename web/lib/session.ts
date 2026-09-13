@@ -1,6 +1,7 @@
 // Server-side session: the signed token lives in an httpOnly cookie; the API verifies it.
 import { cookies } from "next/headers";
-import { api, type Resolved, type User } from "@/lib/api";
+import { api } from "@/lib/server-api";
+import { type Resolved, type User } from "@/lib/api";
 
 export const SESSION_COOKIE = "fh_session";
 export const SESSION_DAYS = 30;

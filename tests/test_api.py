@@ -17,6 +17,7 @@ def _app(storage: Storage, edgar: bool = True):
         lake_root=storage.root,
         database_url="",
         api_key="k",
+        admin_emails="admin@example.com",
         api_rate_limit_per_minute=1000,
         sec_user_agent="",
         _env_file=None,
@@ -122,21 +123,48 @@ def test_rate_limit(built_lake):
     assert rl.check("x") == (True, 0) and rl.check("x")[0] is False
 
 
-def test_metrics_and_quality_queue(client):
-    m = client.get("/metrics", headers=H).json()
+def test_metrics_and_quality_queue(client_rw):
+    client, _ = client_rw
+    user = client.app.state.users.create_user("admin@example.com")
+    headers = {**H, "X-Session": client.app.state.signer.sign(user.id)}
+    m = client.get("/metrics", headers=headers).json()
     assert m["totals"]["companies"] == len(fx.COMPANIES) and m["totals"]["filings_with_statements"] > 0
     assert m["runs"][0]["kind"] == "backfill" and m["runs"][0]["status"] == "ok"
     assert m["filings_per_day"] and all("filings" in d for d in m["filings_per_day"])
     fy = {c["fiscal_year"]: c for c in m["checks_by_fiscal_year"]}
     assert fy[2025]["pass_rate"] is not None and 0 < fy[2025]["pass_rate"] < 1  # Broken Books drags FY2025 down
-    q = client.get("/quality/failed", headers=H).json()
+    q = client.get("/quality/failed", headers=headers).json()
     assert (
         q["total"] == 1
         and q["failed"][0]["cik"] == fx.BROKEN
         and q["failed"][0]["check_name"] == "assets_eq_liabilities_and_equity"
     )
     assert q["failed"][0]["name"] == "Broken Books Ltd" and q["failed"][0]["form"] == "10-K"
-    assert client.get("/quality/failed?limit=1&offset=5", headers=H).json()["failed"] == []
+    assert client.get("/quality/failed?limit=1&offset=5", headers=headers).json()["failed"] == []
+
+
+def test_operations_require_verified_admin_account(client_rw):
+    client, _ = client_rw
+    ordinary = client.app.state.users.create_user("reader@example.com")
+    headers = {**H, "X-Session": client.app.state.signer.sign(ordinary.id)}
+    assert client.get("/me", headers=headers).json()["user"]["is_admin"] is False
+    for path in ("/metrics", "/metrics/prefs", "/quality/failed"):
+        assert client.get(path, headers=H).status_code == 401
+        assert client.get(path, headers=headers).status_code == 403
+    assert client.get("/coverage", headers=H).status_code == 200
+
+
+def test_public_coverage_reports_measured_data_and_missing_periods(client):
+    response = client.get("/coverage", headers=H)
+    assert response.status_code == 200, response.text
+    data = response.json()
+    assert data["totals"]["directory_companies"] == len(fx.COMPANIES)
+    assert 0 < data["totals"]["companies_with_statements"] <= len(fx.COMPANIES)
+    for year in data["fiscal_years"]:
+        assert year["periods"] == year["structured"] + year["provisional"] + year["unavailable"]
+        assert year["periods"] == year["checks_passed"] + year["checks_failed"] + year["checks_not_run"]
+    assert data["last_completed_ingestion"]
+    assert not {"runs", "prefs", "users", "failed"} & data.keys()
 
 
 def test_search_resolves_every_identifier(client):
@@ -238,16 +266,28 @@ def test_recent_filings_for_a_watchlist(client):
 
 def test_subscriptions_and_requests(client_rw, monkeypatch):
     c, storage = client_rw
-    r = c.post("/subscriptions", json={"email": "Me@Example.com", "ciks": [fx.APPLE, "19617"]}, headers=H)
+    user = c.app.state.users.create_user("me@example.com")
+    headers = {**H, "X-Session": c.app.state.signer.sign(user.id)}
+    assert c.post("/subscriptions", json={"ciks": [fx.APPLE]}, headers=H).status_code == 401
+    r = c.post("/subscriptions", json={"email": "Me@Example.com", "ciks": [fx.APPLE, "19617"]}, headers=headers)
     assert r.status_code == 200 and r.json() == {"stored": True, "email": "me@example.com", "ciks": 2}
     from filings_hub.ingest.digest import load_subscriptions
 
     assert load_subscriptions(storage)[0]["ciks"] == sorted([fx.APPLE, fx.JPM])
-    assert c.post("/subscriptions", json={"email": "nope", "ciks": [1]}, headers=H).status_code == 422
-    assert c.post("/subscriptions", json={"email": "a@b.co", "ciks": []}, headers=H).status_code == 422
+    assert (
+        c.post("/subscriptions", json={"email": "someone@example.com", "ciks": [1]}, headers=headers).status_code == 403
+    )
+    assert c.post("/subscriptions", json={"ciks": []}, headers=headers).status_code == 422
+    assert c.get("/subscriptions", headers=headers).json() == {"subscribed": True, "ciks": sorted([fx.APPLE, fx.JPM])}
+    other = c.app.state.users.create_user("other@example.com")
+    other_headers = {**H, "X-Session": c.app.state.signer.sign(other.id)}
+    assert c.delete("/subscriptions", headers=other_headers).status_code == 200
+    assert c.get("/subscriptions", headers=headers).json()["subscribed"] is True
+    assert c.delete("/subscriptions", headers=headers).json()["subscribed"] is False
+    assert load_subscriptions(storage) == []
     q = c.post("/requests", json={"region": "UK", "note": "Please add Tesco", "email": ""}, headers=H)
     assert q.status_code == 200 and q.json()["stored"]
     assert c.post("/requests", json={"region": "UK"}, headers=H).status_code == 422
     # a read-only lake answers 503, not a crash
     monkeypatch.setattr(Storage, "write_text", lambda *a, **k: (_ for _ in ()).throw(PermissionError("ro")))
-    assert c.post("/subscriptions", json={"email": "a@b.co", "ciks": [1]}, headers=H).status_code == 503
+    assert c.post("/subscriptions", json={"ciks": [1]}, headers=headers).status_code == 503

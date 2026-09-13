@@ -31,9 +31,14 @@ def run_backfill(
     run = RunLog(kind="backfill")
     t0 = time.monotonic()
     own_client = client is None and not skip_download
+    serving_url = database_url if load_db else None
     if own_client:
         client = client_from_settings()
     try:
+        if load_db and serving_url is None:
+            from filings_hub.config import get_settings
+
+            serving_url = get_settings().database_url or None
         if not skip_download:
             assert client is not None
             since = (int(fsds_since[:4]), int(fsds_since[-1]))
@@ -100,19 +105,13 @@ def run_backfill(
         metrics.build_company_metrics(storage)
         run.step("metrics", time.monotonic() - step)
 
-        if load_db:
-            url = database_url
-            if url is None:
-                from filings_hub.config import get_settings
+        if load_db and serving_url:
+            from filings_hub.db.load import load_full
 
-                url = get_settings().database_url
-            if url:
-                from filings_hub.db.load import load_full
-
-                step = time.monotonic()
-                load_full(storage, url)
-                run.db_loaded = True
-                run.step("load", time.monotonic() - step)
+            step = time.monotonic()
+            load_full(storage, serving_url)
+            run.db_loaded = True
+            run.step("load", time.monotonic() - step)
         run.finish("ok")
     except Exception as e:
         run.error = f"{type(e).__name__}: {e}"
@@ -121,7 +120,7 @@ def run_backfill(
     finally:
         if own_client and client is not None:
             client.close()
-        write_run_log(storage, run)
+        write_run_log(storage, run, serving_url)
         log.info("%s (%.0fs)", run.summary(), time.monotonic() - t0)
     return run
 

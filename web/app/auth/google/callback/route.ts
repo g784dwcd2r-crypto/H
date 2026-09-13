@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { api } from "@/lib/api";
+import { api } from "@/lib/server-api";
 import { SESSION_COOKIE, SESSION_DAYS } from "@/lib/session";
 
 export async function GET(req: NextRequest) {

@@ -3,8 +3,8 @@
 Full load: every table replaced. Incremental (daily): companies/tickers/periods/run_log replaced (small),
 filings and statements replaced only for the touched CIKs / accessions.
 
-Statements: by default only the primary-period rows (plus headers) are loaded -- that is what the hub
-shows, one column per filing. Comparative columns stay in the lake (`--all-periods` loads them too).
+Statements retain primary, comparative and YTD rows by default. Quarterly/LTM calculations and
+latest-presentation views need all three, including after daily incremental replacement.
 """
 
 from __future__ import annotations
@@ -274,7 +274,7 @@ def serving_periods(duck: Duck) -> pa.Table:
     return duck.fetch_arrow("SELECT *, NULL::VARCHAR AS statements_source, NULL::BOOLEAN AS checks_passed FROM periods")
 
 
-def load_full(storage: Storage, database_url: str, all_periods: bool = False, batch_ciks: int = 2000) -> dict[str, int]:
+def load_full(storage: Storage, database_url: str, all_periods: bool = True, batch_ciks: int = 2000) -> dict[str, int]:
     """Rebuild every serving table from the lake."""
     counts: dict[str, int] = {}
     duck = Duck(storage)
@@ -340,7 +340,7 @@ def load_incremental(
     ciks: set[int],
     accessions: set[str] = frozenset(),
     fsds_quarters: list[str] | None = None,
-    all_periods: bool = False,
+    all_periods: bool = True,
 ) -> dict[str, int]:
     """Daily path: small tables replaced, big tables patched for the touched CIKs / accessions."""
     counts: dict[str, int] = {}
@@ -371,7 +371,7 @@ def load_incremental(
                     cur.execute("DELETE FROM filings WHERE accession = ANY(%s)", (sorted(accessions),))
                 counts["filings"] = copy_table(conn, "filings", rows)
         if views["statements"]:
-            touched_acc: set[str] = set()
+            touched_acc: set[str] = set(accessions)
             if cik_list:
                 touched_acc |= {
                     r["accession"]

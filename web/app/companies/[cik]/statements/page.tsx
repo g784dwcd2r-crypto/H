@@ -1,7 +1,9 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import CompanyNav from "@/components/CompanyNav";
 import StatementTabs from "@/components/StatementTabs";
-import { api, NotFound, type PeriodMode, type Pref } from "@/lib/api";
+import { api, NotFound } from "@/lib/server-api";
+import { type PeriodMode, type Pref } from "@/lib/api";
 import { resolvedPrefs, sessionToken } from "@/lib/session";
 
 export const dynamic = "force-dynamic";
@@ -50,12 +52,13 @@ export default async function StatementsPage({
   return (
     <>
       <p className="crumb"><Link href={`/companies/${id}`}>← {grid.company_name}</Link></p>
-      <p className="eyebrow">As reported</p>
+      <p className="eyebrow">Company financials</p>
       <h1>{grid.company_name}{grid.ticker && <span className="chip">{grid.ticker}</span>}</h1>
       <p className="meta">
         As-reported statements · {grid.periods.length} period{grid.periods.length === 1 ? "" : "s"}
         {periods ? "" : <> · <Link href={`/companies/${id}/statements?${more.toString()}`}>show more periods</Link></>}
       </p>
+      <CompanyNav cik={id} />
       <StatementTabs grid={grid} cik={id} sic={sic} initialPrefs={list} signedIn={signedIn} periodsShown={n} explicitLimit={!!limit} periodsParam={periods} />
     </>
   );

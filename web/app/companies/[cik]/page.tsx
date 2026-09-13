@@ -1,8 +1,10 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import CompanyNav from "@/components/CompanyNav";
 import FollowButton from "@/components/FollowButton";
 import HeadlineCards from "@/components/HeadlineCards";
-import { api, fmtDate, fmtEps, fmtMoney, isAnnual, NotFound, type Doc, type Period, type Pref } from "@/lib/api";
+import { api, NotFound } from "@/lib/server-api";
+import { fmtDate, fmtEps, fmtMoney, isAnnual, type Doc, type Period, type Pref } from "@/lib/api";
 import type { Remembered } from "@/lib/local";
 import { sessionToken } from "@/lib/session";
 
@@ -81,6 +83,8 @@ export default async function CompanyPage({ params }: { params: Promise<{ cik: s
         <FollowButton company={{ cik: c.cik, name: c.name, ticker: c.ticker }} signedIn={!!token} initial={initialWatch} />
       </div>
 
+      <CompanyNav cik={id} />
+
       {headline && (
         <HeadlineCards
           cik={id}
@@ -117,7 +121,7 @@ export default async function CompanyPage({ params }: { params: Promise<{ cik: s
                 {release(latestRelease) ? (
                   <Link href={readerHref(latestRelease.earnings_release_accession!, release(latestRelease)!.filename)}>Latest earnings release</Link>
                 ) : (
-                  <a href={latestRelease.earnings_release_primary_doc_url ?? "#"} target="_blank" rel="noreferrer">Latest earnings release</a>
+                  <a href={latestRelease.earnings_release_primary_doc_url ?? readerHref(latestRelease.earnings_release_accession!)} target="_blank" rel="noreferrer">Latest earnings release</a>
                 )}{" "}
                 <span className="muted">{fmtDate(latestRelease.earnings_release_filed_date)}</span>
               </li>
@@ -138,7 +142,7 @@ export default async function CompanyPage({ params }: { params: Promise<{ cik: s
         <button className="btn secondary" type="submit">Find</button>
       </form>
 
-      <h2>Periods</h2>
+      <h2 id="filings">Periods & filings</h2>
       {periods.periods.length === 0 ? (
         <div className="empty">
           <p>No annual or quarterly results filings on record for this registrant.</p>
@@ -179,7 +183,7 @@ export default async function CompanyPage({ params }: { params: Promise<{ cik: s
                         (rel ? (
                           <Link href={readerHref(p.earnings_release_accession, rel.filename)}>Earnings release</Link>
                         ) : (
-                          <a href={p.earnings_release_primary_doc_url ?? "#"} target="_blank" rel="noreferrer">Earnings release</a>
+                          <a href={p.earnings_release_primary_doc_url ?? readerHref(p.earnings_release_accession)} target="_blank" rel="noreferrer">Earnings release</a>
                         ))}
                       {more.map((d) => (
                         <Link key={d.filename} href={readerHref(d.url.includes(p.results_accession.replace(/-/g, "")) ? p.results_accession : p.earnings_release_accession!, d.filename)}>
@@ -194,10 +198,10 @@ export default async function CompanyPage({ params }: { params: Promise<{ cik: s
                           <Link href={`/companies/${id}/statements?periods=${encodeURIComponent(p.period_label)}`}>View</Link>
                           <a href={`/api/export?cik=${id}&periods=${encodeURIComponent(p.period_label)}`}>Excel</a>
                           {p.statements_source === "facts_fallback" && <span className="chip warn">provisional</span>}
-                          {p.checks_passed === false && <span className="chip bad">checks ✗</span>}
+                          {p.checks_passed === false && <span className="chip bad">review needed</span>}
                         </>
                       ) : (
-                        <span className="muted">not yet</span>
+                        <span className="muted" title="No statement data is available for this period yet.">Unavailable</span>
                       )}
                     </td>
                   </tr>
@@ -213,7 +217,7 @@ export default async function CompanyPage({ params }: { params: Promise<{ cik: s
         <>
           <h2>Peers</h2>
           <p className="muted">Same industry code{peersResp.sic_description ? ` (${peersResp.sic_description})` : ""}, biggest first by latest annual revenue.</p>
-          <table className="peers">
+          <div className="table-scroll"><table className="peers">
             <thead>
               <tr>
                 <th>Company</th>
@@ -236,7 +240,7 @@ export default async function CompanyPage({ params }: { params: Promise<{ cik: s
                 </tr>
               ))}
             </tbody>
-          </table>
+          </table></div>
         </>
       )}
 
