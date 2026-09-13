@@ -234,8 +234,15 @@ def load_api_companyfacts(storage: Storage, client, ciks: list[int], day: date, 
     failures: list[str] = []
     done = 0
 
+    reused = 0
+
     def one(cik: int) -> int:
+        nonlocal reused
         try:
+            have = _stored_facts_rows(storage, cik, day)
+            if have is not None:  # a rerun the same day: the partition is already built from this response
+                reused += 1
+                return have
             return refresh_cik_facts(storage, client, cik, day)
         except Exception as e:  # one company must not sink the run
             raise RuntimeError(f"CIK {cik}: {e}") from e
@@ -254,6 +261,8 @@ def load_api_companyfacts(storage: Storage, client, ciks: list[int], day: date, 
                 total_rows += rows
             if done % 500 == 0 or done == len(ciks):
                 log.info("facts (api): %d/%d companies fetched, %d rows", done, len(ciks), total_rows)
+    if reused:
+        log.info("facts (api): %d companies reused today's stored response (no refetch)", reused)
     if failures:
         log.warning("facts (api): %d companies failed: %s", len(failures), failures[:5])
     return {"companies": total_ciks, "rows": total_rows, "failures": failures}
@@ -262,8 +271,20 @@ def load_api_companyfacts(storage: Storage, client, ciks: list[int], day: date, 
 def refresh_cik_facts(storage: Storage, client, cik: int, day: date) -> int:
     """Per-company API path; stores the raw response, then rewrites the CIK partition."""
     data = client.fetch_companyfacts(cik)
-    if data is None:
-        log.info("no companyfacts for CIK %s", cik)
+    if not data or not data.get("facts"):
+        log.debug("no companyfacts for CIK %s", cik)
         return 0
+    data.setdefault("cik", cik)  # a handful of responses omit it
     storage.write_bytes(layout.raw_api_companyfacts(day, cik), orjson.dumps(data))
     return load_companyfacts_json(storage, data)
+
+
+def _stored_facts_rows(storage: Storage, cik: int, day: date) -> int | None:
+    """Row count of an already-built partition whose API response was stored on `day`, else None."""
+    part = f"{layout.facts_cik_dir(cik)}/part-0.parquet"
+    if not (storage.exists(layout.raw_api_companyfacts(day, cik)) and storage.exists(part)):
+        return None
+    import pyarrow.parquet as pq
+
+    with storage.open(part, "rb") as fh:
+        return pq.read_metadata(fh).num_rows

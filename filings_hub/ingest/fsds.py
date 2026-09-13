@@ -212,8 +212,9 @@ def _unparsed_values(duck: Duck, table: str, target: str, src: Path, encoding: s
     raw_col, typed_col = checks[table]
     if raw_col is None:
         return 0
+    where = f"{extra} AND" if extra else " WHERE"  # `extra` already opens the WHERE clause
     raw_present = duck.fetch_value(
-        f"SELECT count(*) FROM {_read_csv_sql(src, encoding)}{extra} WHERE {raw_col} IS NOT NULL AND {raw_col} <> ''"
+        f"SELECT count(*) FROM {_read_csv_sql(src, encoding)}{where} {raw_col} IS NOT NULL AND {raw_col} <> ''"
     )
     typed_present = duck.fetch_value(f"SELECT count(*) FROM read_parquet('{target}') WHERE {typed_col} IS NOT NULL")
     return max(int(raw_present) - int(typed_present), 0)

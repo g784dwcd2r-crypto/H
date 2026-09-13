@@ -66,8 +66,8 @@ def test_pre_2013_windows_1252_bytes_are_read_not_dropped(tmp_path):
 def test_unparseable_values_are_counted_not_hidden(tmp_path):
     tables = _base_tables()
     num = tables["num"].decode().splitlines()
-    num.append("0000019617-26-000001\tAssets\tus-gaap/2025\t\t20251231\t0\tUSD\tN/A\t")  # value not a number
-    num.append("0000019617-26-000001\tAssets\tus-gaap/2025\t\tnot-a-date\t0\tUSD\t5\t")  # still loads: ddate NULL
+    num.append("0000019617-26-000001\tAssets\tus-gaap/2025\t20251231\t0\tUSD\t\t\tN/A\t")  # value not a number
+    num.append("0000019617-26-000001\tAssets\tus-gaap/2025\tnot-a-date\t0\tUSD\t\t\t5\t")  # still loads: ddate NULL
     tables["num"] = ("\n".join(num) + "\n").encode()
     _st, _counts, log = _load(tmp_path, tables)
     assert log["num"]["loaded_rows"] == log["num"]["raw_rows"]  # nothing rejected
@@ -93,7 +93,7 @@ def test_reject_ratio_warning(tmp_path, caplog):
 
     tables = _base_tables()
     # rows with an embedded NUL byte cannot be read as text at all
-    bad = b"\n".join(b"0000019617-26-000001\tX\x00Y\tus-gaap/2025\t\t20251231\t0\tUSD\t1\t" for _ in range(50))
+    bad = b"\n".join(b"0000019617-26-000001\tX\x00Y\tus-gaap/2025\t20251231\t0\tUSD\t\t\t1\t" for _ in range(50))
     tables["num"] = tables["num"] + bad + b"\n"
     with caplog.at_level(logging.WARNING, logger="filings_hub.ingest.fsds"):
         _st, _counts, log = _load(tmp_path, tables)

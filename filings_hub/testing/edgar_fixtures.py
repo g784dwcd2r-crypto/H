@@ -941,7 +941,7 @@ SUB_COLS = [
     "nciks",
     "aciks",
 ]
-NUM_COLS = ["adsh", "tag", "version", "coreg", "ddate", "qtrs", "uom", "value", "footnote"]
+NUM_COLS = ["adsh", "tag", "version", "ddate", "qtrs", "uom", "segments", "coreg", "value", "footnote"]
 PRE_COLS = [
     "adsh",
     "report",
@@ -1045,8 +1045,10 @@ def _dedupe_num(rows: list[str]) -> list[str]:
     generating both would produce a row real data cannot contain."""
     seen: set[tuple[str, ...]] = set()
     out = []
+    idx = [NUM_COLS.index(c) for c in ("adsh", "tag", "version", "coreg", "ddate", "qtrs")]
     for row in rows:
-        key = tuple(row.split("\t")[:6])
+        parts = row.split("\t")
+        key = tuple(parts[i] for i in idx)
         if key in seen:
             continue
         seen.add(key)
