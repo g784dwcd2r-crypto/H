@@ -433,7 +433,10 @@
         {
           "id": "D08.05",
           "requirement": "Ownership/insider data with reporting-lag semantics",
-          "status": "planned"
+          "status": "partial",
+          "production_validated": false,
+          "evidence_document": "ownership.md",
+          "implementation_scope": "Current US SEC XML ingestion, separate cards/sources/exports and opt-in alerts implemented. Production activation, broad identifier coverage, historical backfill and non-US regimes remain pending."
         },
         {
           "id": "D08.06",

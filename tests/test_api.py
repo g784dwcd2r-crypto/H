@@ -308,7 +308,31 @@ def test_subscriptions_and_requests(client_rw, monkeypatch):
         c.post("/subscriptions", json={"email": "someone@example.com", "ciks": [1]}, headers=headers).status_code == 403
     )
     assert c.post("/subscriptions", json={"ciks": []}, headers=headers).status_code == 422
-    assert c.get("/subscriptions", headers=headers).json() == {"subscribed": True, "ciks": sorted([fx.APPLE, fx.JPM])}
+    assert c.get("/subscriptions", headers=headers).json() == {
+        "subscribed": True,
+        "ciks": sorted([fx.APPLE, fx.JPM]),
+        "ownership_flows": [],
+    }
+    assert (
+        c.post(
+            "/subscriptions", json={"ciks": [fx.APPLE], "ownership_flows": ["insiders", "events"]}, headers=headers
+        ).status_code
+        == 200
+    )
+    assert c.get("/subscriptions", headers=headers).json()["ownership_flows"] == ["events", "insiders"]
+    for invalid in (["all"], "insiders", [True], [None]):
+        assert (
+            c.post("/subscriptions", json={"ciks": [fx.APPLE], "ownership_flows": invalid}, headers=headers).status_code
+            == 422
+        )
+    assert (
+        c.post(
+            "/subscriptions",
+            json={"ciks": [fx.APPLE], "ownership_flows": ["institutions"], "email": "other@example.com"},
+            headers=headers,
+        ).status_code
+        == 403
+    )
     other = c.app.state.users.create_user("other@example.com")
     other_headers = {**H, "X-Session": c.app.state.signer.sign(other.id)}
     assert c.delete("/subscriptions", headers=other_headers).status_code == 200

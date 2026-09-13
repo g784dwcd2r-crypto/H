@@ -64,9 +64,14 @@ FORM_LABELS = {
     "424B5": "Prospectus supplement",
     "4": "Insider transaction",
     "3": "Initial insider holdings",
-    "SC 13G": "Passive ownership >5%",
-    "SC 13G/A": "Passive ownership >5% (amended)",
-    "SC 13D": "Activist ownership >5%",
+    "3/A": "Initial insider holdings (amended)",
+    "4/A": "Insider transaction (amended)",
+    "5": "Annual insider disclosure",
+    "5/A": "Annual insider disclosure (amended)",
+    "13F-HR": "Institutional reported holdings",
+    "13F-HR/A": "Institutional reported holdings (amended)",
+    "13F-NT": "Institutional holdings notice",
+    "13F-NT/A": "Institutional holdings notice (amended)",
     "11-K": "Employee plan annual report",
     "ARS": "Annual report to shareholders",
     "SD": "Conflict minerals",
@@ -79,6 +84,11 @@ FORM_LABELS = {
     "144": "Proposed insider sale",
     "15-12G": "Deregistration",
 }
+
+
+for _schedule in ("SC 13D", "SC 13G", "SCHEDULE 13D", "SCHEDULE 13G"):
+    FORM_LABELS[_schedule] = "Major beneficial ownership disclosure"
+    FORM_LABELS[_schedule + "/A"] = "Major beneficial ownership disclosure (amended)"
 
 
 def form_label(form: str) -> str:
@@ -175,6 +185,9 @@ def create_app(
     from filings_hub import projects
 
     app.include_router(projects.project_router(account_security, current_user))
+    from filings_hub.api.ownership import attach_ownership_routes
+
+    attach_ownership_routes(app, database=database, storage=storage, auth=auth)
 
     def resolve_cik(cik: str) -> int:
         if cik.isdigit():
@@ -603,7 +616,18 @@ def create_app(
             raise HTTPException(403, "alerts can only be sent to your verified account email")
         if not isinstance(ciks, list) or not all(str(c).isdigit() for c in ciks) or not 0 < len(ciks) <= 200:
             raise HTTPException(422, "ciks must be a list of 1 to 200 CIKs")
+        flows = payload.get("ownership_flows", [])
+        allowed_flows = {"insiders", "institutions", "events"}
+        if not isinstance(flows, list) or any(not isinstance(f, str) or f not in allowed_flows for f in flows):
+            raise HTTPException(422, "ownership_flows must contain insiders, institutions or events")
+        import json
+
+        previous_path = f"{layout.SUBSCRIPTIONS}/{digest.subscription_id(email)}.json"
+        previous = json.loads(storage.read_text(previous_path)) if storage.exists(previous_path) else {}
+        started = previous.get("ownership_started") or {}
         rec = {
+            "ownership_flows": sorted(set(flows)),
+            "ownership_started": {f: started.get(f, date.today().isoformat()) for f in flows},
             "email": email.lower(),
             "ciks": sorted({int(c) for c in ciks}),
             "created": date.today().isoformat(),
@@ -618,16 +642,20 @@ def create_app(
 
         path = f"{layout.SUBSCRIPTIONS}/{digest.subscription_id(user.email)}.json"
         if not storage.exists(path):
-            return {"subscribed": False, "ciks": []}
+            return {"subscribed": False, "ciks": [], "ownership_flows": []}
         record = json.loads(storage.read_text(path))
-        return {"subscribed": True, "ciks": record.get("ciks", [])}
+        return {
+            "subscribed": True,
+            "ciks": record.get("ciks", []),
+            "ownership_flows": record.get("ownership_flows", []),
+        }
 
     @app.delete("/subscriptions")
     def unsubscribe(user: accounts.User = Depends(current_user)) -> dict[str, Any]:
         path = f"{layout.SUBSCRIPTIONS}/{digest.subscription_id(user.email)}.json"
         if storage.exists(path):
             storage.delete(path)
-        return {"subscribed": False, "ciks": []}
+        return {"subscribed": False, "ciks": [], "ownership_flows": []}
 
     @app.post("/requests")
     def coverage_request(payload: dict[str, Any] = Body(...), _: str = Depends(auth)) -> dict[str, Any]:

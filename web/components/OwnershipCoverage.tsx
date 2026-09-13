@@ -1,0 +1,5 @@
+import type { OwnershipCoverage as Coverage } from "@/lib/ownership";
+import styles from "./Ownership.module.css";
+export default function OwnershipCoverage({ coverage, compact = false }: { coverage: Coverage; compact?: boolean }) {
+  return <aside className={styles.coverage} aria-label="Ownership coverage"><div><span className={styles.coverageDot}/><strong>Partial ownership coverage</strong><span>{coverage.parsed_filings} parsed filing{coverage.parsed_filings === 1 ? "" : "s"}</span></div><p>{coverage.note || "This view includes the ownership filings parsed by Disclosure. It is not a complete history or a live ownership register."}</p>{!compact && <details><summary>Coverage details</summary><dl><div><dt>Pending</dt><dd>{coverage.pending}</dd></div><div><dt>Failed</dt><dd>{coverage.failed}</dd></div><div><dt>Unsupported</dt><dd>{coverage.unsupported}</dd></div><div><dt>Unmatched institutional positions</dt><dd>{coverage.unmatched_positions}</dd></div></dl><p>Last successful parse: {coverage.last_successful_at || "Not observed"}. Unmatched CUSIPs are not assigned to a company by name.</p></details>}</aside>;
+}

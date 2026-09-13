@@ -1,0 +1,74 @@
+[
+  {
+    "form": "4",
+    "filer_cik": 320193,
+    "accession": "0001140361-26-036226",
+    "filed_date": "2026-09-10",
+    "filename": "form4.xml",
+    "source_url": "https://www.sec.gov/Archives/edgar/data/320193/000114036126036226/form4.xml",
+    "fixture": "4-real.xml",
+    "sha256": "dc11428ca10523d8c53a10ffa631dd0ac62f659a025b9bff24967d08d029e7b1",
+    "captured_at": "2026-09-13T14:37:44.095746+00:00"
+  },
+  {
+    "form": "3",
+    "filer_cik": 320193,
+    "accession": "0001140361-26-035359",
+    "filed_date": "2026-09-01",
+    "filename": "form3.xml",
+    "source_url": "https://www.sec.gov/Archives/edgar/data/320193/000114036126035359/form3.xml",
+    "fixture": "3-real.xml",
+    "sha256": "0f7ce5e6eb48fe8ba8024ab255368351278aee3fab4ac028b359ac5583aa5935",
+    "captured_at": "2026-09-13T14:37:44.112485+00:00"
+  },
+  {
+    "form": "SCHEDULE 13G",
+    "filer_cik": 320193,
+    "accession": "0002100119-26-000139",
+    "filed_date": "2026-04-29",
+    "filename": "primary_doc.xml",
+    "source_url": "https://www.sec.gov/Archives/edgar/data/320193/000210011926000139/primary_doc.xml",
+    "fixture": "schedule-13g-real.xml",
+    "sha256": "8e29e54781bd222f84f485e9c452ff96dc28c4a262917cb9289479cb6c72c443",
+    "captured_at": "2026-09-13T14:37:44.573188+00:00"
+  },
+  {
+    "form": "5",
+    "filer_cik": 320193,
+    "accession": "0000320193-24-000102",
+    "filed_date": "2024-10-01",
+    "filename": "wk-form5_1727822122.xml",
+    "source_url": "https://www.sec.gov/Archives/edgar/data/320193/000032019324000102/wk-form5_1727822122.xml",
+    "fixture": "5-real.xml",
+    "sha256": "947c3b33dca92a22f24eeef26ff4ed724121c0bd85a9b0aba995abad8c98e554",
+    "captured_at": "2026-09-13T14:37:45.068372+00:00"
+  },
+  {
+    "form": "13F-HR",
+    "filer_cik": 1067983,
+    "accession": "0001193125-26-352200",
+    "filed_date": "2026-08-14",
+    "filename": "primary_doc.xml",
+    "source_url": "https://www.sec.gov/Archives/edgar/data/1067983/000119312526352200/primary_doc.xml",
+    "fixture": "13f-hr-real.xml",
+    "sha256": "7e7b3a8f87a290f56454b6ecaacd2cb4639af97a36d0c4064ee3d78be0d56723",
+    "captured_at": "2026-09-13T14:37:45.571460+00:00",
+    "table": {
+      "fixture": "13f-table-real.xml",
+      "filename": "56757.xml",
+      "source_url": "https://www.sec.gov/Archives/edgar/data/1067983/000119312526352200/56757.xml",
+      "sha256": "6a2798aa0fa9731c33b0f0b748229eaf7cdf118f9c46fd5a4a9a3de6979d4d95"
+    }
+  },
+  {
+    "form": "SCHEDULE 13D/A",
+    "filer_cik": 1083839,
+    "accession": "0001193125-26-268969",
+    "filed_date": "2026-06-12",
+    "filename": "primary_doc.xml",
+    "source_url": "https://www.sec.gov/Archives/edgar/data/1083839/000119312526268969/primary_doc.xml",
+    "fixture": "schedule-13d-a-real.xml",
+    "sha256": "18e19e146acb41cddacffd09f9f12fbbbcc36c3997cc5cd36bc746d9d7fff8cd",
+    "captured_at": "2026-09-13T14:37:47.181980+00:00"
+  }
+]

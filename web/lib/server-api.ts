@@ -97,6 +97,6 @@ export const api = {
   dashboard: (days: number, session: string) => get<Dashboard>(`/metrics?days=${days}`, 0, session),
   touchReport: (days: number, session: string) => get<TouchReport>(`/metrics/prefs?days=${days}`, 0, session),
   coverage: () => get<Coverage>("/coverage", 60),
-  subscription: (session: string) => get<{ subscribed: boolean; ciks: number[] }>("/subscriptions", 0, session),
+  subscription: (session: string) => get<{ subscribed: boolean; ciks: number[]; ownership_flows: ("insiders" | "institutions" | "events")[] }>("/subscriptions", 0, session),
   exportResponse: async (cik: string, query: URLSearchParams) => fetch(`${BASE}/companies/${encodeURIComponent(cik)}/export.xlsx?${query.toString()}`, { headers: await requestHeaders(), cache: "no-store" }),
 };

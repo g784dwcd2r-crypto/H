@@ -1,0 +1,338 @@
+{
+  "fixture_note": "Synthetic response contract only; not live ownership data.",
+  "insiders": {
+    "flow": "insiders",
+    "cik": 100,
+    "items": [
+      {
+        "id": "f3059650203951df256ffc9f29e47531ea5da9e470e9230223ec0821115de5b3",
+        "name": "Synthetic Analyst",
+        "role": "Chief Executive",
+        "summary": "Purchase",
+        "date": "2026-02-02",
+        "reported_date": "2026-02-03",
+        "badges": [
+          "Partial history"
+        ],
+        "history": [
+          {
+            "date": "2026-02-01",
+            "value": "100",
+            "label": "Common stock \u00b7 non-derivative \u00b7 D",
+            "series_key": "0f9753e985d6b6490fc34649878d196ed0930944db94aea2b627ac645311d42c"
+          },
+          {
+            "date": "2026-02-02",
+            "value": "110",
+            "label": "Common stock \u00b7 non-derivative \u00b7 D",
+            "series_key": "0f9753e985d6b6490fc34649878d196ed0930944db94aea2b627ac645311d42c"
+          }
+        ],
+        "history_note": "Common stock \u00b7 non-derivative \u00b7 D. Reported bucket balances; not the person's total holdings.",
+        "metrics": [
+          {
+            "label": "Reported transaction shares",
+            "value": "10"
+          },
+          {
+            "label": "Reported price per share",
+            "value": "5.25"
+          },
+          {
+            "label": "Change / preceding bucket balance",
+            "value": "10.0000%"
+          }
+        ],
+        "documents": [
+          {
+            "document_id": "5813ad97d579a8f95d28bef3c0032840bc8c1e1c3da73ea41d804c95b1482dd1",
+            "accession": "0000000700-26-000002",
+            "form": "4",
+            "filed_date": "2026-02-03",
+            "filename": "fixture.xml",
+            "source_url": "https://www.sec.gov/Archives/edgar/data/700/fixture.xml",
+            "reader_url": "/companies/100/ownership/documents/5813ad97d579a8f95d28bef3c0032840bc8c1e1c3da73ea41d804c95b1482dd1"
+          },
+          {
+            "document_id": "dbc4c6f12714eaa0de9e9d98fc8b091ea5633466fbfc8475ff929f9345b4f706",
+            "accession": "0000000700-26-000001",
+            "form": "3",
+            "filed_date": "2026-02-02",
+            "filename": "fixture.xml",
+            "source_url": "https://www.sec.gov/Archives/edgar/data/700/fixture.xml",
+            "reader_url": "/companies/100/ownership/documents/dbc4c6f12714eaa0de9e9d98fc8b091ea5633466fbfc8475ff929f9345b4f706"
+          }
+        ],
+        "transactions": [
+          {
+            "acquired_disposed": "A",
+            "footnotes": [],
+            "id": "row",
+            "is_derivative": false,
+            "is_director": false,
+            "is_holding": false,
+            "is_officer": true,
+            "is_ten_percent_owner": false,
+            "issuer_cik": 100,
+            "nature_of_ownership": null,
+            "officer_title": "Chief Executive",
+            "owned_after": "110",
+            "owner_cik": 200,
+            "owner_name": "Synthetic Analyst",
+            "ownership_form": "D",
+            "price": "5.25",
+            "security_title": "Common stock",
+            "shares": "10",
+            "transaction_code": "P",
+            "transaction_date": "2026-02-02",
+            "accession": "0000000700-26-000002",
+            "form": "4",
+            "filed_date": "2026-02-03",
+            "change_percent": "10.0000"
+          },
+          {
+            "acquired_disposed": "A",
+            "footnotes": [],
+            "id": "row",
+            "is_derivative": false,
+            "is_director": false,
+            "is_holding": true,
+            "is_officer": true,
+            "is_ten_percent_owner": false,
+            "issuer_cik": 100,
+            "nature_of_ownership": null,
+            "officer_title": "Chief Executive",
+            "owned_after": "100",
+            "owner_cik": 200,
+            "owner_name": "Synthetic Analyst",
+            "ownership_form": "D",
+            "price": "5.25",
+            "security_title": "Common stock",
+            "shares": null,
+            "transaction_code": null,
+            "transaction_date": "2026-02-01",
+            "accession": "0000000700-26-000001",
+            "form": "3",
+            "filed_date": "2026-02-02",
+            "change_percent": null
+          }
+        ]
+      }
+    ],
+    "total": 1,
+    "limit": 20,
+    "offset": 0,
+    "next_offset": null,
+    "coverage": {
+      "status": "partial",
+      "parsed_filings": 5,
+      "pending": 0,
+      "failed": 0,
+      "unsupported": 0,
+      "last_successful_at": "2026-09-13T14:58:45.140423+00:00",
+      "unmatched_positions": 0,
+      "unmatched_positions_scope": "global_unassignable_to_company",
+      "unassigned_filings": 0,
+      "note": "Partial observed SEC coverage. Filing dates differ from transaction/report dates; undisclosed and unprocessed holdings are unknown. Unmatched CUSIPs cannot be assigned to this company."
+    },
+    "purchase_cluster": {
+      "unique_reporting_identities": 0,
+      "from": "2026-08-14",
+      "to": "2026-09-13",
+      "note": "Observed P acquisitions filed in this window. Joint reporting copies count as one group; grants and exercises are excluded. Partial coverage."
+    }
+  },
+  "institutions": {
+    "flow": "institutions",
+    "cik": 100,
+    "items": [
+      {
+        "id": "3c50e616acc8c23e61fcc52c770c64882bcfe6df5352598f7c627d62c499a7b0",
+        "name": "Synthetic Fund",
+        "role": "13F reporting manager",
+        "summary": "Increased reported position",
+        "date": "2026-06-30",
+        "reported_date": "2026-08-01",
+        "badges": [
+          "Reported quarter-end holdings",
+          "Partial history"
+        ],
+        "history": [
+          {
+            "date": "2026-03-31",
+            "value": "100",
+            "label": "Common stock \u00b7 SH \u00b7 non-option \u00b7 CUSIP 037833100",
+            "series_key": "3c50e616acc8c23e61fcc52c770c64882bcfe6df5352598f7c627d62c499a7b0"
+          },
+          {
+            "date": "2026-06-30",
+            "value": "120",
+            "label": "Common stock \u00b7 SH \u00b7 non-option \u00b7 CUSIP 037833100",
+            "series_key": "3c50e616acc8c23e61fcc52c770c64882bcfe6df5352598f7c627d62c499a7b0"
+          }
+        ],
+        "history_note": "Common stock \u00b7 SH \u00b7 non-option \u00b7 CUSIP 037833100. Adjacent reported quarters only; not trading activity.",
+        "metrics": [
+          {
+            "label": "Reported shares",
+            "value": "120"
+          },
+          {
+            "label": "Reported value (USD)",
+            "value": "1000.25"
+          }
+        ],
+        "documents": [
+          {
+            "document_id": "224653610b5b749b576644a28ec4404454b51db4ff2a4be49664cab1e5b74b25",
+            "accession": "0000000700-26-000004",
+            "form": "13F-HR",
+            "filed_date": "2026-08-01",
+            "filename": "fixture.xml",
+            "source_url": "https://www.sec.gov/Archives/edgar/data/700/fixture.xml",
+            "reader_url": "/companies/100/ownership/documents/224653610b5b749b576644a28ec4404454b51db4ff2a4be49664cab1e5b74b25"
+          },
+          {
+            "document_id": "a18e43264199c0c36fa7b0a3b66940f9a0193ceeb372f3bdb86ec6320d983234",
+            "accession": "0000000700-26-000003",
+            "form": "13F-HR",
+            "filed_date": "2026-05-01",
+            "filename": "fixture.xml",
+            "source_url": "https://www.sec.gov/Archives/edgar/data/700/fixture.xml",
+            "reader_url": "/companies/100/ownership/documents/a18e43264199c0c36fa7b0a3b66940f9a0193ceeb372f3bdb86ec6320d983234"
+          }
+        ],
+        "transactions": []
+      }
+    ],
+    "total": 1,
+    "limit": 20,
+    "offset": 0,
+    "next_offset": null,
+    "coverage": {
+      "status": "partial",
+      "parsed_filings": 5,
+      "pending": 0,
+      "failed": 0,
+      "unsupported": 0,
+      "last_successful_at": "2026-09-13T14:58:45.140423+00:00",
+      "unmatched_positions": 0,
+      "unmatched_positions_scope": "global_unassignable_to_company",
+      "unassigned_filings": 0,
+      "note": "Partial observed SEC coverage. Filing dates differ from transaction/report dates; undisclosed and unprocessed holdings are unknown. Unmatched CUSIPs cannot be assigned to this company."
+    }
+  },
+  "events": {
+    "flow": "events",
+    "cik": 100,
+    "items": [
+      {
+        "id": "c87ae12ac3975b67413f62f172fcdfdcdea78784aedaa92983f68352ec6a6764",
+        "name": "Synthetic Reporting Person",
+        "role": "passive",
+        "summary": "Beneficial ownership disclosure (SCHEDULE 13G)",
+        "date": "2026-02-01",
+        "reported_date": "2026-08-02",
+        "badges": [
+          "Disclosed beneficial ownership"
+        ],
+        "history": [],
+        "history_note": "Separate reporting-person disclosures; percentages are not summed into a group stake.",
+        "metrics": [
+          {
+            "label": "Synthetic Reporting Person \u2014 reported shares",
+            "value": "9007199254740993"
+          },
+          {
+            "label": "Synthetic Reporting Person \u2014 reported percentage",
+            "value": "10.02%"
+          }
+        ],
+        "documents": [
+          {
+            "document_id": "697e69cc6e437d82b65a943381d12f049e94bf4ee24ab4703e9e9bc29cf1a9c9",
+            "accession": "0000000700-26-000005",
+            "form": "SCHEDULE 13G",
+            "filed_date": "2026-08-02",
+            "filename": "fixture.xml",
+            "source_url": "https://www.sec.gov/Archives/edgar/data/700/fixture.xml",
+            "reader_url": "/companies/100/ownership/documents/697e69cc6e437d82b65a943381d12f049e94bf4ee24ab4703e9e9bc29cf1a9c9"
+          }
+        ],
+        "transactions": []
+      }
+    ],
+    "total": 1,
+    "limit": 20,
+    "offset": 0,
+    "next_offset": null,
+    "coverage": {
+      "status": "partial",
+      "parsed_filings": 5,
+      "pending": 0,
+      "failed": 0,
+      "unsupported": 0,
+      "last_successful_at": "2026-09-13T14:58:45.140423+00:00",
+      "unmatched_positions": 0,
+      "unmatched_positions_scope": "global_unassignable_to_company",
+      "unassigned_filings": 0,
+      "note": "Partial observed SEC coverage. Filing dates differ from transaction/report dates; undisclosed and unprocessed holdings are unknown. Unmatched CUSIPs cannot be assigned to this company."
+    }
+  },
+  "document": {
+    "document": {
+      "document_id": "697e69cc6e437d82b65a943381d12f049e94bf4ee24ab4703e9e9bc29cf1a9c9",
+      "accession": "0000000700-26-000005",
+      "form": "SCHEDULE 13G",
+      "filed_date": "2026-08-02",
+      "filename": "fixture.xml",
+      "source_url": "https://www.sec.gov/Archives/edgar/data/700/fixture.xml",
+      "reader_url": "/companies/100/ownership/documents/697e69cc6e437d82b65a943381d12f049e94bf4ee24ab4703e9e9bc29cf1a9c9"
+    },
+    "filing": {
+      "accession": "0000000700-26-000005",
+      "confidential_omitted": false,
+      "filed_date": "2026-08-02",
+      "filer_cik": 700,
+      "form": "SCHEDULE 13G",
+      "is_amendment": false,
+      "issuer_cik": 100,
+      "issuer_name": "Synthetic Company",
+      "kind": "events",
+      "manager_cik": null,
+      "manager_name": "Synthetic Fund",
+      "report_period": "2026-02-01",
+      "source_url": "https://www.sec.gov/Archives/edgar/data/700/fixture.xml",
+      "warnings": []
+    },
+    "kind": "events",
+    "rows": [],
+    "event": {
+      "contracts": null,
+      "cusip": "037833100",
+      "cusips": [
+        "037833100"
+      ],
+      "event_date": "2026-02-01",
+      "exhibits": [],
+      "filing_category": "passive",
+      "issuer_cik": 100,
+      "issuer_name": "Synthetic Company",
+      "purpose": "Synthetic test purpose",
+      "reporting_people": [
+        {
+          "cik": 400,
+          "name": "Synthetic Reporting Person",
+          "percent": "10.02",
+          "shares": "9007199254740993"
+        }
+      ],
+      "security_title": "Common stock"
+    },
+    "linkage": {
+      "type": "structured_subject_issuer"
+    },
+    "raw_text": "<synthetic>Original retained source</synthetic>",
+    "raw_truncated": false
+  }
+}
