@@ -29,7 +29,7 @@ try {
     await visit("/");
     await page.getByRole("button", { name: /Net income.*FY 2023/i }).click();
     assert.match(await page.locator(".preview-evidence").innerText(), /Net income.*FY 2023/s);
-    await page.screenshot({ path: path.join(artifacts, "home-desktop.png"), fullPage: true });
+    await page.screenshot({ path: path.join(artifacts, "home-desktop.png"), fullPage: true, animations: "disabled" });
     await page.getByRole("combobox").fill("AAPL");
     await page.getByRole("combobox").press("Enter");
     await page.waitForURL("**/companies/320193");
@@ -108,7 +108,7 @@ try {
     await visit("/");
     assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), "Homepage fits a 320px phone");
     await page.setViewportSize({ width: 390, height: 844 });
-    await page.screenshot({ path: path.join(artifacts, "home-mobile.png"), fullPage: true });
+    await page.screenshot({ path: path.join(artifacts, "home-mobile.png"), fullPage: true, animations: "disabled" });
     assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth));
     await page.getByRole("combobox").fill("JPM");
     await page.getByRole("combobox").press("Enter");

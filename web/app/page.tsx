@@ -30,7 +30,7 @@ export default async function Home({ searchParams }: { searchParams: Promise<{ q
       <HomeMotion />
       <section className="landing-hero" aria-labelledby="landing-title">
         <div className="landing-copy">
-          <h1 id="landing-title">The filings.<br />The financials.<br />Ready for your<br className="headline-break" /> <span className="ink-accent">analysis.</span></h1>
+          <h1 id="landing-title"><span>The filings.</span><span>The financials.</span><span className="ink-accent">Your analysis.</span></h1>
           <p className="landing-lead">Find company filings, compare as-reported financials, and export selected periods to Excel.</p>
           <SearchBox initial={term} autoFocus={false} />
           <Link href="/companies/320193" className="example-link">Explore an example <ArrowIcon /></Link>
