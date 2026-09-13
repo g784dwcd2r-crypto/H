@@ -273,7 +273,8 @@ def test_pagination_private_content_and_honest_health(admin_api):
     assert "PRIVATE_" not in str(detail)
     health = client.get("/platform-admin/research", headers=headers(token)).json()
     assert health["state"] == "available" and health["coverage"]["partial"]
-    assert client.get("/platform-admin/jobs", headers=headers(token)).json()["state"] == "unavailable"
+    job_state = client.get("/platform-admin/jobs", headers=headers(token)).json()
+    assert job_state["state"] == "available" and job_state["health"]["scheduler_active"] is False
     sources = client.get("/platform-admin/sources", headers=headers(token)).json()
     assert not sources["editable"] and any(row["status"] == "provider_required" for row in sources["sources"])
 

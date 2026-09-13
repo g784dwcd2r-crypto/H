@@ -1,5 +1,7 @@
 # Platform foundations delivery
 
+**Subsequent release:** [cited research and indexing operations](cited-research.md) adds bounded source questions, immutable projection spans, exact arithmetic and durable indexing jobs after merged PR19. [Validation and unresolved gates](research-validation.md) distinguish original-source fidelity, narrow live inference and fixture acceptance. The sections below describe the PR18 foundation baseline, not the current limits of the newer release.
+
 Baseline: merged main `dacf79d4ac4c2511c80d2445ee563d53ee09a33e` (theme PR17). This release implements the first connected research-platform workflows from `full-platform-plan.md`. It does **not** complete that roadmap or establish AlphaSense parity. `platform-backlog.json` records implemented scope and remaining work at requirement level; no feature is marked production validated.
 
 ## Working workflows

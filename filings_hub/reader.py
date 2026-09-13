@@ -290,26 +290,36 @@ class _TextExtractor(HTMLParser):
     def __init__(self) -> None:
         super().__init__(convert_charrefs=True)
         self.parts: list[str] = []
-        self.drop = 0
+        self.stack: list[tuple[str, bool]] = []
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
-        if tag in DROP_VOID_TAGS:
-            return
-        if tag in DROP_CONTENT_TAGS or tag == "style":
-            self.drop += 1
-        elif tag in BLOCK_TAGS or tag == "br":
+        attributes = dict(attrs)
+        hidden = (
+            bool(self.stack and self.stack[-1][1])
+            or tag in DROP_CONTENT_TAGS | {"head", "style", "ix:header", "ix:hidden", "xbrli:xbrl"}
+            or "hidden" in attributes
+            or bool(
+                re.search(
+                    r"(?:display\s*:\s*none|visibility\s*:\s*hidden)", attributes.get("style") or "", re.IGNORECASE
+                )
+            )
+        )
+        if not hidden and (tag in BLOCK_TAGS or tag == "br"):
             self.parts.append("\n")
+        if tag not in VOID_TAGS | DROP_VOID_TAGS | {"area", "base", "link", "meta", "param", "source", "track", "wbr"}:
+            self.stack.append((tag, hidden))
 
     def handle_endtag(self, tag: str) -> None:
-        if tag in DROP_VOID_TAGS:
-            return
-        if tag in DROP_CONTENT_TAGS or tag == "style":
-            self.drop = max(0, self.drop - 1)
-        elif tag in BLOCK_TAGS:
+        hidden = bool(self.stack and self.stack[-1][1])
+        for i in range(len(self.stack) - 1, -1, -1):
+            if self.stack[i][0] == tag:
+                del self.stack[i:]
+                break
+        if not hidden and tag in BLOCK_TAGS:
             self.parts.append("\n")
 
     def handle_data(self, data: str) -> None:
-        if not self.drop:
+        if not self.stack or not self.stack[-1][1]:
             self.parts.append(data)
 
 

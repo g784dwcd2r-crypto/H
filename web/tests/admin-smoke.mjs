@@ -99,7 +99,11 @@ try {
     await navigate("Research index");
     await page.getByRole("heading", { name: "Incomplete filing inventories", exact: true }).waitFor();
     await navigate("Research jobs");
-    await page.getByRole("heading", { name: "Job controls unavailable" }).waitFor();
+    await page.getByRole("heading", { name: "Durable research jobs" }).waitFor();
+    await page.getByText("Scheduling state: not activated", { exact: true }).waitFor();
+    const jobs = await (await operator.request.get(base + "/api/platform-admin/jobs")).json();
+    assert.equal(jobs.state, "available");
+    assert.ok((jobs.jobs || []).every(job => !Object.hasOwn(job, "token") && !Object.hasOwn(job, "idempotency_key")));
     await page.setViewportSize({ width: 390, height: 844 });
     await navigate("Accounts");
     await page.getByLabel("Search Accounts").waitFor();

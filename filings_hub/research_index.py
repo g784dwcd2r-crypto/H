@@ -10,6 +10,7 @@ import hashlib
 import json
 import sqlite3
 import threading
+import uuid
 from contextlib import contextmanager
 from datetime import UTC, date, datetime
 from pathlib import Path
@@ -21,7 +22,7 @@ from filings_hub.research_query import compile_query, parse_query, snippet, word
 
 MIGRATION = Path(__file__).parent / "db" / "migrations" / "0009_research_index.sql"
 PUBLIC = "source_id='sec-edgar' AND visibility='public'"
-EXTRACTOR_VERSION = "disclosure-text-v1"
+EXTRACTOR_VERSION = "disclosure-text-v2"
 
 
 def now() -> str:
@@ -52,17 +53,22 @@ class ResearchIndex:
     def transaction(self, *, read_only: bool = False):
         with self._lock:
             if self.postgres:
+                nested = self.conn.info.transaction_status != 0
                 with self.conn.transaction():
-                    if read_only:
+                    if read_only and not nested:
                         self.conn.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY")
                     yield
             else:
-                self.conn.execute("BEGIN" if read_only else "BEGIN IMMEDIATE")
+                nested = self.conn.in_transaction
+                savepoint = "research_" + uuid.uuid4().hex
+                self.conn.execute("SAVEPOINT " + savepoint if nested else "BEGIN" if read_only else "BEGIN IMMEDIATE")
                 try:
                     yield
-                    self.conn.execute("COMMIT")
+                    self.conn.execute("RELEASE SAVEPOINT " + savepoint if nested else "COMMIT")
                 except BaseException:
-                    self.conn.execute("ROLLBACK")
+                    self.conn.execute("ROLLBACK TO SAVEPOINT " + savepoint if nested else "ROLLBACK")
+                    if nested:
+                        self.conn.execute("RELEASE SAVEPOINT " + savepoint)
                     raise
 
     def execute(self, sql: str, params=()) -> None:
@@ -416,7 +422,10 @@ def _sqlite_cursor(conn):
 
 def open_index(storage: Storage, database_url: str = "") -> ResearchIndex:
     if database_url.startswith(("postgresql://", "postgres://")):
-        return ResearchIndex(database_url=database_url)
-    if storage.is_remote:
+        index = ResearchIndex(database_url=database_url)
+    elif storage.is_remote:
         raise ValueError("A remote lake requires Postgres for its durable research index.")
-    return ResearchIndex(path=storage.full("research/search.sqlite3"))
+    else:
+        index = ResearchIndex(path=storage.full("research/search.sqlite3"))
+    index.storage = storage
+    return index

@@ -15,7 +15,7 @@ from filings_hub.research_query import QueryError
 
 def attach_research_search_routes(
     app: FastAPI, *, database: Database, storage: Storage, auth, index: ResearchIndex | None = None
-) -> None:
+):
     lock = Lock()
     owns_index = index is None
 
@@ -98,3 +98,5 @@ def attach_research_search_routes(
         if record is None:
             raise HTTPException(404, "Indexed document version not found.")
         return record
+
+    return get_index

@@ -1,6 +1,7 @@
 import Link from "next/link";
 import ResearchForm from "@/components/ResearchForm";
 import ResearchResults from "@/components/ResearchResults";
+import ResearchNav from "@/components/ResearchNav";
 import { api } from "@/lib/server-api";
 import { workspaceRequest } from "@/lib/workspace-api";
 import { researchError, researchQuery, type ResearchFilters, type ResearchResponse } from "@/lib/research";
@@ -18,6 +19,7 @@ export default async function ResearchPage({ searchParams }: { searchParams: Pro
   const coverage = data?.coverage;
   const incomplete = coverage && (coverage.partial || !coverage.discovery_complete);
   return <div className="research-page">
+    <ResearchNav current="search" />
     <div className="research-heading"><div><p className="eyebrow">Research workspace</p><h1>Find it in the filings.</h1><p className="lead">Search company disclosures across the public SEC documents in our index. Follow every result back to its source.</p></div><Link href="/coverage" className="text-link">Coverage & sources ↗</Link></div>
     <ResearchForm key={researchQuery(filters)} filters={filters} companyName={company?.company.name} />
     {coverage && <section className={"index-coverage" + (incomplete ? " incomplete" : "")} aria-label="Search index coverage">

@@ -1,5 +1,7 @@
 # Disclosure: full-platform development plan
 
+Implementation update: the bounded cited-research/indexing release is documented in [cited-research.md](cited-research.md), with [source-backed validation and unresolved gates](research-validation.md). The 170-requirement plan remains the target; these increments do not establish full platform or competitor parity.
+
 Prepared 13 September 2026. Planning baseline: repository H at `d9e5ac949ce59fe5fd68fe0b51a0a440c2791e5a` (theme PR #17), building on merged PR #16. This document expands the earlier product-readiness plan; it does not mark the earlier production gates complete. No implementation, deployment or content purchase is performed by this planning exercise.
 
 **1. The target and the meaning of parity**

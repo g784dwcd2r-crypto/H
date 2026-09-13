@@ -65,7 +65,10 @@ def main() -> None:
         _env_file=None,
     )
     client = EdgarClient("Test test@example.com", transport=httpx.MockTransport(fx.edgar_document_handler))
-    app = create_app(settings, edgar_client=client)
+    from filings_hub.testing.research_provider import FixtureResearchProvider
+
+    provider = FixtureResearchProvider()
+    app = create_app(settings, edgar_client=client, research_provider=provider)
     # Populate the same durable index used by production, using only the mocked SEC transport.
     from filings_hub.research_index import open_index
     from filings_hub.research_ingest import discover_batch, index_documents_batch
@@ -91,6 +94,29 @@ def main() -> None:
     )
     index.add_version(storage, current["document_id"], raw, current["text_content"], current["pages"])
     seed_pagination_index(index, storage)
+    # Explicitly synthetic, stable documents exercise source quotes, counter-evidence and exact arithmetic.
+    for suffix, source in [
+        (
+            "support",
+            "disclosurecitedfixture. Synthetic test data only. Revenue was 1,200 and previous revenue was 1,000. Liquidity is adequate.",
+        ),
+        (
+            "counter",
+            "disclosurecitedfixture. Synthetic test data only. Contradictory evidence: liquidity may be insufficient during severe stress.",
+        ),
+    ]:
+        doc = index.register_document(
+            {"cik": 320193, "accession": "0000320193-26-990001", "form": "10-K", "filed_date": "2026-01-01"},
+            {"filename": f"synthetic-research-{suffix}.txt", "title": f"Synthetic research {suffix}"},
+        )
+        index.add_version(storage, doc, source.encode(), source)
+    from filings_hub.research_corpus import ResearchCorpus
+
+    corpus = ResearchCorpus(index)
+    while corpus.prepare(limit=100)["prepared_versions"]:
+        pass
+    while corpus.embed_batch(provider)["embedded_spans"]:
+        pass
     index.close()
     uvicorn.run(app, host="127.0.0.1", port=int(os.environ.get("SMOKE_API_PORT", "8100")))
 
