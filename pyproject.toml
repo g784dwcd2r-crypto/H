@@ -34,6 +34,14 @@ dev = [
     "moto[server]>=5",
     "s3fs>=2024.6",
 ]
+notebooks = [
+    "ipykernel>=6.29",
+    "jupyter>=1.1",
+    "matplotlib>=3.9",
+    "nbconvert>=7.16",
+    "nbformat>=5.10",
+    "pandas>=2.2",
+]
 
 [project.scripts]
 filings-hub = "filings_hub.cli:app"
@@ -51,6 +59,7 @@ artifacts = ["filings_hub/data/*.csv", "filings_hub/data/*.md"]
 include = ["filings_hub", "tests", "README.md", "pyproject.toml"]
 
 [tool.ruff]
+extend-exclude = ["notebooks"]  # exploratory; not held to the package's line length and one-statement-per-line style
 line-length = 120
 target-version = "py312"
 

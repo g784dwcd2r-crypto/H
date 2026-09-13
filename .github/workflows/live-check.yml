@@ -1,5 +1,5 @@
 name: live-check
-# Reads the deployed services from a runner and prints what a visitor would see. No secrets:
+# Reads the deployed services from a runner (last manual trigger: 2026-09-13T22:49Z) and prints what a visitor would see. No secrets:
 # only public pages. Run it from the Actions tab after a deploy, or it runs when this file changes.
 on:
   workflow_dispatch:
@@ -32,6 +32,15 @@ jobs:
           grep -o -i 'Revenue[^<]\{0,40\}\|Net income[^<]\{0,40\}\|10-K[^<]\{0,30\}' /tmp/company.html | head -n 5 || true
           curl -sS -L -m 300 -o /tmp/statements.html -w 'statements status=%{http_code} time=%{time_total}s bytes=%{size_download}\n' "$WEB/companies/$CIK/statements"
           grep -o -i 'FY20[0-9][0-9]' /tmp/statements.html | sort -u | tail -n 5 | tr '\n' ' '; echo
+      - name: "API endpoints timed one by one (needs the LIVE_API_KEY secret, the API service's API_KEY)"
+        if: ${{ secrets.LIVE_API_KEY != '' }}
+        env:
+          KEY: ${{ secrets.LIVE_API_KEY }}
+        run: |
+          for path in "/search?q=AAPL" "/companies/$CIK" "/companies/$CIK/periods?limit=60" "/companies/$CIK/filings?limit=200" "/companies/$CIK/statements?limit=8" "/companies/$CIK/peers" "/companies/$CIK/documents?limit=10"; do
+            curl -sS -m 300 -o /tmp/api.json -D /tmp/api.h -w "api $path status=%{http_code} time=%{time_total}s bytes=%{size_download}\n" -H "X-API-Key: $KEY" "$API$path"
+            grep -i '^server-timing' /tmp/api.h || true
+          done
       - name: API health again
         run: |
           curl -sS -m 180 -w '\nhealth status=%{http_code} time=%{time_total}s\n' "$API/health"
