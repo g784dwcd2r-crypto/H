@@ -112,6 +112,7 @@ def discover_batch(
     filings = filings[:limit]
     cache: dict[int, list[dict]] = {}
     registered = 0
+    inventory_counts = {"complete": 0, "pending": 0, "failed": 0}
     for filing in filings:
         company, accession = int(filing["cik"]), filing["accession"]
         index.register_filing(filing)
@@ -145,6 +146,7 @@ def discover_batch(
             except ValueError:
                 inventory_status, error = "failed", "Inventory contains an invalid source document identifier."
         index.inventory_status(company, accession, inventory_status, error)
+        inventory_counts[inventory_status] += 1
     next_cursor = {"cik": int(filings[-1]["cik"]), "accession": filings[-1]["accession"]} if more else {}
     index.meta(f"discovery:{scope}:cursor", next_cursor)
     index.meta(f"discovery:{scope}:complete", not more)
@@ -154,6 +156,7 @@ def discover_batch(
         "documents_registered": registered,
         "discovery_complete": not more,
         "next_cursor": next_cursor or None,
+        "inventories": inventory_counts,
     }
 
 
@@ -166,12 +169,13 @@ def index_documents_batch(
     client: EdgarClient | None = None,
     retry_failed: bool = False,
     recheck_indexed: bool = False,
+    retry_unsupported: bool = True,
 ) -> dict[str, int]:
     if not 1 <= limit <= 500:
         raise ValueError("document batch size must be 1–500")
     statuses = ["pending"]
     if retry_failed:
-        statuses += ["failed", "unsupported"]
+        statuses += ["failed"] + (["unsupported"] if retry_unsupported else [])
     if recheck_indexed:
         statuses += ["indexed"]
     where = "status IN (" + ",".join("?" for _ in statuses) + ")"

@@ -44,6 +44,16 @@ class Settings(BaseSettings):
     platform_admin_origin: str = ""
     platform_admin_local_bootstrap: bool = False
     platform_admin_session_minutes: int = Field(default=30, ge=5, le=60)
+    research_enabled: bool = False
+    research_provider: Literal["xai", "openai"] = "xai"
+    research_provider_readiness: Literal["unverified", "ready", "account_unfunded"] = "unverified"
+    research_retrieval_mode: Literal["hybrid", "lexical_rerank"] = "hybrid"
+    xai_api_key: str = Field(default="", repr=False)
+    research_xai_model: str = ""
+    research_xai_embedding_model: str = ""
+    research_openai_api_key: str = Field(default="", repr=False)
+    research_answer_model: str = ""
+    research_embedding_model: str = "text-embedding-3-small"
 
     edgar_requests_per_second: float = 10.0
     edgar_max_retries: int = 5

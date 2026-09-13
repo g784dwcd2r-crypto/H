@@ -4,7 +4,7 @@
   "baseline_commit": "dacf79d4ac4c2511c80d2445ee563d53ee09a33e",
   "master_plan": "full-platform-plan.md",
   "scope": "Proposed implementation and acquisition requirements; not a claim of current capability or universal AlphaSense availability",
-  "execution_note": "Implementation is underway. The first platform release is scoped and tested; it is not completion of the full roadmap or production/market parity.",
+  "execution_note": "The foundational release and PR19 usability fixes are merged. Cited-research/index-operations implementation is under verification. Requirement status reflects bounded delivered scope; production readiness and competitor parity remain unclaimed.",
   "workstreams": [
     {
       "id": "D01",
@@ -28,17 +28,17 @@
           "id": "D01.03",
           "requirement": "Immutable document/version registry",
           "status": "partial",
-          "implementation_scope": "Immutable public SEC document and content-version registry; other source adapters remain planned.",
+          "implementation_scope": "Immutable raw versions now have immutable extractor projections and stable source-span IDs; older captured text and citations remain intact.",
           "production_validated": false,
-          "evidence_document": "platform-delivery.md"
+          "evidence_document": "cited-research.md"
         },
         {
           "id": "D01.04",
           "requirement": "Public-availability and ingestion time separation",
           "status": "partial",
-          "implementation_scope": "Separate filing-date, discovery and indexing fields; full public-availability timestamps remain planned.",
+          "implementation_scope": "Cited retrieval applies both filing-date and capture-date UTC cutoffs before selecting versions; full intraday historical availability remains planned.",
           "production_validated": false,
-          "evidence_document": "platform-delivery.md"
+          "evidence_document": "cited-research.md"
         },
         {
           "id": "D01.05",
@@ -52,9 +52,9 @@
           "id": "D01.06",
           "requirement": "Policy-aware citations, caches and artifacts",
           "status": "partial",
-          "implementation_scope": "Current public-source checks on indexed versions and saved source pointers; private/provider cache and artifact policy remains pending.",
+          "implementation_scope": "Research runs recheck current/captured public SEC access before retrieval, provider transmissions and artifact reads; no shared answer cache. General private/provider policy remains unimplemented.",
           "production_validated": false,
-          "evidence_document": "platform-delivery.md"
+          "evidence_document": "cited-research.md"
         }
       ],
       "acceptance_gate": "historical ticker changes do not merge unrelated companies; duplicate/corrected documents resolve correctly; expired grants disappear from future retrieval; cross-tenant and revoked-user tests pass across search, caches and artifacts.",
@@ -81,7 +81,10 @@
         {
           "id": "D02.03",
           "requirement": "Intraday source discovery with daily reconciliation",
-          "status": "planned"
+          "status": "partial",
+          "implementation_scope": "Durable bounded discovery jobs reconcile the currently ingested serving cohort with independent cursors. Intraday upstream discovery and remote-cache change reconciliation remain planned.",
+          "production_validated": false,
+          "evidence_document": "cited-research.md"
         },
         {
           "id": "D02.04",
@@ -107,9 +110,9 @@
           "id": "D02.08",
           "requirement": "Published document/period completeness and latency",
           "status": "partial",
-          "implementation_scope": "Registered document, extraction and inventory completeness with timestamps; no live-corpus latency certification.",
+          "implementation_scope": "Job and corpus health expose registered indexed/failed/pending/unsupported inventories, preparation failures and timestamps; no production completeness or latency claim.",
           "production_validated": false,
-          "evidence_document": "platform-delivery.md"
+          "evidence_document": "cited-research.md"
         }
       ],
       "acceptance_gate": "a verified source register, a representative independent sample, reconciled document inventories and observed event latency through reporting activity. A ticker count never substitutes for filing completeness.",
@@ -230,9 +233,9 @@
           "id": "D05.01",
           "requirement": "HTML/iXBRL/PDF/Office/audio extraction",
           "status": "partial",
-          "implementation_scope": "HTML/plain text and text PDF extraction; scanned PDFs, Office and audio remain unsupported.",
+          "implementation_scope": "v2 visible HTML/iXBRL text extraction is checked against 43 original SEC sources. New projections remove hidden XBRL metadata without rewriting old captured text; OCR/Office/audio remain planned.",
           "production_validated": false,
-          "evidence_document": "platform-delivery.md"
+          "evidence_document": "cited-research.md"
         },
         {
           "id": "D05.02",
@@ -248,9 +251,9 @@
           "id": "D05.04",
           "requirement": "Stable paragraph/table/cell/audio anchors",
           "status": "partial",
-          "implementation_scope": "Immutable source version and PDF page offsets; structured table/cell/audio anchors remain planned.",
+          "implementation_scope": "Immutable projection-based Unicode code-point spans and exact browser matching are implemented. Structured table/cell/audio anchors remain planned.",
           "production_validated": false,
-          "evidence_document": "platform-delivery.md"
+          "evidence_document": "cited-research.md"
         },
         {
           "id": "D05.05",
@@ -268,12 +271,18 @@
         {
           "id": "D05.07",
           "requirement": "Annotation/bookmark/selected-text questions",
-          "status": "planned"
+          "status": "partial",
+          "implementation_scope": "Document-scoped questions and exact passage inspection are connected; general highlight/annotation/bookmark editing remains planned.",
+          "production_validated": false,
+          "evidence_document": "cited-research.md"
         },
         {
           "id": "D05.08",
           "requirement": "Safe reader rendering and uncertainty labels",
-          "status": "planned"
+          "status": "partial",
+          "implementation_scope": "Plain-text evidence and exact mismatch refusal, hidden-subtree extraction, source uncertainty and machine-assessment labels are implemented for supported public SEC text.",
+          "production_validated": false,
+          "evidence_document": "cited-research.md"
         }
       ],
       "acceptance_gate": "difficult scans, multicolumn reports, multi-page tables and amended documents retain accurate reading order and anchors; a citation opens the actual supporting passage; malformed content cannot execute in the reader.",
@@ -591,7 +600,10 @@
         {
           "id": "D11.02",
           "requirement": "Semantic/synonym retrieval",
-          "status": "planned"
+          "status": "partial",
+          "implementation_scope": "Bounded lexical-plus-vector hybrid retrieval and an explicitly labelled lexical-candidate/model-reranking alternative are implemented. Live xAI account has no accessible embedding model; broad semantic/ANN/synonym acceptance remains pending.",
+          "production_validated": false,
+          "evidence_document": "cited-research.md"
         },
         {
           "id": "D11.03",
@@ -605,40 +617,49 @@
           "id": "D11.04",
           "requirement": "Cross-company/portfolio and selected-document search",
           "status": "partial",
-          "implementation_scope": "Cross-company public SEC search; portfolio and selected-document query scopes remain planned.",
+          "implementation_scope": "Selected companies and immutable document versions use intersection and retain explicit historical scope; portfolios/sector cohorts remain planned.",
           "production_validated": false,
-          "evidence_document": "platform-delivery.md"
+          "evidence_document": "cited-research.md"
         },
         {
           "id": "D11.05",
           "requirement": "Pending/failed/excluded-document reporting",
           "status": "partial",
-          "implementation_scope": "Explicit known-corpus pending, failed, unsupported and inventory gaps; this is not global content completeness.",
+          "implementation_scope": "Durable jobs retain failed/unsupported inventories; failed projections quarantine without starving later batches and support explicit restore/retry.",
           "production_validated": false,
-          "evidence_document": "platform-delivery.md"
+          "evidence_document": "cited-research.md"
         },
         {
           "id": "D11.06",
           "requirement": "Conversational questions and follow-ups",
-          "status": "planned"
+          "status": "partial",
+          "implementation_scope": "Signed-in owner-private questions and linked follow-ups retain scope/cutoff, previous-question/claim context, idempotency and model call bounds. One narrow live xAI reporting-date question passed; broad answer evaluation remains pending.",
+          "production_validated": false,
+          "evidence_document": "cited-research.md"
         },
         {
           "id": "D11.07",
           "requirement": "Exact citations and permission rechecks",
           "status": "partial",
-          "implementation_scope": "Immutable version references and current public-source access rechecks; AI claim citations remain planned.",
+          "implementation_scope": "Exact quote/span validation, fresh projection inspection and current source/project access checks cover released/uncited evidence and saved artifacts. Model support review is explicitly not independent factual validation.",
           "production_validated": false,
-          "evidence_document": "platform-delivery.md"
+          "evidence_document": "cited-research.md"
         },
         {
           "id": "D11.08",
           "requirement": "Deterministic financial calculations/counts",
-          "status": "planned"
+          "status": "partial",
+          "implementation_scope": "User-selected exact number literals support bounded Decimal sum/difference/ratio/growth with unit checks and complete-sign protection; economic meaning, standardized metrics and general counts remain planned.",
+          "production_validated": false,
+          "evidence_document": "cited-research.md"
         },
         {
           "id": "D11.09",
           "requirement": "Historical cutoff and adversarial retrieval tests",
-          "status": "planned"
+          "status": "partial",
+          "implementation_scope": "Local/PostgreSQL date leakage, invalid citations, source revocation, provider failures and quoted malicious-instruction boundaries are tested; 32-source held-out questions are frozen but broad live/adversarial scoring remains unrun.",
+          "production_validated": false,
+          "evidence_document": "cited-research.md"
         }
       ],
       "acceptance_gate": "held-out analyst query judgments, search recall/false omissions, source support and negative-query cases; no hidden failed-document coverage. Test adversarial document instructions and cross-account leakage. A generated answer must never imply an exhaustive search when scope is partial. [Search interaction baseline](https://help.alpha-sense.com/hc/en-us/articles/41666587181203-Interacting-with-Generative-Search)",
@@ -649,7 +670,7 @@
     {
       "id": "D12",
       "title": "Research grids, deep research, workflow agents and persistent execution",
-      "status": "planned_expansion",
+      "status": "in_progress",
       "requirements": [
         {
           "id": "D12.01",
@@ -664,17 +685,26 @@
         {
           "id": "D12.03",
           "requirement": "Editable research brief/scope/budget",
-          "status": "planned"
+          "status": "partial",
+          "implementation_scope": "Questions have explicit source/cutoff scope and fixed per-run/day bounds; configurable multi-step research briefs and per-project monetary budgets remain planned.",
+          "production_validated": false,
+          "evidence_document": "cited-research.md"
         },
         {
           "id": "D12.04",
           "requirement": "Deep research with counterevidence and evidence ledger",
-          "status": "planned"
+          "status": "partial",
+          "implementation_scope": "One bounded question retains retrieved evidence and separately assessed counter-evidence; multi-step deep research, evidence sufficiency validation and autonomous planning remain unimplemented.",
+          "production_validated": false,
+          "evidence_document": "cited-research.md"
         },
         {
           "id": "D12.05",
           "requirement": "Checkpoints, cancellation and resumable jobs",
-          "status": "planned"
+          "status": "partial",
+          "implementation_scope": "Index discovery/extraction jobs have durable leases, fencing, retry/quarantine and cancellation. Research generation itself is a reserved synchronous bounded run, not a resumable multi-step agent.",
+          "production_validated": false,
+          "evidence_document": "cited-research.md"
         },
         {
           "id": "D12.06",
@@ -775,9 +805,9 @@
           "id": "D14.01",
           "requirement": "Projects with documents/notes/highlights/searches",
           "status": "partial",
-          "implementation_scope": "Personal/team projects, notes/theses and source pointers; highlights and saved searches remain planned.",
+          "implementation_scope": "Projects now list separately attributed cited-research artifacts with question/evidence/calculations; authorized notes and recovery remain intact.",
           "production_validated": false,
-          "evidence_document": "platform-delivery.md"
+          "evidence_document": "cited-research.md"
         },
         {
           "id": "D14.02",
@@ -795,15 +825,18 @@
         {
           "id": "D14.04",
           "requirement": "Approved artifacts and revision history",
-          "status": "planned"
+          "status": "partial",
+          "implementation_scope": "Saved cited results are immutable project artifacts; formal approval and multi-revision publication workflows remain planned.",
+          "production_validated": false,
+          "evidence_document": "cited-research.md"
         },
         {
           "id": "D14.05",
           "requirement": "Controlled source-aware sharing",
           "status": "partial",
-          "implementation_scope": "Fixed personal or organization scopes and live membership checks; broader artifact/source-grant sharing remains planned.",
+          "implementation_scope": "Saved runs inherit project membership and recheck every underlying source; external/public sharing remains planned.",
           "production_validated": false,
-          "evidence_document": "platform-delivery.md"
+          "evidence_document": "cited-research.md"
         },
         {
           "id": "D14.06",
@@ -1092,7 +1125,10 @@
         {
           "id": "D19.03",
           "requirement": "Durable jobs/idempotency/quarantine",
-          "status": "planned"
+          "status": "partial",
+          "implementation_scope": "Durable idempotent indexing queue with bounded jobs, one global leased/fenced writer, retries, quarantine and explicit cancellation passes local/PostgreSQL tests. Other platform jobs and distributed scaling remain planned.",
+          "production_validated": false,
+          "evidence_document": "cited-research.md"
         },
         {
           "id": "D19.04",
@@ -1113,15 +1149,21 @@
         {
           "id": "D19.06",
           "requirement": "Backups/restore/replay/rollback drills",
-          "status": "planned"
+          "status": "partial",
+          "implementation_scope": "Isolated restart/lease expiry, byte restoration, preparation retry and cancellation tests exist; coordinated production database/object-store restore drills remain pending.",
+          "production_validated": false,
+          "evidence_document": "cited-research.md"
         },
         {
           "id": "D19.07",
           "requirement": "Freshness/completeness/latency/cost instrumentation",
           "status": "partial",
-          "implementation_scope": "Operator views expose registered research coverage/failures, incomplete inventories, observed discovery age and serving runs/publication; production latency/cost instrumentation and service commitments remain planned.",
+          "implementation_scope": "Research exposes job/corpus freshness/completeness and per-run provider call/token counts with unknown failed-call usage. Full service latency metrics and commercial cost accounting remain planned. Operator views expose registered research coverage/failures, incomplete inventories, observed discovery age and serving runs/publication; production latency/cost instrumentation and service commitments remain planned.",
           "production_validated": false,
-          "evidence_document": "platform-administration.md"
+          "evidence_document": "cited-research.md",
+          "additional_evidence_documents": [
+            "platform-administration.md"
+          ]
         },
         {
           "id": "D19.08",
@@ -1305,19 +1347,24 @@
     }
   ],
   "release_tracking": {
-    "release": "platform-foundations",
-    "status": "local_verification_passed",
-    "delivery_document": "platform-delivery.md",
-    "requirements_touched": 41,
+    "release": "cited-research-and-index-operations",
+    "status": "verification_in_progress",
+    "baseline_commit": "bde7f83b56833e9d00ea29ee4e1a95ec79ae8776",
+    "delivery_document": "cited-research.md",
+    "validation_document": "research-validation.md",
+    "requirements_touched": 25,
     "all_requirements_complete": false,
     "verification": {
-      "python_tests_passed": 436,
-      "python_tests_skipped": 0,
-      "python_coverage_percent": 92,
-      "frontend_unit_tests_passed": 21,
-      "browser_scenarios_passed": 18,
-      "browser_fixture": "isolated synthetic SEC lake and mocked transport",
-      "production_validated": false
+      "production_validated": false,
+      "original_source_issuers": 32,
+      "original_documents": 43,
+      "date_literals_verified": 32,
+      "numeric_literal_candidates_verified": 28,
+      "live_research_questions_completed": 1,
+      "live_inference_calls": 5,
+      "live_embedding_acceptance": false,
+      "held_out_model_answers_run": 0,
+      "fixture_browser": true
     }
   },
   "administration_delivery": {
@@ -1325,5 +1372,23 @@
     "scope": "Separate operator console and audited support controls; no production bootstrap, provider connection or scheduler activation. Research-job engine integration is optional and explicitly unavailable when absent.",
     "evidence_document": "platform-administration.md",
     "production_validated": false
-  }
+  },
+  "release_history": [
+    {
+      "release": "platform-foundations",
+      "status": "local_verification_passed",
+      "delivery_document": "platform-delivery.md",
+      "requirements_touched": 41,
+      "all_requirements_complete": false,
+      "verification": {
+        "python_tests_passed": 436,
+        "python_tests_skipped": 0,
+        "python_coverage_percent": 92,
+        "frontend_unit_tests_passed": 21,
+        "browser_scenarios_passed": 18,
+        "browser_fixture": "isolated synthetic SEC lake and mocked transport",
+        "production_validated": false
+      }
+    }
+  ]
 }

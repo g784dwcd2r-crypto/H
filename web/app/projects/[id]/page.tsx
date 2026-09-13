@@ -4,6 +4,7 @@ import { sessionToken } from "@/lib/session";
 import { workspaceRequest } from "@/lib/workspace-api";
 import type { Project, ProjectNote } from "@/lib/workspace-types";
 import ProjectWorkspace from "@/components/ProjectWorkspace";
+import ProjectResearchRuns from "@/components/ProjectResearchRuns";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Research project" };
@@ -14,5 +15,6 @@ export default async function ProjectPage({ params }: { params: Promise<{ id: st
   if (project.status === 401 || notes.status === 401 || account.status === 401) redirect("/signin");
   if (project.status === 403 || project.status === 404) notFound();
   if (!project.data || !notes.data || !account.data) return <div className="page-error"><h1>Project unavailable</h1><p>Your project could not be loaded. Refresh to try again.</p><Link href="/projects">Return to projects</Link></div>;
-  return <ProjectWorkspace key={`${account.data.user.id}:${project.data.project.id}`} initialProject={project.data.project} initialNotes={notes.data.notes} accountId={account.data.user.id}/>;
+  return <><ProjectWorkspace key={`${account.data.user.id}:${project.data.project.id}`} initialProject={project.data.project} initialNotes={notes.data.notes} accountId={account.data.user.id}/><ProjectResearchRuns projectId={id}/></>;
+
 }

@@ -122,7 +122,10 @@ EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
 
 def create_app(
-    settings: Settings | None = None, db: Database | None = None, edgar_client: EdgarClient | None = None
+    settings: Settings | None = None,
+    db: Database | None = None,
+    edgar_client: EdgarClient | None = None,
+    research_provider=None,
 ) -> FastAPI:
     s = settings or get_settings()
     storage = Storage(s.resolved_lake_root())
@@ -962,7 +965,19 @@ def create_app(
     from filings_hub.api.research import attach_research_search_routes
     from filings_hub.platform.compare import attach_compare_routes
 
-    attach_research_search_routes(app, database=database, storage=storage, auth=auth)
+    get_research_index = attach_research_search_routes(app, database=database, storage=storage, auth=auth)
+    from filings_hub.api.research_questions import attach_research_question_routes
+    from filings_hub.research_provider import provider_from_settings
+
+    research_provider = research_provider or provider_from_settings(s)
+    attach_research_question_routes(
+        app,
+        get_index=get_research_index,
+        security=account_security,
+        provider=research_provider,
+        auth=auth,
+        current_user=current_user,
+    )
     attach_compare_routes(app, database=database, auth=auth, resolve_cik=resolve_cik)
     return app
 

@@ -1,0 +1,115 @@
+{
+  "scope": "One narrow Apple reporting-period question, two attempts; not an accuracy benchmark.",
+  "authorized_inference_calls": 5,
+  "calls_used": 5,
+  "additional_calls_permitted": 0,
+  "attempts": [
+    {
+      "http_status": 200,
+      "provider_requests": 2,
+      "question": "What reporting date does this Apple Form 10-K cover? State only the date and whether it is an annual or transition report.",
+      "status": "failed",
+      "provider": {
+        "configured": true,
+        "provider": "xai",
+        "model": "grok-4.20-0309-non-reasoning",
+        "fixture": false,
+        "readiness": "ready",
+        "available": true,
+        "retrieval_mode": "lexical_rerank"
+      },
+      "usage": {
+        "provider_calls": 2,
+        "input_tokens": 3164,
+        "output_tokens": 349
+      },
+      "claims": [],
+      "limitations": [
+        "Only selected public SEC documents with indexed text are considered; other information may exist.",
+        "The cutoff includes filing and capture dates through that UTC day. Later captures are excluded, even for old filings.",
+        "Retrieved passages are candidates, not proof. Model support assessments require analyst review.",
+        "Retrieval is bounded to 500 documents and 5,000 spans in the selected scope; larger scopes must be narrowed.",
+        "Lexical candidates plus model reranking: at most three candidates and two returned passages. This is not vector or exhaustive semantic retrieval.",
+        "Evidence validation failed; no answer was released."
+      ],
+      "coverage": {
+        "eligible_documents": 1,
+        "eligible_spans": 153,
+        "retrieved_passages": 1,
+        "partial": false,
+        "excluded_after_cutoff": 0,
+        "rerank_candidates": 3,
+        "retrieval_mode": "lexical_rerank"
+      },
+      "version_ids": [
+        "sha256:c70105aa6d42855d4298799fec99a17c52630d1264e1d3f424bf90815187901d"
+      ]
+    },
+    {
+      "http_status": 200,
+      "provider_requests": 3,
+      "question": "What reporting date does this Apple Form 10-K cover? State only the date and whether it is an annual or transition report.",
+      "status": "completed",
+      "provider": {
+        "configured": true,
+        "provider": "xai",
+        "model": "grok-4.20-0309-non-reasoning",
+        "fixture": false,
+        "readiness": "ready",
+        "available": true,
+        "retrieval_mode": "lexical_rerank"
+      },
+      "usage": {
+        "provider_calls": 3,
+        "input_tokens": 4411,
+        "output_tokens": 325
+      },
+      "claims": [
+        {
+          "id": "reporting_date",
+          "text": "September 27, 2025 annual report",
+          "assessment": "machine_assessed",
+          "evidence": [
+            {
+              "span_id": "span:db5d01f5e2fbca123001e4dc2dccd298a8dc3523aa6ad839a0e333410d9a78d2",
+              "relationship": "supporting",
+              "quote": "\u2612 ANNUAL REPORT PURSUANT TO SECTION 13 OR 15(d) OF THE SECURITIES EXCHANGE ACT OF 1934\nFor the fiscal year ended September 27, 2025"
+            }
+          ]
+        },
+        {
+          "id": "report_type",
+          "text": "annual",
+          "assessment": "machine_assessed",
+          "evidence": [
+            {
+              "span_id": "span:db5d01f5e2fbca123001e4dc2dccd298a8dc3523aa6ad839a0e333410d9a78d2",
+              "relationship": "supporting",
+              "quote": "\u2612 ANNUAL REPORT PURSUANT TO SECTION 13 OR 15(d) OF THE SECURITIES EXCHANGE ACT OF 1934"
+            }
+          ]
+        }
+      ],
+      "limitations": [
+        "Only selected public SEC documents with indexed text are considered; other information may exist.",
+        "The cutoff includes filing and capture dates through that UTC day. Later captures are excluded, even for old filings.",
+        "Retrieved passages are candidates, not proof. Model support assessments require analyst review.",
+        "Retrieval is bounded to 500 documents and 5,000 spans in the selected scope; larger scopes must be narrowed.",
+        "Lexical candidates plus model reranking: at most three candidates and two returned passages. This is not vector or exhaustive semantic retrieval.",
+        "A separate model checked support; this is not independent factual verification."
+      ],
+      "coverage": {
+        "eligible_documents": 1,
+        "eligible_spans": 144,
+        "retrieved_passages": 1,
+        "partial": false,
+        "excluded_after_cutoff": 0,
+        "rerank_candidates": 3,
+        "retrieval_mode": "lexical_rerank"
+      },
+      "version_ids": [
+        "sha256:c70105aa6d42855d4298799fec99a17c52630d1264e1d3f424bf90815187901d"
+      ]
+    }
+  ]
+}
