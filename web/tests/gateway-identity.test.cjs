@@ -38,7 +38,7 @@ test('anonymous visitor cookies are signed, expiring and different for different
 });
 
 test('middleware replaces forged identity and makes first-request cookie available downstream', async () => {
-  const load = runtime(); const {middleware} = load('middleware.ts'); const helper = load('lib/gateway-identity.ts');
+  const load = runtime(); const {proxy: middleware} = load('proxy.ts'); const helper = load('lib/gateway-identity.ts');
   const req = new NextRequest('https://disclosure.example/api/search?q=AAPL',{headers:{'X-Disclosure-Visitor':'attacker-chosen','Cookie':'fh_visitor=forged'}});
   const response = await middleware(req);
   const cookie = response.cookies.get(helper.VISITOR_COOKIE).value;
@@ -53,7 +53,7 @@ test('middleware replaces forged identity and makes first-request cookie availab
 });
 
 test('valid visitor cookie wins over incoming identity headers and stays stable', async () => {
-  const load = runtime(); const helper = load('lib/gateway-identity.ts'); const issued = await helper.issueVisitor('gateway-secret'); const {middleware} = load('middleware.ts');
+  const load = runtime(); const helper = load('lib/gateway-identity.ts'); const issued = await helper.issueVisitor('gateway-secret'); const {proxy: middleware} = load('proxy.ts');
   const response = await middleware(new NextRequest('https://disclosure.example/',{headers:{Cookie:`fh_visitor=${issued.token}`,'X-Disclosure-Visitor':'forged'}}));
   assert.equal(response.headers.get('x-middleware-request-x-disclosure-visitor'),issued.id);
   assert.equal(response.headers.get('set-cookie'),null);
