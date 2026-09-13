@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "period_mode": "annual",
+  "presentation": "original",
+  "as_of": null,
+  "mappings": [
+    {
+      "sheet": "Model",
+      "cell": "B2",
+      "cik": 320193,
+      "statement": "IS",
+      "line_key": "RevenueFromContractWithCustomerExcludingAssessedTax|net sales",
+      "period_label": "FY2025",
+      "unit": "USD",
+      "scale": "millions",
+      "last_written": 300000
+    }
+  ]
+}

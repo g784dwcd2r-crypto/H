@@ -25,6 +25,7 @@ export default function StatementTabs({
   periodsShown,
   explicitLimit,
   periodsParam,
+  asOf,
 }: {
   grid: Grid;
   cik: string;
@@ -34,6 +35,7 @@ export default function StatementTabs({
   periodsShown: number;
   explicitLimit: boolean;
   periodsParam?: string;
+  asOf?: string;
 }) {
   const router = useRouter();
   const prefs = usePrefs(initialPrefs, signedIn);
@@ -41,6 +43,9 @@ export default function StatementTabs({
   const preferredStmt = String(prefs.get("statement", { cik })?.value ?? "IS");
   const [active, setActive] = useState(codes.includes(preferredStmt) ? preferredStmt : (codes[0] ?? "IS"));
   const [saved, setSaved] = useState<string | null>(null);
+  const [optionsOpen, setOptionsOpen] = useState(false);
+  const [cutoffDraft, setCutoffDraft] = useState(asOf ?? "");
+  useEffect(() => setCutoffDraft(asOf ?? ""), [asOf]);
   const [exportOpen, setExportOpen] = useState(false);
   const [selected, setSelected] = useState<{ line: string; period: string } | null>(null);
   useEffect(() => {
@@ -69,12 +74,13 @@ export default function StatementTabs({
     flash(`${periodsShown} periods remembered for this company`);
   };
   // period mode and restated change what the API computes: save, then reload with the choice in the URL
-  const reload = (mode: PeriodMode, restated: boolean, limit = periodsShown) => {
+  const reload = (mode: PeriodMode, restated: boolean, limit = periodsShown, cutoff = asOf) => {
     const q = new URLSearchParams();
     if (periodsParam) q.set("periods", periodsParam);
     q.set("limit", String(limit));
     q.set("mode", mode);
     if (restated) q.set("restated", "1");
+    if (cutoff) q.set("as_of", cutoff);
     router.push(`/companies/${cik}/statements?${q.toString()}`);
   };
 
@@ -86,7 +92,7 @@ export default function StatementTabs({
     // 1, 2, 3 switch statements; u / t / m / b change the scale
     const onKey = (e: KeyboardEvent) => {
       const t = e.target as HTMLElement | null;
-      if (t && (t.tagName === "INPUT" || t.tagName === "SELECT" || t.tagName === "TEXTAREA")) return;
+      if (t && (t.tagName === "INPUT" || t.tagName === "SELECT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
       if (e.metaKey || e.ctrlKey || e.altKey) return;
       const n = parseInt(e.key, 10);
       if (n >= 1 && n <= grid.statements.length) void changeStatement(grid.statements[n - 1].code);
@@ -107,6 +113,7 @@ export default function StatementTabs({
       <div className="empty">
         <p>No as-reported statements for these periods yet.</p>
         <p className="muted">Availability depends on the filing and its processing status. Check the company’s filings or coverage page for available documents.</p>
+        {asOf && <p>Only filings available by {asOf} were included. <button className="linkbtn" type="button" onClick={() => reload(grid.period_mode, grid.restated, periodsShown, "")}>Clear the filing cutoff</button></p>}
       </div>
     );
   const derived = periods.some((p) => p.basis === "derived");
@@ -119,17 +126,23 @@ export default function StatementTabs({
   return (
     <>
       <ProposalStrip signedIn={signedIn} />
-      <div className="tabs" role="tablist">
+      <div className="tabs" role="tablist" aria-label="Financial statements" onKeyDown={(e) => {
+        const buttons = Array.from(e.currentTarget.querySelectorAll<HTMLButtonElement>('[role="tab"]'));
+        const index = buttons.indexOf(document.activeElement as HTMLButtonElement);
+        const next = e.key === "ArrowRight" ? (index + 1) % buttons.length : e.key === "ArrowLeft" ? (index + buttons.length - 1) % buttons.length : e.key === "Home" ? 0 : e.key === "End" ? buttons.length - 1 : -1;
+        if (next >= 0) { e.preventDefault(); buttons[next].focus(); buttons[next].click(); }
+      }}>
         {grid.statements.map((s) => (
-          <button key={s.code} role="tab" aria-selected={s.code === stmt.code} className={s.code === stmt.code ? "active" : ""} onClick={() => void changeStatement(s.code)}>
+          <button key={s.code} role="tab" id={`statement-tab-${s.code}`} aria-controls="statement-panel" tabIndex={s.code === stmt.code ? 0 : -1} aria-selected={s.code === stmt.code} className={s.code === stmt.code ? "active" : ""} onClick={() => void changeStatement(s.code)}>
             {s.name}
           </button>
         ))}
       </div>
-      <div className="toolbar wrap">
+      <div className="toolbar statement-primary">
         <PrefControl
           prefs={prefs}
           prefKey="scale"
+          showScope={false}
           label="Show in"
           fallback={"millions" as Scale}
           options={[
@@ -146,6 +159,7 @@ export default function StatementTabs({
         <PrefControl
           prefs={prefs}
           prefKey="period_mode"
+          showScope={false}
           label="Periods"
           fallback={grid.period_mode}
           valueOverride={grid.period_mode}
@@ -161,6 +175,25 @@ export default function StatementTabs({
           onChange={(m) => reload(m, grid.restated)}
           title="As filed shows each filing's own column. Quarterly derives Q4 from the fiscal year; cash flow quarters are differences of the year-to-date columns."
         />
+        <span className="muted periods">
+          <select value={periodsShown} onChange={(e) => reload(grid.period_mode, grid.restated, parseInt(e.target.value, 10))} aria-label="Number of periods">
+            {[4, 6, 8, 12, 16, 20, 40].map((n) => (
+              <option key={n} value={n}>{n} periods</option>
+            ))}
+          </select>
+        </span>
+        <button className="btn secondary display-options-button" type="button" aria-expanded={optionsOpen} aria-controls="statement-display-options" onClick={() => setOptionsOpen(open => !open)}>Display options <span aria-hidden="true">{optionsOpen ? "−" : "+"}</span></button>
+        <button type="button" className="btn secondary" style={{ marginLeft: "auto" }} onClick={() => { setExportOpen(true); logEvent("export.open", {}, signedIn); }}>
+          Export to Excel…
+        </button>
+      </div>
+      <div id="statement-display-options" className="statement-options" hidden={!optionsOpen}>
+        <div className="options-intro"><h3>Display & saved preferences</h3><p>Adjust presentation and choose where your settings apply. The most specific setting wins: statement, company, sector, then everywhere.</p></div>
+        <form className="filing-cutoff" onSubmit={event => { event.preventDefault(); reload(grid.period_mode, grid.restated, periodsShown, cutoffDraft); }}>
+          <label>Filings available by<input type="date" value={cutoffDraft} onChange={event => setCutoffDraft(event.target.value)} aria-describedby="cutoff-help"/></label><button className="btn secondary" type="submit">Apply cutoff</button>{asOf && <button className="linkbtn" type="button" onClick={() => reload(grid.period_mode, grid.restated, periodsShown, "")}>Clear cutoff</button>}
+          <p id="cutoff-help">Include filings dated on or before this day. This is a filing-date cutoff, not an intraday replay. Company information remains current; historical amendment-to-period mapping may be incomplete. The date applies to this view and its export and is never saved as a preference.</p>
+        </form>
+        <div className="advanced-controls">
         <PrefControl
           prefs={prefs}
           prefKey="column_order"
@@ -206,23 +239,20 @@ export default function StatementTabs({
             title="Take each column's numbers from the newest later filing that presents the period (restated or reclassified prior years)."
           />
         )}
-        <span className="muted periods">
-          <select value={periodsShown} onChange={(e) => reload(grid.period_mode, grid.restated, parseInt(e.target.value, 10))} aria-label="Number of periods">
-            {[4, 6, 8, 12, 16, 20, 40].map((n) => (
-              <option key={n} value={n}>{n} periods</option>
-            ))}
-          </select>
+          <PrefControl prefs={prefs} prefKey="scale" label="Scale preference" fallback={"millions" as Scale} options={SCALES.map(value => ({ value, label: value }))} ctx={ctx} scopes={ALL_SCOPES} showValue={false} onSaved={flash} />
+          <PrefControl prefs={prefs} prefKey="period_mode" label="Period preference" fallback={grid.period_mode} valueOverride={grid.period_mode} options={Object.entries(MODE_WORDS).map(([value, label]) => ({ value: value as PeriodMode, label }))} ctx={companyCtx} scopes={["company", "sector", "global"]} showValue={false} onSaved={flash} onChange={mode => reload(mode, grid.restated)} />
+          <div className="period-memory"><span className="muted">Column count</span>
           {remembered && Number(remembered.value) === periodsShown ? (
             <span className="tag set"> remembered here</span>
           ) : explicitLimit ? (
             <button type="button" className="linkbtn" onClick={() => void rememberPeriods()}>remember for this company</button>
           ) : null}
-        </span>
-        {saved && <span className="saved">{saved}</span>}
-        <button type="button" className="btn secondary" style={{ marginLeft: "auto" }} onClick={() => { setExportOpen(true); logEvent("export.open", {}, signedIn); }}>
-          Export to Excel…
-        </button>
+          {!remembered && !explicitLimit && <button className="linkbtn" type="button" onClick={() => void rememberPeriods()}>Remember {periodsShown} periods for this company</button>}
+          </div>
+        </div>
       </div>
+      <div className="preference-feedback" role="status" aria-live="polite">{saved}</div>
+      {asOf && <p className="notice cutoff-notice">Filings available by <strong>{asOf}</strong>, through the end of that filing date. <button className="linkbtn" type="button" onClick={() => reload(grid.period_mode, grid.restated, periodsShown, "")}>Clear cutoff</button></p>}
       {prefs.error && <p className="notice" role="alert">{prefs.error}</p>}
       <ExportDialog
         cik={cik}
@@ -231,6 +261,7 @@ export default function StatementTabs({
         signedIn={signedIn}
         current={{ period_mode: grid.period_mode, restated: grid.restated, column_order: order, limit: periodsShown, scale, negative_style: negative === "minus" ? "minus" : "parentheses" }}
         periods={periodsParam}
+        asOf={asOf}
         open={exportOpen}
         onClose={() => setExportOpen(false)}
       />
@@ -243,7 +274,7 @@ export default function StatementTabs({
         {!signedIn && " Choices are kept in this browser; sign in to keep them on every device."}
       </p>
       <p className="source-hint">Select a number to inspect its reporting period, source and calculation. A dash means unavailable; select it for details.</p>
-      <div className={"statement-workspace" + (selectedLine && selectedPeriod ? " has-evidence" : "")}><div className="stmt">
+      <div id="statement-panel" role="tabpanel" aria-labelledby={`statement-tab-${stmt.code}`} className={"statement-workspace" + (selectedLine && selectedPeriod ? " has-evidence" : "")}><div className="stmt">
         <table>
           <thead>
             <tr>

@@ -51,6 +51,35 @@ def test_auth_required(client):
     assert client.get("/health").status_code == 200
 
 
+def test_versioned_financial_contracts_and_guardrails(client):
+    path = "/v1/companies/AAPL/financials"
+    assert client.get(path).status_code == 401
+    response = client.get(path, params={"as_of": "2025-11-15", "presentation": "latest"}, headers=H)
+    assert response.status_code == 200
+    data = response.json()
+    assert data["snapshot_id"].startswith("sha256:") and data["issuer_id"] == "sec:0000320193"
+    assert all(p["filed_date"] <= "2025-11-15" for p in data["grid"]["periods"])
+    assert client.get(path, params={"period_mode": "ltm", "presentation": "latest"}, headers=H).status_code == 422
+    assert client.get(path, params={"as_of": "not-a-date"}, headers=H).status_code == 422
+    changes = client.get(
+        "/v1/companies/AAPL/financial-changes", params={"before": "2025-11-15", "after": "2025-11-15"}, headers=H
+    )
+    assert changes.status_code == 200 and changes.json()["changes"] == []
+    assert (
+        client.get(
+            "/v1/companies/AAPL/financial-changes", params={"before": "2025-11-15", "after": "2024-11-15"}, headers=H
+        ).status_code
+        == 422
+    )
+    comparison = client.get(
+        "/v1/compare", params={"companies": "AAPL,JPM", "concept": "NetIncomeLoss", "period": "FY2025"}, headers=H
+    )
+    assert comparison.status_code == 200 and len(comparison.json()["results"]) == 2
+    sources = client.get("/platform/sources", headers=H).json()["sources"]
+    assert next(s for s in sources if s["source_id"] == "broker-research")["status"] == "provider_required"
+    assert client.get("/platform/publication", headers=H).json()["atomic_serving_publication"] is False
+
+
 def test_search(client):
     r = client.get("/search?q=apple", headers=H).json()
     assert r["results"][0]["cik"] == fx.APPLE

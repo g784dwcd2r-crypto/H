@@ -257,3 +257,131 @@ ALTER TABLE users ADD COLUMN IF NOT EXISTS title TEXT;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS country TEXT;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS marketing_opt_in BOOLEAN NOT NULL DEFAULT false;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS terms_accepted_at TIMESTAMPTZ;
+
+-- ==== 0008_account_security.sql ====
+-- Durable sessions and tenant authorization. The record preserves API timestamps as ISO strings;
+-- indexed identity columns and foreign keys constrain ownership independently of JSON contents.
+CREATE TABLE IF NOT EXISTS account_sessions (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    record JSONB NOT NULL
+);
+CREATE INDEX IF NOT EXISTS account_sessions_user_idx ON account_sessions (user_id);
+
+CREATE TABLE IF NOT EXISTS organizations (
+    id TEXT PRIMARY KEY,
+    record JSONB NOT NULL
+);
+CREATE TABLE IF NOT EXISTS organization_memberships (
+    id TEXT PRIMARY KEY,
+    organization_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    role TEXT NOT NULL CHECK (role IN ('owner', 'admin', 'member')),
+    record JSONB NOT NULL,
+    UNIQUE (organization_id, user_id)
+);
+CREATE INDEX IF NOT EXISTS organization_memberships_user_idx ON organization_memberships (user_id);
+
+CREATE TABLE IF NOT EXISTS account_security_audit (
+    id TEXT PRIMARY KEY,
+    organization_id TEXT REFERENCES organizations(id) ON DELETE CASCADE,
+    actor_id TEXT NOT NULL,
+    record JSONB NOT NULL
+);
+CREATE INDEX IF NOT EXISTS account_security_audit_org_idx ON account_security_audit (organization_id);
+CREATE INDEX IF NOT EXISTS account_security_audit_actor_idx ON account_security_audit (actor_id);
+
+-- ==== 0009_research_index.sql ====
+-- Durable public SEC lexical index. Text and source metadata are immutable per content version.
+-- Position postings provide exact phrases across long filings without a tsvector position ceiling.
+CREATE TABLE IF NOT EXISTS research_filings (
+    cik BIGINT NOT NULL,
+    accession TEXT NOT NULL,
+    form TEXT,
+    filed_date TEXT,
+    company_name TEXT,
+    source_id TEXT NOT NULL DEFAULT 'sec-edgar',
+    visibility TEXT NOT NULL DEFAULT 'public',
+    inventory_status TEXT NOT NULL DEFAULT 'pending',
+    inventory_error TEXT,
+    checked_at TEXT,
+    PRIMARY KEY (cik, accession)
+);
+CREATE TABLE IF NOT EXISTS research_documents (
+    document_id TEXT PRIMARY KEY,
+    cik BIGINT NOT NULL,
+    accession TEXT NOT NULL,
+    filename TEXT NOT NULL,
+    title TEXT NOT NULL,
+    company_name TEXT,
+    form TEXT,
+    filed_date TEXT,
+    source_url TEXT NOT NULL,
+    source_id TEXT NOT NULL DEFAULT 'sec-edgar',
+    visibility TEXT NOT NULL DEFAULT 'public',
+    status TEXT NOT NULL DEFAULT 'pending',
+    error TEXT,
+    current_version_id TEXT,
+    discovered_at TEXT NOT NULL,
+    attempted_at TEXT,
+    UNIQUE (cik, accession, filename)
+);
+CREATE INDEX IF NOT EXISTS research_documents_scope_idx ON research_documents (source_id, visibility, cik, form, filed_date);
+CREATE INDEX IF NOT EXISTS research_documents_status_idx ON research_documents (status, attempted_at);
+CREATE TABLE IF NOT EXISTS research_versions (
+    version_id TEXT PRIMARY KEY,
+    document_id TEXT NOT NULL REFERENCES research_documents(document_id),
+    content_sha256 TEXT NOT NULL,
+    raw_path TEXT NOT NULL,
+    text_content TEXT NOT NULL,
+    source_metadata TEXT NOT NULL,
+    indexed_at TEXT NOT NULL,
+    extractor_version TEXT NOT NULL,
+    content_bytes BIGINT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS research_versions_document_idx ON research_versions (document_id);
+CREATE TABLE IF NOT EXISTS research_terms (
+    version_id TEXT NOT NULL REFERENCES research_versions(version_id),
+    term TEXT NOT NULL,
+    position BIGINT NOT NULL,
+    PRIMARY KEY (version_id, position)
+);
+CREATE INDEX IF NOT EXISTS research_terms_lookup_idx ON research_terms (term, version_id, position);
+CREATE TABLE IF NOT EXISTS research_index_meta (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+);
+
+-- ==== 0010_serving_publications.sql ====
+-- Published in the same transaction as all serving-table changes. Failed loads leave no publication.
+CREATE TABLE IF NOT EXISTS serving_publications (
+    publication_id UUID PRIMARY KEY,
+    kind TEXT NOT NULL CHECK (kind IN ('full', 'incremental')),
+    published_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
+    counts JSONB NOT NULL,
+    all_periods BOOLEAN NOT NULL,
+    source_root TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS serving_publications_recent ON serving_publications (published_at DESC);
+
+-- ==== 0011_research_projects.sql ====
+-- Scoped, revisioned user-authored projects. Evidence pointers do not copy provider content.
+CREATE TABLE IF NOT EXISTS research_projects (
+    id TEXT PRIMARY KEY,
+    owner_id TEXT NOT NULL REFERENCES users(id),
+    organization_id TEXT REFERENCES organizations(id),
+    record JSONB NOT NULL
+);
+CREATE INDEX IF NOT EXISTS research_projects_owner_idx ON research_projects (owner_id);
+CREATE INDEX IF NOT EXISTS research_projects_org_idx ON research_projects (organization_id);
+CREATE TABLE IF NOT EXISTS research_notes (
+    id TEXT PRIMARY KEY,
+    project_id TEXT NOT NULL REFERENCES research_projects(id) ON DELETE CASCADE,
+    record JSONB NOT NULL
+);
+CREATE INDEX IF NOT EXISTS research_notes_project_idx ON research_notes (project_id);
+
+-- ==== 0012_cofiler_checks.sql ====
+-- Quality results belong to an issuer even when a filing accession is shared by co-filers.
+ALTER TABLE statement_checks DROP CONSTRAINT IF EXISTS statement_checks_pkey;
+ALTER TABLE statement_checks ADD CONSTRAINT statement_checks_pkey PRIMARY KEY (cik, accession, statement, check_name);

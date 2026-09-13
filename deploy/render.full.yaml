@@ -42,6 +42,7 @@ services:
     dockerfilePath: ./Dockerfile
     dockerContext: .
     dockerCommand: filings-hub api        # binds to Render's $PORT
+    preDeployCommand: filings-hub migrate # schema only; does not reload the serving lake
     healthCheckPath: /health
     autoDeploy: true
     envVars:

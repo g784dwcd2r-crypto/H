@@ -81,7 +81,7 @@ export type GridLine = {
 
 export type PeriodMode = "as_filed" | "quarterly" | "annual" | "ltm";
 export type ColumnOrder = "newest_right" | "newest_left";
-export type GridParams = { period_mode?: PeriodMode; restated?: boolean; column_order?: ColumnOrder };
+export type GridParams = { period_mode?: PeriodMode; restated?: boolean; column_order?: ColumnOrder; as_of?: string };
 
 export type GridPeriod = {
   period_label: string;
@@ -104,6 +104,7 @@ export type GridPeriod = {
 };
 
 export type Grid = {
+  as_of?: string | null;
   cik: number;
   company_name: string;
   ticker: string | null;
@@ -151,7 +152,7 @@ export const EXPORT_DEFAULTS: ExportConfig = {
   statements: ["IS", "BS", "CF", "EQ", "CI"],
 };
 
-export function exportQuery(cik: string, cfg: Partial<ExportConfig>, periods?: string): string {
+export function exportQuery(cik: string, cfg: Partial<ExportConfig>, periods?: string, asOf?: string): string {
   const c = { ...EXPORT_DEFAULTS, ...cfg };
   const q = new URLSearchParams({
     cik,
@@ -169,6 +170,8 @@ export function exportQuery(cik: string, cfg: Partial<ExportConfig>, periods?: s
     statements: c.statements.join(","),
   });
   if (periods) q.set("periods", periods);
+  // A cutoff is explicitly supplied view state, never an export profile preference.
+  if (asOf) q.set("as_of", asOf);
   return q.toString();
 }
 

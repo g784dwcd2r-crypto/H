@@ -58,8 +58,8 @@ try {
     await page.locator("iframe").waitFor();
     assert.ok((await page.frameLocator("iframe").locator("body").innerText()).length > 100);
     await visit("/companies/320193/search?q=repurchase");
-    await page.locator(".hits mark").first().waitFor();
-    assert.match(await page.locator(".hits").first().innerText(), /repurchase/i);
+    await page.locator(".research-results .result-snippet").first().waitFor();
+    assert.match(await page.locator(".research-results .result-snippet").first().innerText(), /repurchase/i);
   });
   await check("Public coverage and anonymous administrator denial", async () => {
     await visit("/coverage");

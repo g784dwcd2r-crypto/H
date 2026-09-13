@@ -1,7 +1,7 @@
 """Loopback-only synthetic data server for browser acceptance tests. Never uses a live lake."""
 
 import os
-from datetime import date
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 import httpx
@@ -42,7 +42,33 @@ def main() -> None:
         _env_file=None,
     )
     client = EdgarClient("Test test@example.com", transport=httpx.MockTransport(fx.edgar_document_handler))
-    uvicorn.run(create_app(settings, edgar_client=client), host="127.0.0.1", port=8100)
+    app = create_app(settings, edgar_client=client)
+    # Populate the same durable index used by production, using only the mocked SEC transport.
+    from filings_hub.research_index import open_index
+    from filings_hub.research_ingest import discover_batch, index_documents_batch
+
+    index = open_index(storage)
+    discover_batch(app.state.db, storage, index, limit=500, client=client)
+    index_documents_batch(storage, index, limit=500, client=client)
+    # Preserve two explicit synthetic captures for the browser's evidence-history workflow.
+    result = index.search('"share repurchase"', cik=320193, limit=1)["results"][0]
+    current = index.version(result["version_id"])
+    with storage.open(f"research/versions/{current['version_id'].split(':', 1)[1]}.bin") as stream:
+        raw = stream.read()
+    earlier_raw = raw.replace(b"Revenue grew year over year.", b"Revenue was unchanged year over year.")
+    if earlier_raw == raw:
+        raise RuntimeError("The synthetic document-history fixture did not create a text change")
+    from filings_hub.research_ingest import extract
+
+    text, pages = extract(earlier_raw, current["filename"])
+    earlier = index.add_version(storage, current["document_id"], earlier_raw, text, pages)
+    index.execute(
+        "UPDATE research_versions SET indexed_at=? WHERE version_id=?",
+        [(datetime.fromisoformat(current["indexed_at"]) - timedelta(minutes=1)).isoformat(), earlier],
+    )
+    index.add_version(storage, current["document_id"], raw, current["text_content"], current["pages"])
+    index.close()
+    uvicorn.run(app, host="127.0.0.1", port=int(os.environ.get("SMOKE_API_PORT", "8100")))
 
 
 if __name__ == "__main__":

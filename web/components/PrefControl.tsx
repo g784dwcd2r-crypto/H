@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { PrefContext, Scope } from "@/lib/prefs-client";
 import { scopeKeyFor, scopeWords } from "@/lib/prefs-client";
 import type { Prefs } from "@/lib/use-prefs";
@@ -26,6 +26,8 @@ export default function PrefControl<T extends string | number | boolean>({
   onSaved,
   title,
   kind = "select",
+  showValue = true,
+  showScope = true,
 }: {
   prefs: Prefs;
   prefKey: string;
@@ -40,6 +42,8 @@ export default function PrefControl<T extends string | number | boolean>({
   onSaved?: (text: string) => void;
   title?: string;
   kind?: "select" | "toggle";
+  showValue?: boolean;
+  showScope?: boolean;
 }) {
   const where = prefs.get(prefKey, ctx);
   const value = (valueOverride !== undefined ? valueOverride : where && options.some((o) => o.value === where.value) ? where.value : fallback) as T;
@@ -47,6 +51,11 @@ export default function PrefControl<T extends string | number | boolean>({
   const [writeScope, setWriteScope] = useState<Scope>(() =>
     where && available.includes(where.scope as Scope) ? (where.scope as Scope) : available.includes(defaultScope) ? defaultScope : available[0],
   );
+  useEffect(() => {
+    setWriteScope(where && available.includes(where.scope as Scope) ? where.scope as Scope : available.includes(defaultScope) ? defaultScope : available[0]);
+    // The effective scope can change through advanced controls or another statement.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [where?.scope, where?.scope_key, ctx.cik, ctx.sic, ctx.statement, defaultScope]);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const save = async (v: T, scope: Scope = writeScope) => {
@@ -69,7 +78,7 @@ export default function PrefControl<T extends string | number | boolean>({
   const tag = where ? `set ${scopeWords(where.scope)}` : "default";
   return (
     <span className="prefctl" title={title}>
-      {kind === "toggle" ? (
+      {!showValue ? <span className="muted">{label}</span> : kind === "toggle" ? (
         <label className="muted check">
           <input type="checkbox" disabled={pending} checked={Boolean(value)} onChange={(e) => void save(e.target.checked as T)} /> {label}
         </label>
@@ -85,7 +94,7 @@ export default function PrefControl<T extends string | number | boolean>({
           </select>
         </label>
       )}
-      <label className="scopetag" title="Where this choice applies. Statement, then company, then industry, then everywhere; the most specific wins.">
+      {showScope && <label className="scopetag" title="Where this choice applies. Statement, then company, then industry, then everywhere; the most specific wins.">
         <select disabled={pending} value={writeScope} onChange={(e) => setScope(e.target.value as Scope)} aria-label={`Where ${label} applies`}>
           {available.map((s) => (
             <option key={s} value={s}>
@@ -94,7 +103,7 @@ export default function PrefControl<T extends string | number | boolean>({
           ))}
         </select>
         <span className={"tag " + (where ? "set" : "")}>{tag}</span>
-      </label>
+      </label>}
       {error && <span className="err" role="alert">{error}</span>}
     </span>
   );

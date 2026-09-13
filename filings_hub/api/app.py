@@ -29,7 +29,7 @@ from typing import Any
 
 from fastapi import Body, Depends, FastAPI, Header, HTTPException, Query, Response
 
-from filings_hub import __version__, accounts
+from filings_hub import __version__, accounts, tenancy
 from filings_hub.api.security import RateLimiter, make_auth
 from filings_hub.config import Settings, get_settings
 from filings_hub.db.database import Database
@@ -135,7 +135,8 @@ def create_app(
         client = client_from_settings()
     docs_cache = DocumentCache(storage, client)
     users = accounts.store_from_settings(storage, s.database_url)
-    signer = accounts.SessionSigner(s.session_secret, s.session_days)
+    account_security = tenancy.SecurityStore(users, storage, s.database_url)
+    signer = accounts.SessionSigner(s.session_secret, s.session_days, account_security)
     auth = make_auth(s.api_key, limiter, signer.verify)
     admin_emails = {email.strip().lower() for email in s.admin_emails.split(",") if email.strip()}
     magic_limiter = RateLimiter(3)
@@ -145,6 +146,7 @@ def create_app(
     app.state.edgar = client
     app.state.users = users
     app.state.signer = signer
+    app.state.account_security = account_security
 
     def current_user(
         _: str = Depends(auth), x_session: str | None = Header(default=None, alias="X-Session")
@@ -159,6 +161,11 @@ def create_app(
         if user.email.lower() not in admin_emails:
             raise HTTPException(403, "administrator access required")
         return user
+
+    app.include_router(tenancy.security_router(account_security, signer, current_user))
+    from filings_hub import projects
+
+    app.include_router(projects.project_router(account_security, current_user))
 
     def resolve_cik(cik: str) -> int:
         if cik.isdigit():
@@ -191,43 +198,46 @@ def create_app(
     def company(cik: str, _: str = Depends(auth)) -> dict[str, Any]:
         database.maybe_resync()
         c = resolve_cik(cik)
-        rows = database.query("SELECT * FROM companies WHERE cik = ?", [c])
-        if not rows:
-            raise HTTPException(404, f"unknown CIK {c}")
-        tickers = database.query(
-            "SELECT ticker, exchange, is_primary FROM tickers WHERE cik = ? ORDER BY is_primary DESC, ticker",
-            [c],
-        )
-        periods = database.query(
-            f"SELECT * FROM {database.periods_table} WHERE cik = ? ORDER BY period_end DESC LIMIT 12",
-            [c],
-        )
-        latest = periods[0] if periods else None
-        nxt = next_expected_results(periods) if periods else None
-        return {
-            "company": rows[0],
-            "tickers": tickers,
-            "latest_period": latest,
-            "next_expected": nxt,
-            "headline_preset": headline_preset(rows[0].get("sic")),
-            "metric_labels": METRIC_LABELS,
-        }
+        with database.read_snapshot() as reader:
+            rows = reader.query("SELECT * FROM companies WHERE cik = ?", [c])
+            if not rows:
+                raise HTTPException(404, f"unknown CIK {c}")
+            tickers = reader.query(
+                "SELECT ticker, exchange, is_primary FROM tickers WHERE cik = ? ORDER BY is_primary DESC, ticker",
+                [c],
+            )
+            periods = reader.query(
+                f"SELECT * FROM {reader.periods_table} WHERE cik = ? ORDER BY period_end DESC LIMIT 12",
+                [c],
+            )
+            latest = periods[0] if periods else None
+            nxt = next_expected_results(periods) if periods else None
+            return {
+                "company": rows[0],
+                "tickers": tickers,
+                "latest_period": latest,
+                "next_expected": nxt,
+                "headline_preset": headline_preset(rows[0].get("sic")),
+                "metric_labels": METRIC_LABELS,
+            }
 
     @app.get("/companies/{cik}/periods")
     def company_periods(cik: str, limit: int = Query(40, le=400), _: str = Depends(auth)) -> dict[str, Any]:
         c = resolve_cik(cik)
-        rows = database.query(
-            f"SELECT p.*, f.filing_index_url AS results_filing_index_url, "
-            f"e.filing_index_url AS earnings_release_filing_index_url "
-            f"FROM {database.periods_table} p LEFT JOIN filings f ON f.accession = p.results_accession "
-            f"LEFT JOIN filings e ON e.accession = p.earnings_release_accession "
-            f"WHERE p.cik = ? ORDER BY p.period_end DESC LIMIT ?",
-            [c, limit],
-        )
-        metrics = period_metrics(database.query, c)
-        for r in rows:
-            r["metrics"] = metrics.get(r["results_accession"]) or dict.fromkeys(METRIC_NAMES)
-        return {"cik": c, "periods": rows}
+        with database.read_snapshot() as reader:
+            rows = reader.query(
+                f"SELECT p.*, f.filing_index_url AS results_filing_index_url, "
+                f"e.filing_index_url AS earnings_release_filing_index_url "
+                f"FROM {reader.periods_table} p LEFT JOIN filings f "
+                f"ON f.accession = p.results_accession AND f.cik = p.cik "
+                f"LEFT JOIN filings e ON e.accession = p.earnings_release_accession AND e.cik = p.cik "
+                f"WHERE p.cik = ? ORDER BY p.period_end DESC LIMIT ?",
+                [c, limit],
+            )
+            metrics = period_metrics(reader.query, c)
+            for r in rows:
+                r["metrics"] = metrics.get(r["results_accession"]) or dict.fromkeys(METRIC_NAMES)
+            return {"cik": c, "periods": rows}
 
     @app.get("/companies/{cik}/filings")
     def company_filings(
@@ -277,6 +287,7 @@ def create_app(
         period_mode: str = "as_filed",
         restated: bool = False,
         column_order: str = "newest_right",
+        as_of: date | None = None,
         _: str = Depends(auth),
     ) -> dict[str, Any]:
         """The statement grid. `period_mode`: as_filed | quarterly | annual | ltm; `restated` takes
@@ -292,6 +303,7 @@ def create_app(
                 period_mode=period_mode,
                 restated=restated,
                 column_order=column_order,
+                as_of=as_of,
             ).to_dict()
         except KeyError as e:
             raise HTTPException(404, str(e)) from e
@@ -334,6 +346,7 @@ def create_app(
         period_mode: str = "as_filed",
         restated: bool = False,
         column_order: str = "newest_right",
+        as_of: date | None = None,
         layout: str | None = None,
         orientation: str | None = None,
         subtotals: str | None = None,
@@ -349,7 +362,7 @@ def create_app(
         opts = _export_options(layout, orientation, subtotals, include, scale, negative_style, filename, statements)
         try:
             data, fname = export_workbook(
-                database, c, _labels(periods), limit, opts, period_mode, restated, column_order
+                database, c, _labels(periods), limit, opts, period_mode, restated, column_order, as_of
             )
         except KeyError as e:
             raise HTTPException(404, str(e)) from e
@@ -696,15 +709,22 @@ def create_app(
         return out
 
     @app.post("/auth/verify")
-    def verify_link(payload: dict[str, Any] = Body(...), _: str = Depends(auth)) -> dict[str, Any]:
+    def verify_link(
+        payload: dict[str, Any] = Body(...), _: str = Depends(auth), user_agent: str = Header(default="")
+    ) -> dict[str, Any]:
         token = str(payload.get("token") or "")
         user = accounts.redeem_magic_link(users, token) if token else None
         if user is None:
             raise HTTPException(401, "that sign-in link is invalid or has expired")
-        return {"session": signer.sign(user.id), "user": user.to_dict()}
+        return {
+            "session": signer.sign(user.id, device_label=str(payload.get("device_label") or user_agent)),
+            "user": user.to_dict(),
+        }
 
     @app.post("/auth/google")
-    def google_signin(payload: dict[str, Any] = Body(...), _: str = Depends(auth)) -> dict[str, Any]:
+    def google_signin(
+        payload: dict[str, Any] = Body(...), _: str = Depends(auth), user_agent: str = Header(default="")
+    ) -> dict[str, Any]:
         if not (s.google_client_id and s.google_client_secret):
             raise HTTPException(503, "Google sign-in is not configured")
         code = str(payload.get("code") or "")
@@ -715,7 +735,10 @@ def create_app(
         if not email:
             raise HTTPException(401, "Google did not confirm an email for that code")
         user = accounts.get_or_create_user(users, email)
-        return {"session": signer.sign(user.id), "user": user.to_dict()}
+        return {
+            "session": signer.sign(user.id, device_label=str(payload.get("device_label") or user_agent)),
+            "user": user.to_dict(),
+        }
 
     @app.get("/me")
     def me(user: accounts.User = Depends(current_user)) -> dict[str, Any]:
@@ -915,13 +938,23 @@ def create_app(
             "SELECT k.accession, k.cik, c.name, c.ticker, k.statement, k.check_name, k.lhs, k.rhs, k.difference, "
             "k.detail, k.source, f.form, f.filed_date, f.filing_index_url "
             "FROM statement_checks k LEFT JOIN companies c ON c.cik = k.cik "
-            "LEFT JOIN filings f ON f.accession = k.accession "
+            "LEFT JOIN filings f ON f.accession = k.accession AND f.cik = k.cik "
             "WHERE NOT k.passed ORDER BY f.filed_date DESC NULLS LAST, k.accession, k.statement LIMIT ? OFFSET ?",
             [limit, offset],
         )
         total = database.query("SELECT count(*) AS n FROM statement_checks WHERE NOT passed")[0]["n"]
         return {"total": total, "limit": limit, "offset": offset, "failed": rows}
 
+    from filings_hub.platform.catalog import attach_catalog_routes
+    from filings_hub.platform.financials import attach_financial_routes
+
+    attach_financial_routes(app, database=database, auth=auth, resolve_cik=resolve_cik)
+    attach_catalog_routes(app, database=database, auth=auth)
+    from filings_hub.api.research import attach_research_search_routes
+    from filings_hub.platform.compare import attach_compare_routes
+
+    attach_research_search_routes(app, database=database, storage=storage, auth=auth)
+    attach_compare_routes(app, database=database, auth=auth, resolve_cik=resolve_cik)
     return app
 
 

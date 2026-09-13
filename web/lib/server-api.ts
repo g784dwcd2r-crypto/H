@@ -62,6 +62,7 @@ export const api = {
     if (params.period_mode) q.set("period_mode", params.period_mode);
     if (params.restated) q.set("restated", "true");
     if (params.column_order) q.set("column_order", params.column_order);
+    if (params.as_of) q.set("as_of", params.as_of);
     return get<Grid>(`/companies/${encodeURIComponent(cik)}/statements?${q.toString()}`);
   },
   peers: (cik: string) => get<{ cik: number; sic: string | null; sic_description: string | null; peers: Peer[] }>(`/companies/${encodeURIComponent(cik)}/peers`),

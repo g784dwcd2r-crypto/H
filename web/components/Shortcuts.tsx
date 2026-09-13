@@ -22,7 +22,7 @@ export default function Shortcuts() {
         if (box) {
           box.focus();
           box.select();
-        } else router.push("/");
+        } else router.push("/research");
       } else if (e.key === "w") {
         router.push("/watchlist");
       }

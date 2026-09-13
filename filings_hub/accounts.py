@@ -637,36 +637,68 @@ def store_from_settings(storage: Storage, database_url: str) -> UserStore:
 # Sessions and sign-in tokens
 # ---------------------------------------------------------------------------------------------
 class SessionSigner:
-    """Stateless session tokens: v1.<user_id>.<expires>.<nonce>.<hmac>. Nothing to store or look up."""
+    """Signed sessions. The API supplies a durable store and accepts only registered v2 tokens.
 
-    def __init__(self, secret: str, days: int = 30):
+    The no-store v1 mode remains for isolated signature/rate-limiter consumers; it is never used by
+    create_app. Existing unregistered v1 browser sessions must sign in again after this upgrade.
+    """
+
+    def __init__(self, secret: str, days: int = 30, store=None):
         if not secret:
             secret = secrets.token_urlsafe(32)
             log.warning("SESSION_SECRET is empty: sessions will not survive a restart")
         self.key = secret.encode()
         self.days = days
+        self.store = store
 
     def _sig(self, body: str) -> str:
         return hmac.new(self.key, body.encode(), hashlib.sha256).hexdigest()[:40]
 
-    def sign(self, user_id: str, now: float | None = None) -> str:
-        exp = int((now or time.time()) + self.days * 86400)
-        body = f"v1.{user_id}.{exp}.{secrets.token_hex(6)}"  # nonce: every sign-in is its own token
+    def sign(self, user_id: str, now: float | None = None, device_label: str = "") -> str:
+        issued = time.time() if now is None else now
+        exp = int(issued + self.days * 86400)
+        ident = secrets.token_hex(24)
+        version = "v2" if self.store is not None else "v1"
+        body = f"{version}.{user_id}.{exp}.{ident}"
+        if self.store is not None:
+            label = "".join(char for char in device_label if char.isprintable()).strip()[:120] or "Unknown device"
+            self.store.create_session(
+                {
+                    "id": ident,
+                    "user_id": user_id,
+                    "created_at": _iso(datetime.fromtimestamp(issued, UTC)),
+                    "expires_at": _iso(datetime.fromtimestamp(exp, UTC)),
+                    "last_seen_at": _iso(datetime.fromtimestamp(issued, UTC)),
+                    "device_label": label,
+                    "revoked_at": None,
+                }
+            )
         return f"{body}.{self._sig(body)}"
 
-    def verify(self, token: str | None, now: float | None = None) -> str | None:
-        if not token:
+    def session(self, token: str | None, now: float | None = None) -> dict[str, Any] | None:
+        if not token or len(token) > 1024:
             return None
         parts = token.split(".")
-        if len(parts) != 5 or parts[0] != "v1":
+        version = "v2" if self.store is not None else "v1"
+        if len(parts) != 5 or parts[0] != version:
             return None
         _, user_id, exp, nonce, sig = parts
-        body = f"v1.{user_id}.{exp}.{nonce}"
+        body = f"{version}.{user_id}.{exp}.{nonce}"
         if not hmac.compare_digest(sig, self._sig(body)):
             return None
-        if not exp.isdigit() or int(exp) < (now or time.time()):
+        current = time.time() if now is None else now
+        if not exp.isdigit() or int(exp) <= current:
             return None
-        return user_id
+        if self.store is None:
+            return {"user_id": user_id, "id": nonce}
+        record = self.store.session(nonce, user_id, current)
+        if not record or datetime.fromisoformat(record["expires_at"]).timestamp() != int(exp):
+            return None
+        return record
+
+    def verify(self, token: str | None, now: float | None = None) -> str | None:
+        record = self.session(token, now)
+        return record["user_id"] if record else None
 
 
 def token_hash(token: str) -> str:

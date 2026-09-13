@@ -11,13 +11,16 @@ from __future__ import annotations
 
 import logging
 import math
+import uuid
 from collections.abc import Iterable
+from contextlib import closing
 from datetime import date, datetime
 from pathlib import Path
 from typing import Any
 
 import psycopg
 import pyarrow as pa
+from psycopg.types.json import Jsonb
 
 from filings_hub.db.database import PERIODS_SERVING_SQL
 from filings_hub.lake import layout
@@ -195,22 +198,25 @@ def write_schema_sql() -> str:
 
 
 def apply_migrations(conn: psycopg.Connection) -> list[str]:
-    with conn.cursor() as cur:
-        cur.execute(
-            "CREATE TABLE IF NOT EXISTS schema_migrations (name TEXT PRIMARY KEY, applied_at TIMESTAMP DEFAULT now())"
-        )
-        cur.execute("SELECT name FROM schema_migrations")
-        done = {r[0] for r in cur.fetchall()}
-    applied = []
-    for path in sorted(MIGRATIONS_DIR.glob("*.sql")):
-        if path.name in done:
-            continue
+    with conn.transaction():
+        conn.execute("SELECT pg_advisory_xact_lock(684319202600)")
         with conn.cursor() as cur:
-            cur.execute(path.read_text())
-            cur.execute("INSERT INTO schema_migrations (name) VALUES (%s)", (path.name,))
-        applied.append(path.name)
-        log.info("applied migration %s", path.name)
-    return applied
+            cur.execute(
+                "CREATE TABLE IF NOT EXISTS schema_migrations "
+                "(name TEXT PRIMARY KEY, applied_at TIMESTAMP DEFAULT now())"
+            )
+            cur.execute("SELECT name FROM schema_migrations")
+            done = {r[0] for r in cur.fetchall()}
+        applied = []
+        for path in sorted(MIGRATIONS_DIR.glob("*.sql")):
+            if path.name in done:
+                continue
+            with conn.cursor() as cur:
+                cur.execute(path.read_text())
+                cur.execute("INSERT INTO schema_migrations (name) VALUES (%s)", (path.name,))
+            applied.append(path.name)
+            log.info("applied migration %s", path.name)
+        return applied
 
 
 # ---------------------------------------------------------------------------------------------
@@ -274,62 +280,87 @@ def serving_periods(duck: Duck) -> pa.Table:
     return duck.fetch_arrow("SELECT *, NULL::VARCHAR AS statements_source, NULL::BOOLEAN AS checks_passed FROM periods")
 
 
+def _publication_lock(conn: psycopg.Connection) -> None:
+    # One cooperating loader can publish at a time, including full vs incremental jobs.
+    conn.execute("SELECT pg_advisory_xact_lock(684319202601)")
+
+
+def _require_source_views(views: dict[str, bool]) -> None:
+    required = {"companies", "tickers", "filings", "periods", "statements", "company_metrics", "statement_checks"}
+    missing = sorted(table for table in required if not views.get(table))
+    if missing:
+        raise ValueError("Incomplete serving source inventory: " + ", ".join(missing) + ". Publication unchanged.")
+
+
+def _record_publication(
+    conn: psycopg.Connection, kind: str, counts: dict[str, int], all_periods: bool, storage: Storage
+) -> None:
+    conn.execute(
+        "INSERT INTO serving_publications (publication_id, kind, counts, all_periods, source_root) "
+        "VALUES (%s, %s, %s, %s, %s)",
+        (uuid.uuid4(), kind, Jsonb(counts), all_periods, storage.root),
+    )
+
+
 def load_full(storage: Storage, database_url: str, all_periods: bool = True, batch_ciks: int = 2000) -> dict[str, int]:
     """Rebuild every serving table from the lake."""
     counts: dict[str, int] = {}
-    duck = Duck(storage)
-    with psycopg.connect(database_url, autocommit=True) as conn:
+    with closing(Duck(storage)) as duck, psycopg.connect(database_url, autocommit=True) as conn:
         apply_migrations(conn)
-        views = duck.create_views()
-        if views["companies"]:
-            counts["companies"] = _replace_all(conn, "companies", duck.fetch_arrow("SELECT * FROM companies"))
-        if views["tickers"]:
-            counts["tickers"] = _replace_all(conn, "tickers", duck.fetch_arrow("SELECT * FROM tickers"))
-        if views["filings"]:
-            with conn.cursor() as cur:
-                cur.execute("TRUNCATE filings")
-            n = 0
-            for y in duck.fetch_dicts("SELECT DISTINCT year FROM filings ORDER BY year"):
-                n += copy_table(
-                    conn,
-                    "filings",
-                    duck.fetch_arrow("SELECT * FROM filings WHERE year = ?", [y["year"]]),
+        with conn.transaction():
+            _publication_lock(conn)
+            views = duck.create_views()
+            _require_source_views(views)
+            if views["companies"]:
+                counts["companies"] = _replace_all(conn, "companies", duck.fetch_arrow("SELECT * FROM companies"))
+            if views["tickers"]:
+                counts["tickers"] = _replace_all(conn, "tickers", duck.fetch_arrow("SELECT * FROM tickers"))
+            if views["filings"]:
+                with conn.cursor() as cur:
+                    cur.execute("TRUNCATE filings")
+                n = 0
+                for y in duck.fetch_dicts("SELECT DISTINCT year FROM filings ORDER BY year"):
+                    n += copy_table(
+                        conn,
+                        "filings",
+                        duck.fetch_arrow("SELECT * FROM filings WHERE year = ?", [y["year"]]),
+                    )
+                counts["filings"] = n
+            counts["periods"] = _replace_all(conn, "periods", serving_periods(duck))
+            if views["company_metrics"]:
+                counts["company_metrics"] = _replace_all(
+                    conn, "company_metrics", duck.fetch_arrow("SELECT * FROM company_metrics")
                 )
-            counts["filings"] = n
-        counts["periods"] = _replace_all(conn, "periods", serving_periods(duck))
-        if views["company_metrics"]:
-            counts["company_metrics"] = _replace_all(
-                conn, "company_metrics", duck.fetch_arrow("SELECT * FROM company_metrics")
-            )
-        if views["statements"]:
-            with conn.cursor() as cur:
-                cur.execute("TRUNCATE statements")
-            ciks = [r["cik"] for r in duck.fetch_dicts("SELECT DISTINCT cik FROM statements ORDER BY cik")]
-            n = 0
-            for i in range(0, len(ciks), batch_ciks):
-                chunk = ciks[i : i + batch_ciks]
-                n += copy_table(
+            if views["statements"]:
+                with conn.cursor() as cur:
+                    cur.execute("TRUNCATE statements")
+                ciks = [r["cik"] for r in duck.fetch_dicts("SELECT DISTINCT cik FROM statements ORDER BY cik")]
+                n = 0
+                for i in range(0, len(ciks), batch_ciks):
+                    chunk = ciks[i : i + batch_ciks]
+                    n += copy_table(
+                        conn,
+                        "statements",
+                        duck.fetch_arrow(
+                            f"SELECT * FROM statements {_statements_filter(all_periods)} "
+                            f"{'AND' if not all_periods else 'WHERE'} cik IN (SELECT unnest(?::BIGINT[]))",
+                            [chunk],
+                        ),
+                    )
+                counts["statements"] = n
+            if views["statement_checks"]:
+                counts["statement_checks"] = _replace_all(
                     conn,
-                    "statements",
+                    "statement_checks",
                     duck.fetch_arrow(
-                        f"SELECT * FROM statements {_statements_filter(all_periods)} "
-                        f"{'AND' if not all_periods else 'WHERE'} cik IN (SELECT unnest(?::BIGINT[]))",
-                        [chunk],
+                        "SELECT * FROM statement_checks "
+                        "QUALIFY row_number() OVER "
+                        "(PARTITION BY cik, accession, statement, check_name ORDER BY source) = 1"
                     ),
                 )
-            counts["statements"] = n
-        if views["statement_checks"]:
-            counts["statement_checks"] = _replace_all(
-                conn,
-                "statement_checks",
-                duck.fetch_arrow(
-                    "SELECT * FROM statement_checks "
-                    "QUALIFY row_number() OVER (PARTITION BY accession, statement, check_name ORDER BY source) = 1"
-                ),
-            )
-        if views["run_log"]:
-            counts["run_log"] = _replace_all(conn, "run_log", duck.fetch_arrow("SELECT * FROM run_log"))
-    duck.close()
+            if views["run_log"]:
+                counts["run_log"] = _replace_all(conn, "run_log", duck.fetch_arrow("SELECT * FROM run_log"))
+            _record_publication(conn, "full", counts, all_periods, storage)
     log.info("full load: %s", counts)
     return counts
 
@@ -344,64 +375,69 @@ def load_incremental(
 ) -> dict[str, int]:
     """Daily path: small tables replaced, big tables patched for the touched CIKs / accessions."""
     counts: dict[str, int] = {}
-    duck = Duck(storage)
-    views = duck.create_views()
     cik_list = sorted(ciks)
-    with psycopg.connect(database_url, autocommit=True) as conn:
+    with closing(Duck(storage)) as duck, psycopg.connect(database_url, autocommit=True) as conn:
         apply_migrations(conn)
-        if views["companies"]:
-            counts["companies"] = _replace_all(conn, "companies", duck.fetch_arrow("SELECT * FROM companies"))
-        if views["tickers"]:
-            counts["tickers"] = _replace_all(conn, "tickers", duck.fetch_arrow("SELECT * FROM tickers"))
-        counts["periods"] = _replace_all(conn, "periods", serving_periods(duck))
-        if views["company_metrics"]:
-            counts["company_metrics"] = _replace_all(
-                conn, "company_metrics", duck.fetch_arrow("SELECT * FROM company_metrics")
-            )
-        if views["filings"] and (cik_list or accessions):
-            rows = duck.fetch_arrow(
-                "SELECT * FROM filings WHERE cik IN (SELECT unnest(?::BIGINT[])) "
-                "OR accession IN (SELECT unnest(?::VARCHAR[]))",
-                [cik_list, sorted(accessions)],
-            )
-            with conn.transaction(), conn.cursor() as cur:
-                if cik_list:
-                    cur.execute("DELETE FROM filings WHERE cik = ANY(%s)", (cik_list,))
-                if accessions:
-                    cur.execute("DELETE FROM filings WHERE accession = ANY(%s)", (sorted(accessions),))
-                counts["filings"] = copy_table(conn, "filings", rows)
-        if views["statements"]:
-            touched_acc: set[str] = set(accessions)
-            if cik_list:
-                touched_acc |= {
-                    r["accession"]
-                    for r in duck.fetch_dicts(
-                        "SELECT DISTINCT accession FROM statements WHERE cik IN (SELECT unnest(?::BIGINT[]))",
-                        [cik_list],
-                    )
-                }
-            for q in fsds_quarters or []:
-                touched_acc |= {
-                    r["accession"]
-                    for r in duck.fetch_dicts("SELECT DISTINCT accession FROM statements WHERE fsds_quarter = ?", [q])
-                }
-            if touched_acc:
-                acc = sorted(touched_acc)
-                stm = duck.fetch_arrow(
-                    f"SELECT * FROM statements {_statements_filter(all_periods)} "
-                    f"{'AND' if not all_periods else 'WHERE'} accession IN (SELECT unnest(?::VARCHAR[]))",
-                    [acc],
+        with conn.transaction():
+            _publication_lock(conn)
+            views = duck.create_views()
+            _require_source_views(views)
+            if views["companies"]:
+                counts["companies"] = _replace_all(conn, "companies", duck.fetch_arrow("SELECT * FROM companies"))
+            if views["tickers"]:
+                counts["tickers"] = _replace_all(conn, "tickers", duck.fetch_arrow("SELECT * FROM tickers"))
+            counts["periods"] = _replace_all(conn, "periods", serving_periods(duck))
+            if views["company_metrics"]:
+                counts["company_metrics"] = _replace_all(
+                    conn, "company_metrics", duck.fetch_arrow("SELECT * FROM company_metrics")
                 )
-                counts["statements"] = _replace_where(conn, "statements", "accession", acc, stm)
-                if views["statement_checks"]:
-                    chk = duck.fetch_arrow(
-                        "SELECT * FROM statement_checks WHERE accession IN (SELECT unnest(?::VARCHAR[])) "
-                        "QUALIFY row_number() OVER (PARTITION BY accession, statement, check_name ORDER BY source) = 1",
+            if views["filings"] and (cik_list or accessions):
+                rows = duck.fetch_arrow(
+                    "SELECT * FROM filings WHERE cik IN (SELECT unnest(?::BIGINT[])) "
+                    "OR accession IN (SELECT unnest(?::VARCHAR[]))",
+                    [cik_list, sorted(accessions)],
+                )
+                with conn.transaction(), conn.cursor() as cur:
+                    if cik_list:
+                        cur.execute("DELETE FROM filings WHERE cik = ANY(%s)", (cik_list,))
+                    if accessions:
+                        cur.execute("DELETE FROM filings WHERE accession = ANY(%s)", (sorted(accessions),))
+                    counts["filings"] = copy_table(conn, "filings", rows)
+            if views["statements"]:
+                touched_acc: set[str] = set(accessions)
+                if cik_list:
+                    touched_acc |= {
+                        r["accession"]
+                        for r in duck.fetch_dicts(
+                            "SELECT DISTINCT accession FROM statements WHERE cik IN (SELECT unnest(?::BIGINT[]))",
+                            [cik_list],
+                        )
+                    }
+                for q in fsds_quarters or []:
+                    touched_acc |= {
+                        r["accession"]
+                        for r in duck.fetch_dicts(
+                            "SELECT DISTINCT accession FROM statements WHERE fsds_quarter = ?", [q]
+                        )
+                    }
+                if touched_acc:
+                    acc = sorted(touched_acc)
+                    stm = duck.fetch_arrow(
+                        f"SELECT * FROM statements {_statements_filter(all_periods)} "
+                        f"{'AND' if not all_periods else 'WHERE'} accession IN (SELECT unnest(?::VARCHAR[]))",
                         [acc],
                     )
-                    counts["statement_checks"] = _replace_where(conn, "statement_checks", "accession", acc, chk)
-        if views["run_log"]:
-            counts["run_log"] = _replace_all(conn, "run_log", duck.fetch_arrow("SELECT * FROM run_log"))
-    duck.close()
+                    counts["statements"] = _replace_where(conn, "statements", "accession", acc, stm)
+                    if views["statement_checks"]:
+                        chk = duck.fetch_arrow(
+                            "SELECT * FROM statement_checks WHERE accession IN (SELECT unnest(?::VARCHAR[])) "
+                            "QUALIFY row_number() OVER "
+                            "(PARTITION BY cik, accession, statement, check_name ORDER BY source) = 1",
+                            [acc],
+                        )
+                        counts["statement_checks"] = _replace_where(conn, "statement_checks", "accession", acc, chk)
+            if views["run_log"]:
+                counts["run_log"] = _replace_all(conn, "run_log", duck.fetch_arrow("SELECT * FROM run_log"))
+            _record_publication(conn, "incremental", counts, all_periods, storage)
     log.info("incremental load: %s", counts)
     return counts
