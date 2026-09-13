@@ -4,7 +4,7 @@
   "baseline_commit": "dacf79d4ac4c2511c80d2445ee563d53ee09a33e",
   "master_plan": "full-platform-plan.md",
   "scope": "Proposed implementation and acquisition requirements; not a claim of current capability or universal AlphaSense availability",
-  "execution_note": "The foundational release and PR19 usability fixes are merged. Cited-research/index-operations implementation is under verification. Requirement status reflects bounded delivered scope; production readiness and competitor parity remain unclaimed.",
+  "execution_note": "The foundational release, PR19 usability fixes and PR20 administration are merged. Cited research and index operations passed local integration verification; GitHub CI is tracked in PR21. Requirement status reflects bounded delivered scope; production readiness and competitor parity remain unclaimed.",
   "workstreams": [
     {
       "id": "D01",
@@ -1348,7 +1348,7 @@
   ],
   "release_tracking": {
     "release": "cited-research-and-index-operations",
-    "status": "verification_in_progress",
+    "status": "local_verification_passed",
     "baseline_commit": "bde7f83b56833e9d00ea29ee4e1a95ec79ae8776",
     "delivery_document": "cited-research.md",
     "validation_document": "research-validation.md",
@@ -1364,8 +1364,17 @@
       "live_inference_calls": 5,
       "live_embedding_acceptance": false,
       "held_out_model_answers_run": 0,
-      "fixture_browser": true
-    }
+      "fixture_browser": true,
+      "python_tests_passed": 513,
+      "python_tests_skipped": 0,
+      "frontend_unit_tests_passed": 37,
+      "combined_cited_browser_scenarios_passed": 8,
+      "combined_admin_browser_scenarios_passed": 6,
+      "prior_ordinary_browser_scenarios_passed": 26,
+      "production_web_build_passed": true,
+      "independent_browser_review_fixes": 3
+    },
+    "pull_request": "https://github.com/g784dwcd2r-crypto/H/pull/21"
   },
   "administration_delivery": {
     "baseline_commit": "bfb1a6ac087b2c59a3a5085015193ff638886e4a",
