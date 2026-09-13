@@ -28,12 +28,13 @@ export default async function CompanyPage({ params }: { params: Promise<{ cik: s
 
   return (
     <>
-      <p className="muted"><Link href="/">← Search</Link></p>
+      <p className="crumb"><Link href="/">← Search</Link></p>
+      <p className="eyebrow">Company</p>
       <h1>
         {c.name}
         {c.ticker && <span className="chip">{c.ticker}{c.exchange ? ` · ${c.exchange}` : ""}</span>}
       </h1>
-      <p className="muted">{c.sic_description ?? ""}{c.fiscal_year_end ? ` · fiscal year ends ${fye(c.fiscal_year_end)}` : ""}</p>
+      <p className="meta">{c.sic_description ?? ""}{c.fiscal_year_end ? ` · fiscal year ends ${fye(c.fiscal_year_end)}` : ""}</p>
 
       <div className="cards">
         <div className="card"><div className="k">Latest period</div><div className="v">{data.latest_period?.period_label ?? "–"}</div></div>

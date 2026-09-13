@@ -10,14 +10,31 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en">
+      <head>
+        <link rel="preconnect" href="https://fonts.googleapis.com" />
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
+        <link
+          href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Inter:wght@400;500;600&display=swap"
+          rel="stylesheet"
+        />
+      </head>
       <body>
         <header className="top">
           <div className="inner">
             <Link href="/" className="brand">Filings Hub</Link>
-            <span className="muted">SEC filings, organised by period. Statements exactly as reported.</span>
+            <nav>
+              <Link href="/">Search</Link>
+              <a href="https://www.sec.gov/edgar" target="_blank" rel="noreferrer">EDGAR</a>
+            </nav>
           </div>
         </header>
         <main>{children}</main>
+        <footer className="bottom">
+          <div className="inner">
+            <span>Filings Hub · SEC filings, organised by period. Statements exactly as reported.</span>
+            <span>Source: SEC EDGAR and the Financial Statement Data Sets. Refreshed daily.</span>
+          </div>
+        </footer>
       </body>
     </html>
   );

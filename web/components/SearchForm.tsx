@@ -17,7 +17,7 @@ export default function SearchForm({ initial = "" }: { initial?: string }) {
       <input
         value={q}
         onChange={(e) => setQ(e.target.value)}
-        placeholder="Company name, ticker or CIK — e.g. Apple, JPM, 320193"
+        placeholder="Company name, ticker or CIK"
         aria-label="Search companies"
         autoFocus
       />
