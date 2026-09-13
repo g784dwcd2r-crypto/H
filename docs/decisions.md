@@ -53,3 +53,19 @@ The first real lake on R2 (27M filings, 125M facts, statements for 46k companies
 Rule: on object storage the API never lists a per-company table as a whole. Existence is one request; per-company tables are read from the company's own partition; the small whole-universe tables are copied locally; `filings` (by year) is read through row-group statistics, so the loaders write it sorted by company in 50k-row groups and `filings-hub compact` fixes a lake built before that. Whole-lake summaries answer from local tables only and say so. DuckDB gets a memory cap on small instances. Measured against the live lake: startup about two minutes (copying 45MB of small tables), search 0.3s, a company page 4–8s cold, statements 2–5s, repeat reads under 0.1s.
 
 Not fixed yet, in order of value: the daily refresh on GitHub Actions still globs the statements folder (hours over R2) and needs the same treatment; a company's statements are 70 small files (one per quarter) and a per-company compaction to one file would cut a cold read to under a second; the API's read-only token means fetched documents cannot be kept between restarts.
+
+## Next 15.5.25 stalls navigations that were not prefetched (2026-09-13)
+
+Measured against a production build: a link navigation with no prefetched
+cache entry (keyboard Enter on a focused link, a script click, touch, or a
+click before the hover prefetch lands) does nothing 20–30% of the time. The
+RSC request completes and the page chunk loads, but React never commits the
+transition and the URL never changes; there is no error. Hovering first,
+which prefetches, never fails. This is vercel/next.js#98305; the router path
+that deadlocks no longer exists in Next 16.
+
+It is what makes `ci / web` flaky (the usability pagination step and the
+ownership mobile step both navigate by keyboard), and it affects real
+keyboard and touch users. Decision: upgrade the web app to Next 16 in its own
+PR rather than retry or loosen the browser tests. Until then a red `ci / web`
+that names one of those steps is this bug, not the change under test.
