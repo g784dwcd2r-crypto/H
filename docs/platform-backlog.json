@@ -1321,7 +1321,7 @@
     }
   },
   "administration_delivery": {
-    "baseline_commit": "e94baf28f734555a1ab07cd3c7c107bbd7edacc6",
+    "baseline_commit": "bfb1a6ac087b2c59a3a5085015193ff638886e4a",
     "scope": "Separate operator console and audited support controls; no production bootstrap, provider connection or scheduler activation. Research-job engine integration is optional and explicitly unavailable when absent.",
     "evidence_document": "platform-administration.md",
     "production_validated": false

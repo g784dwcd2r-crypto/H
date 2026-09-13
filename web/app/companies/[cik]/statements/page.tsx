@@ -50,7 +50,7 @@ export default async function StatementsPage({
   }
   const id = String(grid.cik);
   const more = new URLSearchParams({ limit: String(Math.min(n + 8, 40)), mode: periodMode });
-  if (wantRestated) more.set("restated", "1");
+  more.set("restated", wantRestated ? "1" : "0");
   if (asOf) more.set("as_of", asOf);
   return (
     <>

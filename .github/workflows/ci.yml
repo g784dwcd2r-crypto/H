@@ -79,3 +79,4 @@ jobs:
         with:
           name: browser-acceptance
           path: web/.browser-results/
+          include-hidden-files: true

@@ -109,6 +109,8 @@ entitlements. It does not impersonate customers or turn the operator into a memb
 - **Organizations:** searchable, paginated list and membership detail; add an existing account,
   change a role or remove membership. The same organization advisory lock as ordinary membership
   updates protects these writes. The last owner cannot be removed, even by concurrent operators.
+  A selected role or explicit JSON null is required; omitted roles and invalid types are rejected
+  without changing membership or audit history.
   Version fingerprints detect changes made through the ordinary organization API too. No invitations
   or external messages are sent.
 - **Configuration:** persisted new-account registration and business-email controls affect actual
@@ -178,9 +180,11 @@ resumes. No production restore drill or deployment was performed for this change
 
 ## Verification and remaining limitations
 
-Local verification on this branch passed all 465 Python tests with disposable PostgreSQL enabled
-(zero skips; 91% suite coverage), all 25 web unit tests, the production Next.js build and all six
-admin browser scenarios. An isolated, untracked combined snapshot also passed the real research-job
+Integration with merged PR19 passed the full 466-test Python suite with disposable PostgreSQL
+enabled (zero skips; 91% suite coverage), followed by the focused 31-case administrator suite after
+the independent review fix added lake/Postgres malformed-membership regressions. All 30 web unit
+tests, the production Next.js build, all four user browser suites and all six admin browser scenarios
+passed. An isolated, untracked combined snapshot also passed the real research-job
 adapter test on SQLite and PostgreSQL: cancel fenced the old worker claim, retry queued the job and
 both changes produced requested/confirmed audit records. That integration evidence does not add the
 separately delivered job engine to this PR. All fixtures were synthetic; no production rollout or

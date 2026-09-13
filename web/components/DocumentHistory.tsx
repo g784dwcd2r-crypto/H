@@ -1,10 +1,10 @@
 import Link from "next/link";
 import { workspaceRequest } from "@/lib/workspace-api";
-import { documentVersionParam } from "@/lib/research";
+import { documentVersionParam, indexedDocumentHref } from "@/lib/research";
 import { capturedDate, type DocumentVersions, type DocumentComparison } from "@/lib/document-history";
 import styles from "./DocumentHistory.module.css";
 
-export default async function DocumentHistory({ version, before, offset = 0 }: { version: string; before?: string; offset?: number }) {
+export default async function DocumentHistory({ version, before, offset = 0, returnTo }: { version: string; before?: string; offset?: number; returnTo?: string | null }) {
   const path = `/research/documents/${encodeURIComponent(version)}`;
   const history = await workspaceRequest<DocumentVersions>(`${path}/history?limit=20&offset=${offset}`);
   if (!history.data) return <section className={styles.history}><h2>Captured versions</h2><p>Version history could not be loaded. The extracted text below remains available.</p></section>;
@@ -12,7 +12,7 @@ export default async function DocumentHistory({ version, before, offset = 0 }: {
   const baseline = before ? documentVersionParam(before) : null;
   const comparison = baseline && baseline !== version ? await workspaceRequest<DocumentComparison>(`/research/compare?${new URLSearchParams({ before: baseline, after: version })}`) : null;
   const diff = comparison?.data;
-  const href = (nextOffset: number) => `${path}?${new URLSearchParams({ ...(baseline ? { before: baseline } : {}), ...(nextOffset ? { history_offset: String(nextOffset) } : {}) })}#captured-versions`;
+  const href = (nextOffset: number) => `${path}?${new URLSearchParams({ ...(returnTo ? { return_to: returnTo } : {}), ...(baseline ? { before: baseline } : {}), ...(nextOffset ? { history_offset: String(nextOffset) } : {}) })}#captured-versions`;
   return <section className={styles.history} id="captured-versions" aria-labelledby="history-title">
     <div className={styles.heading}><div><p className="eyebrow">Evidence history</p><h2 id="history-title">Captured versions</h2></div><span>{versions.total} {versions.total === 1 ? "version" : "versions"} recorded</span></div>
     <p>Compare text captured from this document. Capture times show when Disclosure indexed the content; separate filings and amendments have their own histories.</p>
@@ -25,9 +25,10 @@ export default async function DocumentHistory({ version, before, offset = 0 }: {
             {versions.versions.map(item => <option key={item.version_id} value={item.version_id} disabled={item.version_id === version}>{capturedDate(item.indexed_at)} · {item.version_id.slice(-12)}{item.version_id === version ? " · viewing" : ""}</option>)}
           </select>
         </label>
+        {returnTo && <input type="hidden" name="return_to" value={returnTo}/>}
         {offset > 0 && <input type="hidden" name="history_offset" value={offset}/>}
         <button type="submit" className="btn secondary">Compare captured text</button>
-        {before && <Link href={`${path}#captured-versions`} className={styles.clear}>Clear comparison</Link>}
+        {before && <Link href={`${indexedDocumentHref(version,returnTo)}#captured-versions`} className={styles.clear}>Clear comparison</Link>}
       </form>
       {(offset > 0 || versions.next_offset !== null) && <nav className={styles.paging} aria-label="Captured version pages"><span>Showing {offset + 1}–{offset + versions.versions.length} of {versions.total}</span>{offset > 0 && <Link href={href(Math.max(0, offset - 20))}>Newer captures</Link>}{versions.next_offset !== null && <Link href={href(versions.next_offset)}>Older captures</Link>}</nav>}
     </>}
@@ -36,8 +37,8 @@ export default async function DocumentHistory({ version, before, offset = 0 }: {
     {comparison && !diff && <p role="alert">{comparison.status === 404 ? "One of these captured versions is unavailable." : comparison.status === 422 ? "Only two captured versions of the same document can be compared." : "The comparison could not be loaded. Try again."}</p>}
     {diff && <div className={styles.comparison} aria-label="Captured text comparison">
       <div className={styles.versions}>
-        <div><span className={styles.removed}>− Before</span><Link href={`/research/documents/${encodeURIComponent(diff.before.version_id)}`}>{capturedDate(diff.before.indexed_at)}</Link><small>{diff.before.version_id.slice(-12)}</small></div>
-        <div><span className={styles.added}>+ After · viewing</span><Link href={`/research/documents/${encodeURIComponent(diff.after.version_id)}`}>{capturedDate(diff.after.indexed_at)}</Link><small>{diff.after.version_id.slice(-12)}</small></div>
+        <div><span className={styles.removed}>− Before</span><Link href={indexedDocumentHref(diff.before.version_id,returnTo)}>{capturedDate(diff.before.indexed_at)}</Link><small>{diff.before.version_id.slice(-12)}</small></div>
+        <div><span className={styles.added}>+ After · viewing</span><Link href={indexedDocumentHref(diff.after.version_id,returnTo)}>{capturedDate(diff.after.indexed_at)}</Link><small>{diff.after.version_id.slice(-12)}</small></div>
       </div>
       {!diff.complete && <div className="notice" role="status"><strong>Partial comparison.</strong> {diff.input_truncated ? "The source text exceeds the comparison limit. " : ""}{diff.output_truncated ? "Some changes exceed the display limit. " : ""}Open both captured versions to review the complete extracted text.</div>}
       {diff.text_identical && <p className={styles.empty}>{diff.complete ? "The extracted text is identical. Source bytes or formatting may still differ." : "No text changes were found in the compared portion. This does not establish that the complete documents match."}</p>}

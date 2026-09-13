@@ -233,6 +233,29 @@ def test_membership_changes_preserve_last_owner_and_tenant_isolation(admin_api):
     assert client.get(f"/organizations/{org}", headers={**headers(), "X-Session": normal}).status_code == 404
 
 
+def test_omitted_membership_role_cannot_remove_or_audit_a_member(admin_api):
+    client, app, _ = admin_api
+    _, token = changed_admin(client)
+    owner, member = new_user(app, "missing-role-owner"), new_user(app, "missing-role-member")
+    org = app.state.account_security.create_organization(owner.id, "Required role test")["id"]
+    route = f"/platform-admin/organizations/{org}/members/{member.id}"
+    add = review("membership.change", f"{org}:{member.id}", role="member", expected_version="absent")
+    added = client.post(route, headers=headers(token), json=add)
+    assert added.status_code == 200
+    malformed = review("membership.change", f"{org}:{member.id}", expected_version=added.json()["version"])
+    before = client.get(f"/platform-admin/organizations/{org}", headers=headers(token)).json()
+    audit_before = client.get("/platform-admin/audit", headers=headers(token)).json()
+    for invalid in (malformed, {**malformed, "role": []}, {**malformed, "role": {}}):
+        assert client.post(route, headers=headers(token), json=invalid).status_code == 422
+        with pytest.raises(tenancy.SecurityError) as error:
+            app.state.platform_admin.member_action(token, org, member.id, invalid)
+        assert error.value.status == 422
+    assert client.get(f"/platform-admin/organizations/{org}", headers=headers(token)).json() == before
+    assert client.get("/platform-admin/audit", headers=headers(token)).json() == audit_before
+    removed = client.post(route, headers=headers(token), json={**malformed, "role": None})
+    assert removed.status_code == 200 and removed.json()["membership"] is None
+
+
 def test_pagination_private_content_and_honest_health(admin_api):
     client, app, _ = admin_api
     _, token = changed_admin(client)

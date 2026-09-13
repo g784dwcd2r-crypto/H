@@ -341,8 +341,10 @@ class AdminStore:
 
     def member_action(self, token: str, org: str, uid: str, payload: dict) -> dict:
         reason = self.review(payload, "membership.change", f"{org}:{uid}")
+        if "role" not in payload:
+            raise SecurityError(422, "Supply a role, or explicit null to remove the membership.")
         role = payload.get("role")
-        if role is not None and role not in ROLES:
+        if role is not None and (not isinstance(role, str) or role not in ROLES):
             raise SecurityError(422, "role must be owner, admin, member or null to remove")
         with self.transaction("org:" + org) as tx:
             admin, _ = self.authorize(tx, token, fresh=True)

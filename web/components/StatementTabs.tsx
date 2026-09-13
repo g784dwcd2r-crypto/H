@@ -61,6 +61,9 @@ export default function StatementTabs({
   const negative = String(prefs.get("negative_style", companyCtx)?.value ?? "parentheses");
   const order = (prefs.get("column_order", companyCtx)?.value === "newest_left" ? "newest_left" : "newest_right") as ColumnOrder;
   const remembered = prefs.get("periods_shown", { cik });
+  const displayedPeriodCount = periodsParam ? grid.periods.length : periodsShown;
+  const fullViewQuery = new URLSearchParams({mode:grid.period_mode,restated:grid.restated ? "1" : "0",limit:String(periodsShown)});
+  if (asOf) fullViewQuery.set("as_of",asOf);
 
   const flash = (text: string) => {
     setSaved(text);
@@ -79,7 +82,7 @@ export default function StatementTabs({
     if (periodsParam) q.set("periods", periodsParam);
     q.set("limit", String(limit));
     q.set("mode", mode);
-    if (restated) q.set("restated", "1");
+    q.set("restated", restated ? "1" : "0");
     if (cutoff) q.set("as_of", cutoff);
     router.push(`/companies/${cik}/statements?${q.toString()}`);
   };
@@ -176,11 +179,12 @@ export default function StatementTabs({
           title="As filed shows each filing's own column. Quarterly derives Q4 from the fiscal year; cash flow quarters are differences of the year-to-date columns."
         />
         <span className="muted periods">
-          <select value={periodsShown} onChange={(e) => reload(grid.period_mode, grid.restated, parseInt(e.target.value, 10))} aria-label="Number of periods">
-            {[4, 6, 8, 12, 16, 20, 40].map((n) => (
+          <select disabled={!!periodsParam} title={periodsParam ? "This view uses explicitly selected periods. Open the full financials to change the count." : undefined} value={displayedPeriodCount} onChange={(e) => reload(grid.period_mode, grid.restated, parseInt(e.target.value, 10))} aria-label="Number of periods">
+            {Array.from(new Set([displayedPeriodCount, 4, 6, 8, 12, 16, 20, 40])).sort((a,b) => a-b).map((n) => (
               <option key={n} value={n}>{n} periods</option>
             ))}
           </select>
+          {periodsParam && <Link className="linkbtn" href={`/companies/${cik}/statements?${fullViewQuery}`}>All periods</Link>}
         </span>
         <button className="btn secondary display-options-button" type="button" aria-expanded={optionsOpen} aria-controls="statement-display-options" onClick={() => setOptionsOpen(open => !open)}>Display options <span aria-hidden="true">{optionsOpen ? "−" : "+"}</span></button>
         <button type="button" className="btn secondary" style={{ marginLeft: "auto" }} onClick={() => { setExportOpen(true); logEvent("export.open", {}, signedIn); }}>

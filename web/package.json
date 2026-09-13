@@ -9,7 +9,7 @@
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
     "test": "node --test tests/*.test.cjs",
-    "test:browser": "node tests/browser-smoke.mjs && node tests/platform-smoke.mjs && node tests/history-smoke.mjs",
+    "test:browser": "node tests/browser-smoke.mjs && node tests/platform-smoke.mjs && node tests/history-smoke.mjs && node tests/usability-smoke.mjs",
     "test:admin": "node tests/admin-smoke.mjs"
   },
   "dependencies": {
