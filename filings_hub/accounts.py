@@ -278,6 +278,8 @@ class LakeUserStore:
             existing = self.get_user_by_email(email)
             if existing is not None:
                 return existing
+            if policy := getattr(self, "registration_policy", None):
+                policy(email)
             user = User(id=uuid.uuid4().hex, email=email.strip().lower()).with_profile(profile or {})
             self._write(f"{USERS}/{user.id}.json", user.to_dict())
             self._write(f"{USERS}/by_email/{_email_key(email)}.json", {"id": user.id})
@@ -428,6 +430,8 @@ class PostgresUserStore:
         return self._user(self._one("SELECT * FROM users WHERE email = %s", (email.strip().lower(),)))
 
     def create_user(self, email: str, profile: dict[str, Any] | None = None) -> User:
+        if policy := getattr(self, "registration_policy", None):
+            policy(email)
         user = User(id=uuid.uuid4().hex, email=email.strip().lower()).with_profile(profile or {})
         # The uniqueness constraint arbitrates simultaneous first sign-ins. Return the existing
         # account on conflict without overwriting its profile with a competing sign-up's defaults.

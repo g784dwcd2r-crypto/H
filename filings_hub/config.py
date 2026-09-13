@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from functools import lru_cache
+from typing import Literal
 
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -38,6 +39,11 @@ class Settings(BaseSettings):
     auth_dev_links: bool = Field(default=False, description="Return magic links in the API response (dev only).")
     signup_business_email_only: bool = Field(default=False, description="Reject free-mail domains at sign-up.")
     api_rate_limit_per_minute: int = 60
+    platform_admin_enabled: bool = False
+    platform_admin_environment: Literal["development", "production"] = "production"
+    platform_admin_origin: str = ""
+    platform_admin_local_bootstrap: bool = False
+    platform_admin_session_minutes: int = Field(default=30, ge=5, le=60)
 
     edgar_requests_per_second: float = 10.0
     edgar_max_retries: int = 5

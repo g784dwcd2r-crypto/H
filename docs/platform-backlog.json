@@ -904,7 +904,10 @@
         {
           "id": "D16.04",
           "requirement": "Service accounts and policy administration",
-          "status": "planned"
+          "status": "partial",
+          "implementation_scope": "Dedicated platform operator control plane with reviewed account/session and tenant-role administration; service accounts, multiple named operators and fine-grained platform roles remain planned.",
+          "production_validated": false,
+          "evidence_document": "platform-administration.md"
         },
         {
           "id": "D16.05",
@@ -1102,7 +1105,10 @@
         {
           "id": "D19.05",
           "requirement": "Secrets/encryption/least privilege",
-          "status": "planned"
+          "status": "partial",
+          "implementation_scope": "Explicit local-only bootstrap, scrypt credential storage, separate revocable operator sessions, origin/CSRF protection and reviewed privileged writes. MFA, broader encryption/key lifecycle, deployment least-privilege verification and independent assurance remain planned.",
+          "production_validated": false,
+          "evidence_document": "platform-administration.md"
         },
         {
           "id": "D19.06",
@@ -1112,7 +1118,10 @@
         {
           "id": "D19.07",
           "requirement": "Freshness/completeness/latency/cost instrumentation",
-          "status": "planned"
+          "status": "partial",
+          "implementation_scope": "Operator views expose registered research coverage/failures, incomplete inventories, observed discovery age and serving runs/publication; production latency/cost instrumentation and service commitments remain planned.",
+          "production_validated": false,
+          "evidence_document": "platform-administration.md"
         },
         {
           "id": "D19.08",
@@ -1168,7 +1177,10 @@
         {
           "id": "D20.05",
           "requirement": "Support/training/escalation and service docs",
-          "status": "planned"
+          "status": "partial",
+          "implementation_scope": "Operational account/role support console and bootstrap/recovery runbook; staffed support, training, contractual escalation and production service procedures remain planned.",
+          "production_validated": false,
+          "evidence_document": "platform-administration.md"
         },
         {
           "id": "D20.06",
@@ -1307,5 +1319,11 @@
       "browser_fixture": "isolated synthetic SEC lake and mocked transport",
       "production_validated": false
     }
+  },
+  "administration_delivery": {
+    "baseline_commit": "bfb1a6ac087b2c59a3a5085015193ff638886e4a",
+    "scope": "Separate operator console and audited support controls; no production bootstrap, provider connection or scheduler activation. Research-job engine integration is optional and explicitly unavailable when absent.",
+    "evidence_document": "platform-administration.md",
+    "production_validated": false
   }
 }

@@ -59,6 +59,21 @@ jobs:
           FILINGS_API_KEY: preview
           SMOKE_BASE_URL: http://localhost:3100
       - run: npm run test:browser
+      - name: Start isolated administrator acceptance servers
+        run: |
+          ../.venv/bin/python -m filings_hub.testing.admin_preview_server > /tmp/disclosure-admin-api.log 2>&1 &
+          npm start -- --hostname 127.0.0.1 --port 3201 > /tmp/disclosure-admin-web.log 2>&1 &
+          for attempt in $(seq 1 60); do
+            if curl -fsS http://localhost:3201/admin >/dev/null && curl -fsS http://127.0.0.1:8201/health >/dev/null; then exit 0; fi
+            sleep 1
+          done
+          cat /tmp/disclosure-admin-api.log /tmp/disclosure-admin-web.log
+          exit 1
+        env:
+          FILINGS_API_URL: http://127.0.0.1:8201
+          FILINGS_API_KEY: admin-preview
+          PLATFORM_ADMIN_ORIGIN: http://localhost:3201
+      - run: npm run test:admin
       - uses: actions/upload-artifact@v4
         if: always()
         with:
