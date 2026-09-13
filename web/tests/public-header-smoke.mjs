@@ -113,7 +113,7 @@ try {
     await page.getByRole('textbox', { name: 'Email address', exact: true }).fill(email);
     await page.route('**/api/auth/magic-link', route => route.abort('failed'), { times: 1 });
     await page.getByRole('button', { name: 'Email me a link' }).click();
-    await page.getByRole('alert').waitFor();
+    await page.getByRole('alert').filter({ hasText: 'That did not go through' }).waitFor();
     assert.equal(await page.getByRole('textbox', { name: 'Email address', exact: true }).inputValue(), email);
     await page.getByRole('button', { name: 'Email me a link' }).click();
     const devLink = page.getByRole('link', { name: 'open the link' });
