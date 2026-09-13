@@ -1,0 +1,37 @@
+name: live-check
+# Reads the deployed services from a runner and prints what a visitor would see. No secrets:
+# only public pages. Run it from the Actions tab after a deploy, or it runs when this file changes.
+on:
+  workflow_dispatch:
+    inputs:
+      cik:
+        description: CIK of the company page to read
+        default: "320193"
+  push:
+    paths: [".github/workflows/live-check.yml"]
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      API: https://filings-hub-api.onrender.com
+      WEB: https://filings-hub-web.onrender.com
+      CIK: ${{ github.event.inputs.cik || '320193' }}
+    steps:
+      - name: API health
+        run: |
+          curl -sS -m 180 -w '\nhealth status=%{http_code} time=%{time_total}s\n' "$API/health"
+      - name: Web pages
+        run: |
+          curl -sS -m 180 -o /tmp/home.html -w 'home status=%{http_code} time=%{time_total}s bytes=%{size_download}\n' "$WEB/"
+          curl -sS -m 180 -o /tmp/search.html -w 'search status=%{http_code} time=%{time_total}s redirect=%{redirect_url}\n' "$WEB/?q=AAPL"
+          curl -sS -L -m 300 -o /tmp/company.html -w 'company status=%{http_code} time=%{time_total}s bytes=%{size_download}\n' "$WEB/companies/$CIK"
+          echo "--- company page text (first matches)"
+          grep -o '<title>[^<]*' /tmp/company.html | head -n 1
+          grep -o -i 'No data[^<]\{0,80\}\|no filings[^<]\{0,80\}\|not available[^<]\{0,80\}\|unknown CIK[^<]\{0,40\}\|Something went wrong[^<]\{0,60\}' /tmp/company.html | head -n 5 || true
+          grep -o -i 'Revenue[^<]\{0,40\}\|Net income[^<]\{0,40\}\|10-K[^<]\{0,30\}' /tmp/company.html | head -n 5 || true
+          curl -sS -L -m 300 -o /tmp/statements.html -w 'statements status=%{http_code} time=%{time_total}s bytes=%{size_download}\n' "$WEB/companies/$CIK/statements"
+          grep -o -i 'FY20[0-9][0-9]' /tmp/statements.html | sort -u | tail -n 5 | tr '\n' ' '; echo
+      - name: API health again
+        run: |
+          curl -sS -m 180 -w '\nhealth status=%{http_code} time=%{time_total}s\n' "$API/health"
