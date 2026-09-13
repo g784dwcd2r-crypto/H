@@ -125,17 +125,21 @@ Measured against the acceptance targets (fixture lake, DuckDB backend): statemen
 
 Company search is a `UNION` of one branch per identifier (name, ticker, CIK) rather than a single `OR`, because an `OR` across three columns cannot use an index: benchmarked against a 900k-company table, that is **207 ms → 0.6 ms**. The name branch uses a `pg_trgm` GIN index (migration `0002`, which degrades to a sequential scan if the extension is not permitted) and is capped at 5,000 candidates so a bare industry word cannot make ranking cost more than the scan it replaced.
 
-## Deploy to Render
+## Deploy
 
-[`render.yaml`](render.yaml) is a Render Blueprint: one Postgres, the API, the daily worker and the web app. The lake goes in S3 because Render disks cannot be shared between services, and S3 is what the plan calls for anyway.
+Two layouts, same code. Both keep the lake in S3-compatible object storage (Cloudflare R2 is the cheap default: 10 GB free, no egress fees).
 
-1. **Object storage.** Any S3-compatible bucket. Cloudflare R2 is the cheap default (10 GB free, no egress fees): create a bucket, then *Manage R2 API Tokens* → token with *Object Read & Write* on that bucket; it shows the access key pair and the endpoint `https://<account-id>.r2.cloudflarestorage.com`. Use `AWS_REGION=auto` for R2. Plain AWS S3 works the same with an IAM key and the endpoint left empty.
-2. **Push the lake.** After a local backfill, copy it up once with the AWS CLI (`brew install awscli`, `aws configure` with that key pair): `aws s3 sync ./data s3://BUCKET/filings-hub --exclude "raw/*"`, adding `--endpoint-url https://<account-id>.r2.cloudflarestorage.com` for R2. `raw/` can stay local; nothing downstream needs it once the lake is built.
-3. **Blueprint.** Render dashboard → *New* → *Blueprint* → this repository. Render asks for the `sync: false` values: `SEC_USER_AGENT`, `LAKE_ROOT` (`s3://BUCKET/filings-hub`), the AWS key pair. Everything else is generated or wired (`DATABASE_URL`, `API_KEY`, the web app's private-network URL to the API).
-4. **Load Postgres** from the machine that holds the lake, using the database's *external* connection string from the Render dashboard: `DATABASE_URL="postgresql://…render.com/…" filings-hub load`. This is the only step that moves the whole serving set over the internet; it takes a while for the full universe.
-5. **Check.** `curl https://filings-hub-api.onrender.com/health` reports `backend: postgres` and the last run. Open the web service URL, search a ticker, download a workbook.
+**Free** ([`render.yaml`](render.yaml)): GitHub Actions runs the daily refresh, two Render free web services serve the API and the site straight from the lake with DuckDB. Nothing is billed. Free services sleep after 15 idle minutes (first request afterwards ~30 s) and queries read Parquet from R2 rather than Postgres, so they are slower than the benchmark numbers above.
 
-From then on the worker refreshes every weekday at 06:00 New York into S3 and Postgres, and the GitHub Actions cron stays out of the way (it only runs when its own `LAKE_ROOT` secret is set). Two knobs to size after the first real run: the database disk (`diskSizeGB` in the Blueprint; the full-universe `statements` table is tens of GB) and the worker's instance size (the refresh scans facts with DuckDB, so watch its memory on the first runs).
+**Full** ([`deploy/render.full.yaml`](deploy/render.full.yaml)): Render Postgres for serving, an always-on worker for the refresh, paid plans. `cp deploy/render.full.yaml render.yaml` to upgrade, then load Postgres from the machine holding the lake (`DATABASE_URL="<external connection string>" filings-hub load`).
+
+Order of operations for the free layout:
+
+1. **Object storage.** In Cloudflare: R2 → create a bucket → *Manage R2 API Tokens* → token with *Object Read & Write* on that bucket. It shows the access key pair and the endpoint `https://<account-id>.r2.cloudflarestorage.com`. (Plain AWS S3 works the same with an IAM key and the endpoint left empty.)
+2. **Push the lake.** After a local backfill, copy it up once with the AWS CLI (`brew install awscli`, `aws configure` with that key pair, region `auto`): `aws s3 sync ./data s3://BUCKET/filings-hub --exclude "raw/*" --endpoint-url https://<account-id>.r2.cloudflarestorage.com`. `raw/` can stay local; nothing downstream needs it once the lake is built.
+3. **GitHub secrets** (repository → Settings → Secrets and variables → Actions): `SEC_USER_AGENT`, `LAKE_ROOT` (`s3://BUCKET/filings-hub`), `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_REGION` (`auto` for R2), `AWS_ENDPOINT_URL`, optionally `SLACK_WEBHOOK_URL`. The `daily-refresh` workflow then runs every weekday at 06:00 New York; *Run workflow* on the Actions tab runs it on demand.
+4. **Blueprint.** Render dashboard → *New* → *Blueprint* → this repository. It asks for the same lake values; `API_KEY` and the site's link to the API are generated.
+5. **Check.** `https://filings-hub-api.onrender.com/health` reports `backend: duckdb` and the last run. Open the web service URL, search a ticker, download a workbook.
 
 ## Quality
 
