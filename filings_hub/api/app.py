@@ -216,12 +216,22 @@ def create_app(
         runs = database.query_if_idle(
             "SELECT run_id, status, finished_at FROM run_log ORDER BY started_at DESC LIMIT 1", timeout=1.0
         )
+        companies = None if runs is None else database.query_if_idle("SELECT count(*) AS n FROM companies", timeout=1.0)
         return {
             "status": "ok",
             "version": __version__,
             "backend": database.backend,
             "last_run": runs[0] if runs else None,
             "busy": runs is None,
+            # what the service is actually serving from, so an empty site can be diagnosed from
+            # this one response: the lake it was pointed at, whether the universe table arrived,
+            # and whether the background bind of the filings table has finished
+            "lake": {
+                "root": storage.root,
+                "remote": database.is_remote_lake,
+                "companies": companies[0]["n"] if companies else None,
+                "filings_ready": getattr(database, "filings_ready", True),
+            },
         }
 
     @app.get("/search")

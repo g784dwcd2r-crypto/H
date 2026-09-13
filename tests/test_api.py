@@ -396,6 +396,7 @@ def test_health_answers_while_the_lake_connection_is_busy(client):
         assert body["status"] == "ok"
         assert body["busy"] is True
         assert body["last_run"] is None
+        assert body["lake"]["companies"] is None
         assert db.query_if_idle("SELECT 1 AS one", timeout=0.05) is None
     finally:
         release.set()
@@ -403,4 +404,8 @@ def test_health_answers_while_the_lake_connection_is_busy(client):
     idle = client.get("/health").json()
     assert idle["busy"] is False
     assert idle["last_run"] is not None
+    assert idle["lake"]["companies"] > 0
+    assert idle["lake"]["remote"] is False
+    assert idle["lake"]["filings_ready"] is True
+    assert idle["lake"]["root"] == db.storage.root
     assert db.query_if_idle("SELECT 1 AS one") == [{"one": 1}]
