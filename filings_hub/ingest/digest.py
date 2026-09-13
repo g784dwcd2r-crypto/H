@@ -81,8 +81,8 @@ def send_digests(
             what = "Earnings release (8-K)" if base_form(r.get("form") or "") == "8-K" else r.get("form")
             link = (f"{site_url}/companies/{r['cik']}" if site_url else r.get("primary_doc_url")) or ""
             lines.append(f"{name}: {what}, filed {r.get('filed_date')}\n  {link}")
-        body = "New results filings for companies you follow:\n\n" + "\n\n".join(lines) + "\n\n— Filings Hub"
-        subject = f"Filings Hub: {len(mine)} new results filing{'s' if len(mine) != 1 else ''}"
+        body = "New results filings for companies you follow:\n\n" + "\n\n".join(lines) + "\n\n— Disclosure"
+        subject = f"Disclosure: {len(mine)} new results filing{'s' if len(mine) != 1 else ''}"
         try:
             if send(sub["email"], subject, body):
                 sent += 1

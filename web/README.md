@@ -1,4 +1,4 @@
-# Filings Hub web (Phase 3)
+# Disclosure web (Phase 3)
 
 Next.js app with three screens: search, company page (period rows + collapsed "other filings"), statements view (IS / BS / CF tabs, periods as columns, Excel download). No form codes on the surface.
 

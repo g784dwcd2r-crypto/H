@@ -21,3 +21,7 @@ variables) and the form starts refusing free-mail domains. The list of free-mail
   not configured and visitors keep their choices in the browser.
 - Accounts on the free Render layout need the read-write R2 token on the API (the read-only one
   cannot store users).
+
+## Product name: Disclosure (2026-09-13)
+
+The product is called **Disclosure**. Everything a person sees says so: the site, page titles, sign-in and digest emails, the workbook's creator field. The Python package (`filings_hub`), the `filings-hub` command, the lake prefix and the Render service names stay as they are: renaming them would move live URLs and secrets for no user-visible gain. Revisit when the domain is bought and the services are recreated under it.

@@ -4,7 +4,7 @@ import { api } from "@/lib/api";
 import { currentUser, sessionToken } from "@/lib/session";
 
 export const dynamic = "force-dynamic";
-export const metadata = { title: "Settings · Filings Hub" };
+export const metadata = { title: "Settings · Disclosure" };
 
 export default async function SettingsPage() {
   const user = await currentUser();

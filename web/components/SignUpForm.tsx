@@ -130,9 +130,9 @@ export default function SignUpForm({ businessOnly, emailLink }: { businessOnly: 
       </label>
       <label className="check">
         <input type="checkbox" checked={f.marketing_opt_in} onChange={(e) => set("marketing_opt_in", e.target.checked)} />
-        <span>I would like to receive updates from Filings Hub on new features, coverage and other relevant news.</span>
+        <span>I would like to receive updates from Disclosure on new features, coverage and other relevant news.</span>
       </label>
-      <p className="muted small">By submitting this form you agree to Filings Hub&apos;s Terms of Use and Privacy Policy. No password: we email you a link.</p>
+      <p className="muted small">By submitting this form you agree to Disclosure&apos;s Terms of Use and Privacy Policy. No password: we email you a link.</p>
       {error && !error.toLowerCase().includes("email") && <p className="err">{error}</p>}
       {state === "off" && <p className="muted">Sign-up is not switched on for this deployment yet.</p>}
       <button className="btn wide" type="submit" disabled={state === "sending"}>

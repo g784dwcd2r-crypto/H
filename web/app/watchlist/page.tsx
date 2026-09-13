@@ -4,7 +4,7 @@ import type { Remembered } from "@/lib/local";
 import { sessionToken } from "@/lib/session";
 
 export const dynamic = "force-dynamic";
-export const metadata = { title: "Watchlist · Filings Hub" };
+export const metadata = { title: "Watchlist · Disclosure" };
 
 export default async function WatchlistPage() {
   const token = await sessionToken();

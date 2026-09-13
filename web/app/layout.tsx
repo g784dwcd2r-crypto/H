@@ -5,7 +5,7 @@ import UserMenu from "@/components/UserMenu";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Filings Hub",
+  title: "Disclosure",
   description: "Any SEC-registered company: periods, results filings, as-reported statements, Excel.",
 };
 
@@ -24,7 +24,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <Shortcuts />
         <header className="top">
           <div className="inner">
-            <Link href="/" className="brand">Filings Hub</Link>
+            <Link href="/" className="brand">Disclosure</Link>
             <nav>
               <Link href="/">Search</Link>
               <Link href="/watchlist">Watchlist</Link>
@@ -36,7 +36,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <main>{children}</main>
         <footer className="bottom">
           <div className="inner">
-            <span>Filings Hub · SEC filings, organised by period. Statements exactly as reported.</span>
+            <span>Disclosure · SEC filings, organised by period. Statements exactly as reported.</span>
             <span>Source: SEC EDGAR and the Financial Statement Data Sets. Refreshed daily. Keys: <kbd>/</kbd> search · <kbd>w</kbd> watchlist · <kbd>1</kbd>–<kbd>3</kbd> statements</span>
           </div>
         </footer>

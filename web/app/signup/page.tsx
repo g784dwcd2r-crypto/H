@@ -5,7 +5,7 @@ import { api } from "@/lib/api";
 import { currentUser } from "@/lib/session";
 
 export const dynamic = "force-dynamic";
-export const metadata = { title: "Get started · Filings Hub" };
+export const metadata = { title: "Get started · Disclosure" };
 
 export default async function SignUpPage() {
   if (await currentUser()) redirect("/settings");

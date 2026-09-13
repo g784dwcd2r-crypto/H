@@ -139,7 +139,7 @@ def create_app(
     signer = accounts.SessionSigner(s.session_secret, s.session_days)
     magic_limiter = RateLimiter(3)
 
-    app = FastAPI(title="Filings Hub API", version=__version__, docs_url="/docs")
+    app = FastAPI(title="Disclosure API", version=__version__, docs_url="/docs")
     app.state.db = database
     app.state.edgar = client
     app.state.users = users
@@ -620,11 +620,11 @@ def create_app(
             from filings_hub.ingest.alerts import send_email
 
             body = (
-                "Sign in to Filings Hub with this link (valid for 15 minutes):\n\n"
+                "Sign in to Disclosure with this link (valid for 15 minutes):\n\n"
                 f"{link}\n\nIf you did not ask for it, ignore this email."
             )
             try:
-                out["sent"] = send_email(email, "Your Filings Hub sign-in link", body, s)
+                out["sent"] = send_email(email, "Your Disclosure sign-in link", body, s)
             except Exception as e:
                 log.error("magic link email failed: %s", e)
         if s.auth_dev_links:
@@ -656,11 +656,11 @@ def create_app(
             from filings_hub.ingest.alerts import send_email
 
             body = (
-                f"Welcome to Filings Hub, {profile['first_name']}.\n\nFinish creating your account with this link "
+                f"Welcome to Disclosure, {profile['first_name']}.\n\nFinish creating your account with this link "
                 f"(valid for 15 minutes):\n\n{link}\n\nIf you did not sign up, ignore this email."
             )
             try:
-                out["sent"] = send_email(email, "Finish creating your Filings Hub account", body, s)
+                out["sent"] = send_email(email, "Finish creating your Disclosure account", body, s)
             except Exception as e:
                 log.error("sign-up email failed: %s", e)
         if s.auth_dev_links:

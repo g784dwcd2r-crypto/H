@@ -1,7 +1,7 @@
 import { api, fmtDate, type Dashboard, type TouchReport } from "@/lib/api";
 
 export const dynamic = "force-dynamic";
-export const metadata = { title: "Metrics · Filings Hub" };
+export const metadata = { title: "Metrics · Disclosure" };
 
 const n = (v: number | null | undefined) => (v === null || v === undefined ? "–" : v.toLocaleString("en-US"));
 const VALUE_WORDS = (v: unknown) => (typeof v === "object" && v !== null ? "settings" : String(v));
