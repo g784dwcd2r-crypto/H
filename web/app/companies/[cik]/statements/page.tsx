@@ -26,9 +26,10 @@ export default async function StatementsPage({
   const download = `/api/export?cik=${id}&limit=${n}` + (periods ? `&periods=${encodeURIComponent(periods)}` : "");
   return (
     <>
-      <p className="muted"><Link href={`/companies/${id}`}>← {grid.company_name}</Link></p>
+      <p className="crumb"><Link href={`/companies/${id}`}>← {grid.company_name}</Link></p>
+      <p className="eyebrow">As reported</p>
       <h1>{grid.company_name}{grid.ticker && <span className="chip">{grid.ticker}</span>}</h1>
-      <p className="muted">
+      <p className="meta">
         As-reported statements · {grid.periods.length} period{grid.periods.length === 1 ? "" : "s"}
         {periods ? "" : <> · <Link href={`/companies/${id}/statements?limit=${Math.min(n + 8, 40)}`}>show more periods</Link></>}
       </p>

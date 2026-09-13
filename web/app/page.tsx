@@ -9,12 +9,15 @@ export default async function Home({ searchParams }: { searchParams: Promise<{ q
   const results = q ? (await api.search(q)).results : null;
   return (
     <>
-      <h1>Find a company</h1>
-      <p className="muted">Every SEC registrant. Type a name, a ticker or a CIK.</p>
-      <SearchForm initial={q ?? ""} />
+      <section className="hero">
+        <p className="eyebrow">Every SEC registrant</p>
+        <h1>Filings, organised the way analysts read them.</h1>
+        <p className="lead">Find a company. See each fiscal period with its results filing and earnings release. Open the statements exactly as reported, or take them to Excel.</p>
+        <SearchForm initial={q ?? ""} />
+      </section>
       {results && (
         <>
-          <h2>{results.length ? `Results for “${q}”` : `Nothing found for “${q}”`}</h2>
+          <p className="eyebrow">{results.length ? `${results.length} result${results.length === 1 ? "" : "s"} for “${q}”` : `Nothing found for “${q}”`}</p>
           {results.length > 0 && (
             <table>
               <thead>
