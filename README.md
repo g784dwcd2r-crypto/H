@@ -1,16 +1,16 @@
 # Disclosure
 
-Any SEC-registered company → clean, period-organised filing hub → as-reported financial statements → Excel. Refreshed daily.
+Find SEC-registered companies, review period-organised filings and as-reported statements, and export to Excel. Statement availability varies by company and period; `/coverage` reports the serving data.
 
 The product is called **Disclosure**; the Python package, the `filings-hub` command and the Render service names keep their original names so nothing deployed has to move.
 
-This repository is **Layer 1** of the plan in [`docs/layer1_execution_plan.md`](docs/layer1_execution_plan.md): the data foundation (Phase 1), the API (Phase 2), the three-screen web app (Phase 3, [`web/`](web/)) and the scale/harden pieces that live in code (Phase 4: metrics, data-quality queue, scheduler worker). No user accounts, no NLP, no non-US filers.
+Disclosure includes the SEC data pipeline, API, research workspace, accounts, scoped preferences and Excel export. The release foundation adds an interactive landing page, per-value evidence, conservative derived financials, measured public coverage, private operations reporting and durable refresh recovery. See [financial methodology](docs/financial-methodology.md), [recovery and upgrades](docs/recovery.md), and [release readiness](docs/release-readiness.md). Global regulator coverage, team workspaces and enterprise controls remain future releases; foreign registrants are included when they file with the SEC.
 
 ## Three commands
 
 ```bash
 cp .env.example .env            # set SEC_USER_AGENT="Your Name you@example.com" (required by the SEC), LAKE_ROOT, DATABASE_URL
-uv venv && uv pip install -e ".[dev]"
+uv sync --frozen --extra dev
 
 filings-hub backfill            # bulk: submissions.zip + companyfacts.zip + FSDS quarters -> lake -> Postgres (hours)
 filings-hub refresh             # daily: yesterday's daily index -> new filings/facts/statements -> Postgres -> run_log
@@ -104,8 +104,9 @@ Every FSDS table load is reconciled and recorded in `fsds/load_log/`: raw rows i
 | `GET /companies/{cik}/export.xlsx?periods=` | the workbook |
 | `GET /companies/{cik}/documents · /filings/{acc}/document · /search?q= · /peers, GET /filings/recent, POST /subscriptions · /requests
 GET /companies/{cik}/facts?concept=&history=true` | XBRL fact history from the lake |
-| `GET /metrics` | dashboard feed (Phase 4) |
-| `GET /quality/failed` | failed arithmetic checks queue (Phase 4) |
+| `GET /coverage` | public measured coverage and methodology limits |
+| `GET /metrics` | administrator dashboard; requires a verified admin session |
+| `GET /quality/failed` | administrator arithmetic-check queue |
 | `GET /health` | backend and last run |
 
 ## Stage 1 hub features
@@ -116,7 +117,7 @@ GET /companies/{cik}/facts?concept=&history=true` | XBRL fact history from the l
 * **Reader.** Filings open inside the hub: sanitised HTML in a sandboxed frame with a table of contents (Parts, Items, statement titles) and a link back to sec.gov.
 * **Search inside a company's filings.** "Where did they last mention buybacks": phrase search with context across the results filings and earnings releases, newest first (`/companies/{cik}/search?q=`).
 * **Numbers in the period table.** Revenue, net income and diluted EPS per period, read off the as-reported statements; `company_metrics/` holds each company's latest annual numbers (`filings-hub metrics` rebuilds it).
-* **Watchlist.** Follow companies (kept in the browser), see what they filed lately, and subscribe by email to their results filings: the refresh mails a digest (`SMTP_HOST`, `SMTP_USER`, `SMTP_PASSWORD`, `SITE_URL`). Subscriptions and coverage requests are stored in the lake, so the API needs a writable lake for them.
+* **Watchlist and alerts.** Follow companies in the browser or your account and see recent filings. Signed-in accounts can enable, update or pause alerts to their verified email via `GET/POST/DELETE /subscriptions`. The alert company list is a saved snapshot; update it after changing followed companies. Delivery uses `SMTP_HOST`, `SMTP_USER`, `SMTP_PASSWORD`, `SITE_URL` and durable receipts. Subscriptions and coverage requests require a writable lake.
 * **Peers.** Same industry code, biggest first.
 * **Keys.** `/` focuses search, `w` opens the watchlist, `1`–`3` switch statements, `m`/`t`/`u` change the scale.
 * **International as a promise.** UK, Europe and rest-of-world tabs take coverage requests.
@@ -129,16 +130,16 @@ Preferences are one record per `(scope, scope_key, key)` with a `source` (explic
 
 Every control on the site is the same component (`PrefControl`): the value, a selector for where the choice applies (statement, company, industry, everywhere, whichever the context has), and a tag saying where it is currently set from.
 
-* **Statements toolbar.** Scale (all four scopes; per-share never scaled), period view, column order, negative style, latest-filed comparatives, number of periods. Period views: *as filed* (each filing's own column), *quarterly* (Q4 = fiscal year less the nine months, or less Q1+Q2+Q3; cash flow quarters are differences of the year-to-date columns; opening balances follow), *annual*, *LTM* (year to date + prior fiscal year − prior year to date). Derived columns are marked and shaded; a Q4 that cannot be derived stays empty rather than wrong; derived per-share amounts are approximations. *Restated* takes a column's numbers from the newest later filing that presents the period (as-filed and annual views; the column names the filing). Grid API: `GET /companies/{cik}/statements?period_mode=&restated=&column_order=`.
+* **Statements toolbar.** Scale (all four scopes; per-share never scaled), period view, column order, negative style, latest-filed comparatives, number of periods. Period views: *as filed* (each filing's own column), *quarterly* (Q4 = fiscal year less the nine months, cash flow quarters are differences of the year-to-date columns; opening balances follow), *annual*, *LTM* (year to date + prior fiscal year − prior year to date). Derived columns are marked and shaded; a Q4 that cannot be derived stays empty rather than wrong; unsupported derived per-share amounts, weighted averages and unvalidated concepts remain unavailable with explicit reasons. *Restated* takes a column's numbers from the newest later filing that presents the period (as-filed and annual views; the column names the filing). Grid API: `GET /companies/{cik}/statements?period_mode=&restated=&column_order=`.
 * **Export dialog.** Layout (sheet per statement or one sheet), orientation (periods across or down), subtotals as values or as formulas (a formula only where the reported children add up to the reported total), what to include (Source sheet, checks column, concept names, filing rows), number scale, negative style, statements, and a file name pattern (`{ticker} {cik} {name} {mode} {date} {periods}`). "Remember these settings" stores them as `export_config` for the company, the industry or everywhere; named profiles live in the `export` scope. `GET /companies/{cik}/export.xlsx?layout=&orientation=&subtotals=&include=&scale=&negative_style=&filename=&statements=` plus the grid parameters.
-* **Headline cards.** Four swappable numbers on the company page from a wider metric set (gross profit, operating income, net interest income, provisions, deposits, capex, buybacks…), starting from an industry preset (banks: net interest income, provision, net income, assets), remembered as `headline_cards` at any scope. Follow is kept on the account when signed in (`watchlist`, global); the browser's list is imported the first time.
+* **Headline cards.** Four swappable numbers on the company page from a wider metric set (gross profit, operating income, net interest income, provisions, deposits, capex, buybacks…), starting from an industry preset (banks: net interest income, provision, net income, assets), remembered as `headline_cards` at any scope. Follow is kept on the account when signed in (`watchlist`, global). Browser and account lists stay separate; account reads do not reuse a cache across sign-ins.
 * **Proposals.** Three strikes: the same explicit choice on three companies (period view, scale, column order, restated, periods shown, negative style, export settings) while the global value says otherwise is proposed once as the default everywhere. Dismissed twice it never returns; accepted it becomes a global preference with `source=inferred`, which `/settings` shows as "suggested, you accepted". `GET/POST /me/proposals`.
-* **Analytics.** Every preference write is an event; the UI posts its own (`POST /me/events`: export opened/downloaded, cards swapped, proposals shown/accepted/dismissed, follow). `GET /metrics/prefs?days=` aggregates writes by key, scope and value, plus UI events by name, and `/metrics` on the site shows it under the lake dashboard. Signed-in people only; nothing is tracked for visitors.
+* **Private analytics.** `ADMIN_EMAILS` is a comma-separated allowlist of verified accounts. `/metrics`, `/metrics/prefs` and `/quality/failed` require an administrator session as well as the service API key; an empty allowlist denies access. Telemetry stores only known option enums/counts and event names. Watchlists, arbitrary preference keys, export filenames/profile names and UI props are excluded. Legacy records are filtered again before aggregation; existing raw legacy records require an operator retention/purge policy.
 
 ## Web app (Phase 3)
 
 ```bash
-cd web && npm install && cp .env.example .env.local   # FILINGS_API_URL, FILINGS_API_KEY (server-side only)
+cd web && npm ci && cp .env.example .env.local   # FILINGS_API_URL, FILINGS_API_KEY (server-side only)
 npm run dev                                           # http://localhost:3000
 ```
 

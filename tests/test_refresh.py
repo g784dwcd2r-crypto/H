@@ -125,8 +125,8 @@ def test_refresh_new_10k(lake_copy: Storage, monkeypatch: pytest.MonkeyPatch):
         [fx.APPLE_10K_FY2026],
     )
     assert ni == [{"value": float(fx.APPLE_IS[fx.P_FY2026]["NetIncomeLoss"])}]
-    logs = duck.fetch_dicts("SELECT kind, status, new_filings FROM run_log ORDER BY started_at")
-    assert logs[-1] == {"kind": "refresh", "status": "ok", "new_filings": 2}
+    logs = duck.fetch_dicts("SELECT kind, status, new_filings FROM run_log WHERE run_id = ?", [run.run_id])
+    assert logs == [{"kind": "refresh", "status": "ok", "new_filings": 2}]
     duck.close()
     assert alerts == []
 
@@ -153,7 +153,7 @@ def test_refresh_catches_up_and_flags_empty_weekday(lake_copy: Storage, monkeypa
         date(2026, 9, 16),
         date(2026, 9, 17),
     ]
-    assert R.index_dates_to_process(lake_copy, date(2026, 12, 1))[0] == date(2026, 11, 24)  # capped at 7 days
+    assert R.index_dates_to_process(lake_copy, date(2026, 12, 1)) == [date(2026, 9, d) for d in range(15, 22)]
     assert R.index_dates_to_process(lake_copy, date(2026, 9, 18), date(2026, 9, 1)) == [date(2026, 9, 1)]
 
 
@@ -166,8 +166,10 @@ def test_refresh_isolated_company_failure(lake_copy: Storage, monkeypatch: pytes
         fail_ciks={fx.JPM},
     )
     run = R.run_refresh(lake_copy, fake, today=date(2026, 11, 3), index_date=day, load_db=False)
-    assert run.status == "ok" and run.ciks_refreshed == 1 and len(run.failures) == 1 and "19617" in run.failures[0]
+    assert run.status == "failed" and run.ciks_refreshed == 1 and len(run.failures) == 1 and "19617" in run.failures[0]
     assert _periods(lake_copy, fx.APPLE)["FY2026"]["results_accession"] == fx.APPLE_10K_FY2026
+    assert R.index_dates_to_process(lake_copy, date(2026, 12, 1))[0] == day
+    assert alerts[0][0] == "filings-hub refresh failed"
 
 
 def test_refresh_total_failure_is_logged_and_alerted(lake_copy: Storage, monkeypatch: pytest.MonkeyPatch):
@@ -183,7 +185,7 @@ def test_refresh_total_failure_is_logged_and_alerted(lake_copy: Storage, monkeyp
     assert alerts[0][0] == "filings-hub refresh failed"
     duck = Duck(lake_copy)
     duck.create_views()
-    assert duck.fetch_dicts("SELECT status FROM run_log ORDER BY started_at DESC LIMIT 1") == [{"status": "failed"}]
+    assert duck.fetch_dicts("SELECT status FROM run_log WHERE run_id = ?", [run.run_id]) == [{"status": "failed"}]
     duck.close()
 
 
@@ -209,6 +211,213 @@ def test_new_fsds_quarter_is_picked_up(lake_copy: Storage):
     loaded = R.maybe_load_new_fsds(lake_copy, WithFsds({}), date(2026, 9, 11))
     assert loaded == ["2026q2"]
     assert not lake_copy.exists(f"{layout.statements_cik_dir(fx.APPLE)}/fallback_{fx.APPLE_10Q_Q2_2026}.parquet")
+
+
+@pytest.mark.parametrize(
+    "stage", ["stub", "facts", "documents", "periods", "statements", "metrics", "database", "digest"]
+)
+def test_failed_stages_retain_date_until_retry_finishes(lake_copy, monkeypatch, stage):
+    """A raw download or an earlier stage's write must not acknowledge the remaining stages."""
+    from filings_hub.db import load, run_log
+
+    day, today = date(2026, 11, 2), date(2026, 11, 3)
+    fake = FakeEdgar({day: [(fx.APPLE, "10-K", fx.APPLE_10K_FY2026)]})
+    monkeypatch.setattr(load, "load_incremental", lambda *a, **kw: None)
+    monkeypatch.setattr(run_log, "publish_run_log", lambda *a, **kw: None)
+    target, attribute = {
+        "stub": (R.sync_filings, "upsert_filings"),
+        "facts": (R.sync_facts, "refresh_cik_facts"),
+        "documents": (R.documents, "ensure_documents"),
+        "periods": (R, "rebuild_periods"),
+        "statements": (R.sync_statements, "fill_fallbacks_for_cik"),
+        "metrics": (R.metrics, "upsert_company_metrics"),
+        "database": (load, "load_incremental"),
+        "digest": (R.digest, "send_digests"),
+    }[stage]
+    original = getattr(target, attribute)
+
+    def fail(*args, **kwargs):
+        raise RuntimeError(f"injected {stage} failure")
+
+    monkeypatch.setattr(target, attribute, fail)
+    first = R.run_refresh(lake_copy, fake, today=today, database_url="postgresql://unused", alert=False)
+    assert first.status == "failed", first.summary()
+    assert lake_copy.exists(layout.raw_daily_index(day))
+    assert R.last_indexed_date(lake_copy) is None
+    # The failed date survives even when it is much older than the ordinary catch-up window.
+    assert day in R.index_dates_to_process(lake_copy, date(2026, 12, 1))
+    monkeypatch.setattr(target, attribute, original)
+    retried = FakeEdgar({})
+    second = R.run_refresh(lake_copy, retried, today=today, database_url="postgresql://unused", alert=False)
+    assert second.status == "ok", second.summary()
+    assert second.db_loaded and second.ciks_refreshed == 1
+    assert "index 2026-11-02" not in retried.calls
+    assert R.index_dates_to_process(lake_copy, today) == []
+    assert _periods(lake_copy, fx.APPLE)["FY2026"]["results_accession"] == fx.APPLE_10K_FY2026
+
+
+def test_failed_download_and_legacy_raw_index_are_retried(tmp_path, monkeypatch):
+    storage = Storage(str(tmp_path))
+    day = date(2026, 11, 2)
+
+    class Broken(FakeEdgar):
+        def fetch_daily_index(self, day):
+            raise RuntimeError("temporary outage")
+
+    first = R.run_refresh(storage, Broken({}), today=date(2026, 11, 3), load_db=False, alert=False)
+    assert first.status == "failed" and not storage.exists(layout.raw_daily_index(day))
+    assert day in R.index_dates_to_process(storage, date(2026, 12, 1))
+    # Upgrade recovery: cached raw indices without a durable completion marker remain work.
+    legacy_day = date(2026, 10, 1)
+    storage.write_text(layout.raw_daily_index(legacy_day), fx.daily_index_text(legacy_day, []))
+    assert legacy_day in R.index_dates_to_process(storage, date(2026, 12, 1))
+
+
+def test_legacy_raw_recovery_does_not_resend_old_digests(lake_copy, monkeypatch):
+    day = date(2026, 11, 2)
+    lake_copy.write_text(
+        layout.raw_daily_index(day), fx.daily_index_text(day, [(fx.APPLE, "10-K", fx.APPLE_10K_FY2026)])
+    )
+    sent = []
+    monkeypatch.setattr(R.digest, "send_digests", lambda *args, **kwargs: sent.append(args) or 1)
+    recovered = R.run_refresh(lake_copy, FakeEdgar({}), today=date(2026, 11, 3), load_db=False, alert=False)
+    assert recovered.status == "ok" and recovered.ciks_refreshed == 1
+    assert not sent and recovered.emails_sent == 0
+
+
+def test_missing_weekday_index_retries_after_newer_date_succeeds(lake_copy):
+    monday, tuesday = date(2026, 11, 2), date(2026, 11, 3)
+    first = R.run_refresh(lake_copy, FakeEdgar({}), today=tuesday, load_db=False, alert=False)
+    assert first.status == "empty"
+    assert R.last_indexed_date(lake_copy) is None
+    second = R.run_refresh(
+        lake_copy,
+        FakeEdgar({tuesday: []}),
+        today=date(2026, 11, 4),
+        load_db=False,
+        alert=False,
+    )
+    assert second.status == "empty" and R.last_indexed_date(lake_copy) == tuesday
+    assert monday in R.index_dates_to_process(lake_copy, date(2026, 12, 1))
+    published = FakeEdgar({monday: [(fx.APPLE, "10-K", fx.APPLE_10K_FY2026)]})
+    recovered = R.run_refresh(lake_copy, published, today=date(2026, 11, 4), load_db=False, alert=False)
+    assert recovered.status == "ok" and recovered.ciks_refreshed == 1
+    assert R.index_dates_to_process(lake_copy, date(2026, 11, 4)) == []
+
+
+def test_long_outage_backlog_is_batched_without_losing_dates(lake_copy):
+    first = R.run_refresh(
+        lake_copy, FakeEdgar({date(2026, 11, 2): []}), today=date(2026, 11, 3), load_db=False, alert=False
+    )
+    assert first.status == "empty"
+    today = date(2026, 11, 20)
+    seen = []
+    available = {date(2026, 11, d): [] for d in range(3, 20)}
+    while dates := R.index_dates_to_process(lake_copy, today):
+        assert len(dates) <= R.MAX_CATCHUP_DAYS
+        seen.extend(dates)
+        run = R.run_refresh(lake_copy, FakeEdgar(available), today=today, load_db=False, alert=False)
+        assert run.status in ("ok", "empty")
+    assert seen == [date(2026, 11, d) for d in range(3, 20)]
+
+
+def test_explicit_since_persists_remaining_backlog_and_rotates_holiday_retries(lake_copy):
+    today = date(2026, 11, 20)
+    R.run_refresh(lake_copy, FakeEdgar({}), today=today, since=date(2026, 11, 2), load_db=False, alert=False)
+    next_dates = R.index_dates_to_process(lake_copy, today)
+    assert len(next_dates) <= R.MAX_CATCHUP_DAYS
+    assert any(day >= date(2026, 11, 9) for day in next_dates)
+    assert R._catchup_start(lake_copy, today) == date(2026, 11, 2)
+
+
+@pytest.mark.parametrize("failure", ["no_facts", "builder_error"])
+def test_failed_fallback_rebuild_retains_previous_served_bytes(lake_copy, monkeypatch, failure):
+    day, today = date(2026, 11, 2), date(2026, 11, 3)
+    run = R.run_refresh(
+        lake_copy, FakeEdgar({day: [(fx.APPLE, "10-K", fx.APPLE_10K_FY2026)]}), today=today, load_db=False, alert=False
+    )
+    assert run.status == "ok"
+    statement = f"{layout.statements_cik_dir(fx.APPLE)}/fallback_{fx.APPLE_10K_FY2026}.parquet"
+    checks = f"{layout.statement_checks_cik_dir(fx.APPLE)}/fallback_{fx.APPLE_10K_FY2026}.parquet"
+    before = {rel: lake_copy.read_bytes(rel) for rel in (statement, checks)}
+
+    def fail(*args, **kwargs):
+        raise RuntimeError("injected builder failure")
+
+    if failure == "no_facts":
+        monkeypatch.setattr(R.sync_statements, "_facts_for", lambda *args: [])
+        assert (
+            R.sync_statements.fill_fallbacks_for_cik(lake_copy, fx.APPLE, rebuild_accessions={fx.APPLE_10K_FY2026}) == 0
+        )
+    else:
+        monkeypatch.setattr(R.sync_statements, "build_fallback_rows", fail)
+        with pytest.raises(RuntimeError):
+            R.sync_statements.fill_fallbacks_for_cik(lake_copy, fx.APPLE, rebuild_accessions={fx.APPLE_10K_FY2026})
+    assert before == {rel: lake_copy.read_bytes(rel) for rel in before}
+
+
+def test_retry_repairs_fallback_written_without_checks(lake_copy, monkeypatch):
+    """Failure after the statement file is published must still rebuild its missing checks."""
+    day, today = date(2026, 11, 2), date(2026, 11, 3)
+    original = lake_copy.write_parquet
+    expected = f"{layout.statement_checks_cik_dir(fx.APPLE)}/fallback_{fx.APPLE_10K_FY2026}.parquet"
+    fsds_before = {p: lake_copy.read_bytes(p) for p in lake_copy.glob(f"{layout.STATEMENTS}/*/fsds_*.parquet")}
+
+    def fail_checks(rel, table):
+        if rel == expected:
+            raise RuntimeError("crash between statement and check publication")
+        original(rel, table)
+
+    monkeypatch.setattr(lake_copy, "write_parquet", fail_checks)
+    first = R.run_refresh(
+        lake_copy,
+        FakeEdgar({day: [(fx.APPLE, "10-K", fx.APPLE_10K_FY2026)]}),
+        today=today,
+        load_db=False,
+        alert=False,
+    )
+    assert first.status == "failed"
+    assert lake_copy.exists(f"{layout.statements_cik_dir(fx.APPLE)}/fallback_{fx.APPLE_10K_FY2026}.parquet")
+    assert not lake_copy.exists(expected)
+    monkeypatch.setattr(lake_copy, "write_parquet", original)
+    retry = R.run_refresh(lake_copy, FakeEdgar({}), today=today, load_db=False, alert=False)
+    assert retry.status == "ok", retry.summary()
+    assert lake_copy.exists(expected) and lake_copy.read_parquet(expected).num_rows > 0
+    assert fsds_before == {p: lake_copy.read_bytes(p) for p in fsds_before}
+
+
+@pytest.mark.parametrize("stage", ["download", "load", "build"])
+def test_fsds_cached_partial_work_is_rebuilt(lake_copy, monkeypatch, stage):
+    quarter = "2026q2"
+    calls = []
+    monkeypatch.setattr(R.bulk, "fsds_quarters", lambda today: [quarter])
+
+    def download(storage, client, quarters):
+        calls.append(("download", quarters))
+        storage.write_bytes(layout.raw_fsds_zip(quarter), b"cached zip")
+        if stage == "download" and len(calls) == 1:
+            raise RuntimeError("crash after download")
+        return quarters
+
+    def load(storage, quarters, force=False):
+        calls.append(("load", force))
+        if stage == "load" and sum(c[0] == "load" for c in calls) == 1:
+            raise RuntimeError("crash during load")
+        return quarters
+
+    def build(storage, quarters, force=False):
+        calls.append(("build", force))
+        if stage == "build" and sum(c[0] == "build" for c in calls) == 1:
+            raise RuntimeError("crash during build")
+        return quarters
+
+    monkeypatch.setattr(R.bulk, "download_fsds", download)
+    monkeypatch.setattr(R.fsds, "load_all_fsds", load)
+    monkeypatch.setattr(R.sync_statements, "build_all_fsds", build)
+    with pytest.raises(RuntimeError):
+        R.maybe_load_new_fsds(lake_copy, FakeEdgar({}), date(2026, 9, 11))
+    assert R.maybe_load_new_fsds(lake_copy, FakeEdgar({}), date(2026, 9, 11)) == [quarter]
+    assert calls[-2:] == [("load", True), ("build", True)]
 
 
 def _q2_zip() -> bytes:

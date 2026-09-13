@@ -54,17 +54,29 @@ def s3_env(s3_endpoint, monkeypatch):
         "AWS_SECRET_ACCESS_KEY": "test",
         "AWS_ENDPOINT_URL": s3_endpoint,
         "AWS_REGION": "us-east-1",
+        "AWS_DEFAULT_REGION": "us-east-1",
         "LAKE_ROOT": "s3://filings-test/lake",
         "DATABASE_URL": "",
         "SEC_USER_AGENT": "Test test@example.com",
     }.items():
         monkeypatch.setenv(k, v)
     reset_settings_cache()
+    import boto3
     import s3fs
 
-    fs = s3fs.S3FileSystem(key="test", secret="test", endpoint_url=s3_endpoint)
+    fs = s3fs.S3FileSystem(
+        key="test", secret="test", endpoint_url=s3_endpoint, client_kwargs={"region_name": "us-east-1"}
+    )
     if not fs.exists("filings-test"):
-        fs.mkdir("filings-test")
+        # S3's us-east-1 bucket creation omits LocationConstraint. s3fs versions differ in how
+        # they encode it for custom endpoints, so create the mock bucket through the native API.
+        boto3.client(
+            "s3",
+            endpoint_url=s3_endpoint,
+            region_name="us-east-1",
+            aws_access_key_id="test",
+            aws_secret_access_key="test",
+        ).create_bucket(Bucket="filings-test")
     yield s3_endpoint
     reset_settings_cache()
 
@@ -174,3 +186,62 @@ def test_remote_lake_serves_small_tables_from_local_copies(s3_env):
     local = Database("", Storage(str(__import__("tempfile").mkdtemp())))
     assert local._local_dir is None  # local lakes read in place
     local.close()
+
+
+def test_remote_empty_views_discover_backfill_without_restarting(s3_env):
+    from filings_hub.db.database import MISSING_VIEW_TTL, Database
+    from filings_hub.lake.storage import Storage
+    from tests.test_database_recovery import populate_missing
+
+    storage = Storage("s3://filings-test/start-before-backfill")
+    db = Database("", storage)
+    try:
+        assert db.query("SELECT count(*) AS n FROM filings") == [{"n": 0}]
+        populate_missing(Storage(storage.root), db)
+        db._missing_checked -= MISSING_VIEW_TTL + 1
+        assert db.query("SELECT count(*) AS n FROM filings") == [{"n": 1}]
+        assert db.query("SELECT count(*) AS n FROM statements") == [{"n": 1}]
+        assert db.query("SELECT count(*) AS n FROM periods_serving") == [{"n": 1}]
+        assert db._local_dir and not db._missing_views
+        db.refresh_views()
+        views = db.duck.fetch_dicts("SELECT sql FROM duckdb_views() WHERE view_name = 'companies'")
+        assert db._local_dir in views[0]["sql"]
+        assert db.maybe_resync(ttl=3600) is False
+    finally:
+        db.close()
+
+
+@pytest.mark.parametrize("local_cache", [True, False])
+def test_remote_live_views_discover_partitions_from_an_external_writer(s3_env, local_cache):
+    import boto3
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+
+    from filings_hub.db.database import Database
+    from filings_hub.lake.storage import Storage
+    from tests.test_database_recovery import populate_missing
+
+    prefix = f"external-writer-{local_cache}"
+    storage = Storage(f"s3://filings-test/{prefix}")
+    db = Database("", storage, local_cache=local_cache)
+    try:
+        populate_missing(storage, db)
+        assert db.maybe_resync(ttl=0)
+        assert not db._missing_views
+        assert db.query("SELECT count(*) AS n FROM statements") == [{"n": 1}]
+        # A distinct writer does not invalidate the serving process's fsspec directory cache.
+        buf = pa.BufferOutputStream()
+        pq.write_table(pa.Table.from_pylist([{}], schema=db._empty_table_schemas()["statements"]), buf)
+        boto3.client(
+            "s3",
+            endpoint_url=s3_env,
+            region_name="us-east-1",
+            aws_access_key_id="test",
+            aws_secret_access_key="test",
+        ).put_object(
+            Bucket="filings-test", Key=f"{prefix}/statements/part=2/two.parquet", Body=buf.getvalue().to_pybytes()
+        )
+        db._remote_checked -= 601
+        assert db.query("SELECT count(*) AS n FROM statements") == [{"n": 2}]
+    finally:
+        db.close()

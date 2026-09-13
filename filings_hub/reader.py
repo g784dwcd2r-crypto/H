@@ -84,6 +84,8 @@ ALLOWED_TAGS = frozenset(
     ]
 )
 VOID_TAGS = frozenset(["br", "hr", "img", "col"])
+# Dropped HTML void elements never have a matching end tag. They must not open a dropped subtree.
+DROP_VOID_TAGS = frozenset(["input", "embed"])
 BLOCK_TAGS = frozenset(
     [
         "p",
@@ -160,6 +162,7 @@ class _Sanitizer(HTMLParser):
         # block-level elements currently open: (chunk index of their start tag, text pieces)
         self._blocks: list[tuple[int, list[str]]] = []
         self.headings: list[tuple[int, str]] = []  # (chunk index, text)
+        self.ids: dict[int, str] = {}
 
     # -- helpers
     def _attr_ok(self, tag: str, name: str, value: str | None) -> str | None:
@@ -179,11 +182,12 @@ class _Sanitizer(HTMLParser):
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         if self.drop_depth:
-            if tag in DROP_CONTENT_TAGS and tag not in VOID_TAGS:
+            if tag in DROP_CONTENT_TAGS and tag not in DROP_VOID_TAGS:
                 self.drop_depth += 1
             return
         if tag in DROP_CONTENT_TAGS:
-            self.drop_depth = 1
+            if tag not in DROP_VOID_TAGS:
+                self.drop_depth = 1
             return
         if tag == "title":
             self._in_title = True
@@ -195,18 +199,23 @@ class _Sanitizer(HTMLParser):
             v = self._attr_ok(tag, name, value)
             if v is not None:
                 parts.append(f' {name}="{escape(v, quote=True)}"')
+                if name == "id" and v:
+                    self.ids[len(self.out)] = v
         self.out.append(f"<{tag}{''.join(parts)}>")
         if tag in BLOCK_TAGS:
             self._blocks.append((len(self.out) - 1, []))
 
     def handle_startendtag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         self.handle_starttag(tag, attrs)
+        if tag in DROP_CONTENT_TAGS and tag not in DROP_VOID_TAGS:
+            self.handle_endtag(tag)
+            return
         if tag not in VOID_TAGS and tag in ALLOWED_TAGS and not self.drop_depth:
             self.handle_endtag(tag)
 
     def handle_endtag(self, tag: str) -> None:
         if self.drop_depth:
-            if tag in DROP_CONTENT_TAGS:
+            if tag in DROP_CONTENT_TAGS and tag not in DROP_VOID_TAGS:
                 self.drop_depth -= 1
             return
         if tag == "title":
@@ -257,15 +266,21 @@ def _dedupe_headings(headings: list[tuple[int, str]]) -> list[tuple[int, str]]:
 
 
 def render_document(html: str, base_url: str) -> dict[str, Any]:
-    """{html, toc: [{id, title}], title} with the headings anchored as id="fh-N"."""
+    """{html, toc: [{id, title}], title} with TOC targets that exist and preserve original links."""
     s = _Sanitizer(base_url)
     s.feed(html)
     s.close()
     toc = []
+    used_ids = set(s.ids.values())
     for n, (idx, text) in enumerate(_dedupe_headings(s.headings)):
-        anchor = f"fh-{n}"
-        start = s.out[idx]
-        s.out[idx] = start[:-1] + f' id="{anchor}">' if 'id="' not in start else start
+        anchor = s.ids.get(idx)
+        if not anchor or list(s.ids.values()).count(anchor) > 1:
+            anchor = f"fh-{n}"
+            while anchor in used_ids:
+                anchor += "-section"
+            used_ids.add(anchor)
+            # Separate anchor preserves any original ID (including duplicate or empty filer IDs).
+            s.out[idx] = f'<span id="{anchor}"></span>' + s.out[idx]
         toc.append({"id": anchor, "title": text[:120]})
     title = " ".join("".join(s.title).split())
     return {"html": "".join(s.out), "toc": toc, "title": title}
@@ -278,12 +293,16 @@ class _TextExtractor(HTMLParser):
         self.drop = 0
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        if tag in DROP_VOID_TAGS:
+            return
         if tag in DROP_CONTENT_TAGS or tag == "style":
             self.drop += 1
         elif tag in BLOCK_TAGS or tag == "br":
             self.parts.append("\n")
 
     def handle_endtag(self, tag: str) -> None:
+        if tag in DROP_VOID_TAGS:
+            return
         if tag in DROP_CONTENT_TAGS or tag == "style":
             self.drop = max(0, self.drop - 1)
         elif tag in BLOCK_TAGS:

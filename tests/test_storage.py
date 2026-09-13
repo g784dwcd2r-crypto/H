@@ -93,9 +93,11 @@ def test_api_answers_on_an_empty_lake(tmp_path):
         assert c.get("/companies/320193/filings").json()["filings"] == []
         assert c.get("/companies/320193/statements").status_code == 404
         assert c.get("/companies/320193/facts?concept=Assets").json()["facts"] == []
-        m = c.get("/metrics").json()
-        assert m["totals"]["companies"] == 0 and m["runs"] == [] and m["filings_per_day"] == []
-        assert c.get("/quality/failed").json() == {"total": 0, "limit": 100, "offset": 0, "failed": []}
+        coverage = c.get("/coverage").json()
+        assert coverage["totals"]["directory_companies"] == 0 and coverage["fiscal_years"] == []
+        assert coverage["forms"] == [] and coverage["last_completed_ingestion"] is None
+        assert c.get("/metrics").status_code == 401
+        assert c.get("/quality/failed").status_code == 401
     app.state.db.close()
 
 

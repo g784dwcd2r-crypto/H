@@ -15,6 +15,7 @@ from datetime import date
 from typing import Any
 
 from openpyxl import Workbook
+from openpyxl.comments import Comment
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.worksheet import Worksheet
@@ -275,6 +276,28 @@ def _write_values(ws, grid: Grid, lines, ln: GridLine, opts: ExportOptions, cell
         v = ln.values.get(p.period_label)
         r, c = at(j)
         cell = ws.cell(r, c)
+        metadata = ln.value_metadata.get(p.period_label)
+        if metadata and opts.include_source:
+            notes = [metadata["status"].replace("_", " ")]
+            for k in ("reason", "formula"):
+                if metadata.get(k):
+                    notes.append(metadata[k])
+            for source in metadata.get("sources", []):
+                if source.get("label") and source["label"] != ln.label:
+                    notes.append(f"Reported label: {source['label']}")
+                notes.append(
+                    f"{source['accession']} · {source['concept']} · "
+                    f"{source.get('period_start') or 'instant'} to {source.get('period_end') or 'unknown'} · "
+                    f"{source.get('value')} {source.get('unit') or ''}"
+                    + (f" · coefficient {source['coefficient']}" if "coefficient" in source else "")
+                )
+                if source.get("document_url"):
+                    notes.append(source["document_url"])
+                if source.get("unit_note"):
+                    notes.append(source["unit_note"])
+                if source.get("date_note"):
+                    notes.append(source["date_note"])
+            cell.comment = Comment("\n".join(notes), "Disclosure")
         if kids and _adds_up(v, [k.values.get(p.period_label) for k in kids]):
             cell.value = "=" + "+".join(cells[(k.key, p.period_label)] for k in kids)
         else:
@@ -340,16 +363,23 @@ def _write_source(wb: Workbook, grid: Grid, opts: ExportOptions) -> None:
     if grid.period_mode == "quarterly":
         note += (
             " Quarterly mode: year-to-date statements (cash flow) are shown as differences of consecutive "
-            "year-to-date columns; Q4 is the fiscal year less the nine months. Per-share amounts derived this "
-            "way are approximations."
+            "year-to-date columns; Q4 is the fiscal year less the nine months when inputs are compatible. "
+            "Only validated additive concepts are derived. Per-share amounts, weighted averages and "
+            "unsupported calculations remain blank unless directly reported. Cell comments explain each value."
         )
     elif grid.period_mode == "ltm":
         note += (
             " LTM: twelve months to each quarter end = year to date + prior fiscal year - prior year to date. "
-            "Per-share amounts derived this way are approximations."
+            "Only validated additive concepts and compatible periods are combined. Per-share amounts, "
+            "weighted averages and unsupported calculations remain blank unless directly reported. "
+            "Cell comments identify all source inputs and coefficients."
         )
     if grid.restated:
-        note += " Restated columns take their numbers from the newest later filing that presents the period."
+        note += (
+            " Latest-presentation mode uses the newest available later comparative for each line; this does "
+            "not establish that a formal restatement occurred. Cell comments identify the actual source, "
+            "including original values retained when later filings omit a line."
+        )
     if opts.subtotals == "formulas":
         note += " Subtotals are formulas where the reported children add up to the reported total, values otherwise."
     ws.cell(len(grid.periods) + 3, 1, note)

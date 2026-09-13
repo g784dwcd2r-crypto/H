@@ -52,7 +52,7 @@ export default function HeadlineCards({
 
   const save = async (next: string[], s: Scope = scope) => {
     setScope(s);
-    await prefs.set("headline_cards", next, s, ctx);
+    if (!await prefs.set("headline_cards", next, s, ctx)) return;
     setMsg(`Cards saved ${scopeWords(s)}`);
     setTimeout(() => setMsg(null), 1800);
   };
@@ -63,7 +63,7 @@ export default function HeadlineCards({
     void save(next);
   };
   const usePreset = async () => {
-    await prefs.reset("headline_cards", "company", ctx);
+    if (!await prefs.reset("headline_cards", "company", ctx)) return;
     logEvent("card.preset", {}, signedIn);
     setMsg("Industry preset restored for this company");
     setTimeout(() => setMsg(null), 1800);
@@ -115,6 +115,7 @@ export default function HeadlineCards({
         <span className={"tag " + (where ? "set" : "")}>{where ? `set ${scopeWords(where.scope)}` : "industry preset"}</span>
         {msg && <span className="saved"> {msg}</span>}
       </p>
+      {prefs.error && <p className="notice" role="alert">{prefs.error}</p>}
     </section>
   );
 }

@@ -184,7 +184,13 @@ def _stage_fsds_quarter(duck: Duck, quarter: str, enrich: bool, fx_index: bool =
                    p.tag AS concept, p.version AS taxonomy, p.plabel AS label, t.tlabel AS standard_label,
                    coalesce(p.negating, 0) = 1 AS negating, coalesce(t.abstract, 0) = 1 AS is_abstract,
                    coalesce(t.custom, 0) = 1 AS is_custom, t.iord, t.crdr, t.datatype,
-                   n.ddate AS period_end_rounded, n.qtrs, n.uom AS unit, n.value,
+                   n.ddate AS period_end_rounded, n.qtrs,
+                   -- FSDS commonly stores perShare facts with currency-only UOM. Restore the
+                   -- denominator before the Company Facts join, otherwise 52/53-week EPS dates
+                   -- cannot match USD/shares contexts and silently fall back to calendar dates.
+                   CASE WHEN regexp_matches(lower(t.datatype), '(^|:)pershare(itemtype)?$')
+                             AND regexp_full_match(n.uom, '[A-Z]{{3}}')
+                        THEN n.uom || '/shares' ELSE n.uom END AS unit, n.value,
                    s.period AS filing_period, s.form, s.filed AS filed_date, s.exp_q
             FROM p JOIN s USING (adsh)
             LEFT JOIN t ON t.tag = p.tag AND t.version = p.version
@@ -814,8 +820,15 @@ def write_fallback(
         )
 
 
-def fill_fallbacks_for_cik(storage: Storage, cik: int, duck: Duck | None = None) -> int:
-    """Build provisional statements for this CIK's XBRL results filings that have none yet."""
+def fill_fallbacks_for_cik(
+    storage: Storage, cik: int, duck: Duck | None = None, rebuild_accessions: set[str] | None = None
+) -> int:
+    """Build provisional statements for this CIK's XBRL results filings that have none yet.
+
+    Refresh retries can explicitly rebuild their touched fallback accessions: an interrupted previous
+    attempt may have written statement rows without the corresponding checks. Never remove FSDS
+    outputs, and leave all unrelated fallback history intact.
+    """
     own = duck is None
     duck = duck or Duck(storage)
     try:
@@ -830,6 +843,13 @@ def fill_fallbacks_for_cik(storage: Storage, cik: int, duck: Duck | None = None)
         if not filings:
             return 0
         have = accessions_with_statements(storage, cik)
+        if rebuild_accessions and duck.view("existing_cik_statements", f"{layout.statements_cik_dir(cik)}/*.parquet"):
+            fsds_accessions = set(
+                duck.fetch_column("SELECT DISTINCT accession FROM existing_cik_statements WHERE source = 'fsds'")
+            )
+            # Rebuild only provisional results, but leave their old files available if facts are
+            # temporarily absent or the builder fails. FSDS-covered accessions always take priority.
+            have -= rebuild_accessions - fsds_accessions
         periods: dict[str, int] = {}
         if duck.view("periods", layout.PERIODS, hive=False):
             for r in duck.fetch_dicts("SELECT results_accession, fiscal_quarter FROM periods WHERE cik = ?", [cik]):

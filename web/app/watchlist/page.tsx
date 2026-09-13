@@ -1,5 +1,5 @@
 import WatchlistView from "@/components/WatchlistView";
-import { api } from "@/lib/api";
+import { api } from "@/lib/server-api";
 import type { Remembered } from "@/lib/local";
 import { sessionToken } from "@/lib/session";
 
@@ -20,8 +20,8 @@ export default async function WatchlistPage() {
   return (
     <>
       <p className="eyebrow">Watchlist</p>
-      <h1>What your companies filed</h1>
-      <p className="lead">Follow companies from their pages. This is the morning view: results filings first, everything else below, and an email when results land.</p>
+      <h1>Your companies. What’s new.</h1>
+      <p className="lead">A focused view of the companies you follow. Review recent results and related filings, then go straight to the source.</p>
       <WatchlistView signedIn={!!token} initial={initial} />
     </>
   );

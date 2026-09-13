@@ -49,6 +49,32 @@ def test_html_to_text_and_search():
     assert reader.search_text("x", "  ") == [] and len(reader.search_text("a a a a", "a", max_hits=2)) == 2
 
 
+def test_reader_toc_preserves_existing_ids_and_avoids_generated_collisions():
+    r = reader.render_document(
+        '<span id="fh-0"></span><h2>Item 1. Business</h2>'
+        '<h2 id="item7">Item 7. Management discussion</h2><a href="#item7">Original link</a>',
+        BASE,
+    )
+    assert r["toc"][0]["id"] == "fh-0-section"
+    assert r["toc"][1]["id"] == "item7"
+    assert 'href="#item7"' in r["html"]
+    assert all(r["html"].count(f'id="{entry["id"]}"') == 1 for entry in r["toc"])
+
+
+def test_reader_duplicate_filer_ids_get_unique_toc_targets():
+    r = reader.render_document('<div id="same"></div><h2 id="same">Item 7. Discussion</h2>', BASE)
+    assert r["toc"][0]["id"] == "fh-0"
+    assert '<span id="fh-0"></span><h2 id="same">' in r["html"]
+
+
+def test_dropped_void_and_self_closing_tags_do_not_hide_following_content():
+    html = "<input><embed/><p>Before</p><form><input><button>Hidden</button></form><script/><h2>Item 7. Discussion</h2>"
+    r = reader.render_document(html, BASE)
+    assert "Before" in r["html"] and r["toc"][0]["title"] == "Item 7. Discussion"
+    assert "Hidden" not in r["html"] and "input" not in r["html"] and "embed" not in r["html"]
+    assert reader.html_to_text(html) == "Before\nItem 7. Discussion"
+
+
 def test_document_cache_memory_bound_and_lake_copy(tmp_path):
     st = Storage(str(tmp_path))
     c = EdgarClient("Test test@example.com", transport=httpx.MockTransport(fx.edgar_document_handler))

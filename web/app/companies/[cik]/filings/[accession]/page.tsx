@@ -1,7 +1,9 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import CompanyNav from "@/components/CompanyNav";
 import Reader from "@/components/Reader";
-import { api, fmtDate, NotFound } from "@/lib/api";
+import { api, NotFound } from "@/lib/server-api";
+import { fmtDate } from "@/lib/api";
 
 export const dynamic = "force-dynamic";
 
@@ -50,6 +52,7 @@ export default async function FilingPage({
           <a className="btn secondary" href={doc.source_url} target="_blank" rel="noreferrer">Open on sec.gov</a>
         </div>
       </div>
+      <CompanyNav cik={id} />
       {siblings.length > 1 && (
         <p className="chips docs-nav">
           {siblings.map((d) => (

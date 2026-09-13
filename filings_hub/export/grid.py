@@ -7,10 +7,9 @@ The grid has a *period mode*:
 * ``as_filed``  -- each column is the filing's own primary period (the quarter on an income statement,
   the year to date on a 10-Q cash flow statement, the year on a 10-K). Nothing is derived.
 * ``annual``    -- fiscal years only.
-* ``quarterly`` -- discrete quarters. Q1-Q3 are the filings' own quarter columns where the filing
-  presents one; year-to-date statements (cash flow) become differences of consecutive year-to-date
-  columns; Q4 is the fiscal year less the nine-month year to date (or less Q1+Q2+Q3 when the Q3
-  filing reports no nine-month column). Balance sheets are points in time and stay as filed.
+* ``quarterly`` -- reported discrete quarters first; validated additive flows can be differences of
+  compatible year-to-date columns. Q4 can be fiscal year less nine-month YTD. No per-share amounts,
+  weighted averages, unknown concepts or mixed reporting bases are approximated.
 * ``ltm``       -- trailing four quarters at each quarter end: YTD(n) + FY(prior) - YTD(n, prior year).
 
 ``restated`` (as-filed and annual modes) takes each column's numbers from the newest later filing
@@ -20,11 +19,13 @@ company's latest view; the filing the numbers came from is named on the column.
 
 from __future__ import annotations
 
+from collections import Counter
 from dataclasses import dataclass, field
 from datetime import date
 from typing import Any
 
 from filings_hub.db.database import Database
+from filings_hub.export.methodology import additive_reason
 from filings_hub.ingest.sync_statements import CORE_STATEMENTS, STATEMENT_NAMES, month_end_round
 
 PERIOD_MODES = ("as_filed", "quarterly", "annual", "ltm")
@@ -69,6 +70,7 @@ class GridLine:
     unit: str | None
     values: dict[str, float | None] = field(default_factory=dict)  # period_label -> value_presented
     labels: dict[str, str] = field(default_factory=dict)  # per period as-reported label (may differ)
+    value_metadata: dict[str, dict[str, Any]] = field(default_factory=dict)
 
 
 @dataclass
@@ -133,6 +135,8 @@ class Grid:
                             "parent_concept": ln.parent_concept,
                             "unit": ln.unit,
                             "values": ln.values,
+                            "labels": ln.labels,
+                            "value_metadata": ln.value_metadata,
                         }
                         for ln in s.lines
                     ],
@@ -183,7 +187,8 @@ def _statement_rows(
     ph_stmt = ", ".join("?" for _ in statements)
     rows = db.query(
         f"SELECT accession, statement, line_order, concept, label, is_abstract, is_subtotal, parent_concept, unit, "
-        f"value_presented, value, period_end_rounded, qtrs, is_primary_period "
+        f"value_presented, value, period_start, period_end, period_end_rounded, qtrs, is_primary_period, "
+        f"taxonomy, is_custom, datatype, source, filed_date, negating "
         f"FROM statements WHERE accession IN ({ph_acc}) AND statement IN ({ph_stmt}) "
         f"AND NOT is_parenthetical {'AND is_primary_period' if primary_only else ''} "
         f"ORDER BY accession, statement, line_order",
@@ -191,6 +196,15 @@ def _statement_rows(
     )
     out: dict[str, dict[str, list[dict[str, Any]]]] = {}
     for r in rows:
+        datatype = (r.get("datatype") or "").split(":")[-1].lower()
+        unit = r.get("unit") or ""
+        # The SEC FSDS exports perShare facts with a currency-only UOM. The taxonomy type retains
+        # the missing denominator. Normalize the serving unit before any scale/format operation;
+        # retain the stored UOM in evidence rather than silently rewriting source data.
+        if datatype in {"pershare", "pershareitemtype"} and len(unit) == 3 and unit.isupper():
+            r["reported_unit"] = unit
+            r["unit"] = f"{unit}/shares"
+            r["unit_note"] = "Per-share unit restored from the taxonomy datatype; stored FSDS unit was currency-only."
         out.setdefault(r["accession"], {}).setdefault(r["statement"], []).append(r)
     return out
 
@@ -234,11 +248,79 @@ def merge_line_order(per_period: list[list[str]]) -> list[str]:
 PeriodKey = tuple[date | None, int | None]  # (period_end_rounded, qtrs)
 
 
+@dataclass
+class _Cell:
+    value: float | None
+    status: str
+    sources: list[dict[str, Any]] = field(default_factory=list)
+    reason: str | None = None
+    formula: str | None = None
+
+    def metadata(self) -> dict[str, Any]:
+        return {
+            k: v
+            for k, v in {
+                "status": self.status,
+                "sources": self.sources,
+                "reason": self.reason,
+                "formula": self.formula,
+            }.items()
+            if v is not None
+        }
+
+
+def _unavailable(reason: str, sources: list[dict[str, Any]] | None = None) -> _Cell:
+    return _Cell(None, "unavailable", sources or [], reason)
+
+
 class _Rows:
     """Statement rows of many filings, indexed by filing, statement and reported period."""
 
-    def __init__(self, rows_by_acc: dict[str, dict[str, list[dict[str, Any]]]]):
+    def __init__(self, rows_by_acc: dict[str, dict[str, list[dict[str, Any]]]], periods: list[PeriodColumn] = ()):
         self._rows = rows_by_acc
+        self._filings = {p.accession: p for p in periods}
+        self._aliases: dict[tuple[str, str], str] = {}
+        candidates: dict[tuple[str, str], list[tuple[str, str, dict[str, Any]]]] = {}
+        repeated: set[tuple[str, str]] = set()
+        for acc, statements in rows_by_acc.items():
+            for stmt, raw in statements.items():
+                primary = [r for r in raw if r.get("is_primary_period") and not r.get("is_abstract")]
+                repeated.update(
+                    (stmt, concept) for concept, count in Counter(r["concept"] for r in primary).items() if count > 1
+                )
+                # A comparative may repeat a concept even when the primary column does not.
+                repeated.update(
+                    (stmt, concept)
+                    for (concept, _, _), count in Counter(
+                        (r["concept"], r.get("period_end_rounded"), r.get("qtrs"))
+                        for r in raw
+                        if not r.get("is_abstract")
+                    ).items()
+                    if count > 1
+                )
+                for key, row in _keyed_lines(primary):
+                    candidates.setdefault((stmt, row["concept"]), []).append((acc, key, row))
+        for (stmt, concept), occurrences in candidates.items():
+            if (stmt, concept) in repeated:
+                continue
+            signatures = {((r.get("taxonomy") or "").split("/")[0], r.get("unit")) for _, _, r in occurrences}
+            if (
+                len(signatures) != 1
+                or any(not namespace or not unit for namespace, unit in signatures)
+                or len({key for _, key, _ in occurrences}) < 2
+            ):
+                continue
+            latest = max(
+                occurrences,
+                key=lambda item: (
+                    item[2].get("filed_date")
+                    or (self._filings[item[0]].filed_date if item[0] in self._filings else None)
+                    or date.min,
+                    item[0],
+                ),
+            )
+            for _, key, _ in occurrences:
+                self._aliases[(stmt, key)] = latest[1]
         self._primary: dict[tuple[str, str], list[tuple[str, dict[str, Any]]]] = {}
         self._groups: dict[tuple[str, str], dict[PeriodKey, dict[str, dict[str, Any]]]] = {}
         self._concepts: dict[tuple[str, str, PeriodKey], dict[str, list[dict[str, Any]]]] = {}
@@ -248,7 +330,7 @@ class _Rows:
         k = (acc, stmt)
         if k not in self._primary:
             rows = [r for r in self._rows.get(acc, {}).get(stmt, []) if r.get("is_primary_period")]
-            self._primary[k] = _keyed_lines(rows)
+            self._primary[k] = [(self._aliases.get((stmt, key), key), row) for key, row in _keyed_lines(rows)]
         return self._primary[k]
 
     def groups(self, acc: str, stmt: str) -> dict[PeriodKey, dict[str, dict[str, Any]]]:
@@ -258,14 +340,17 @@ class _Rows:
             by_period: dict[PeriodKey, list[dict[str, Any]]] = {}
             for r in self._rows.get(acc, {}).get(stmt, []):
                 by_period.setdefault((r.get("period_end_rounded"), r.get("qtrs")), []).append(r)
-            self._groups[k] = {pk: dict(_keyed_lines(rows)) for pk, rows in by_period.items()}
+            self._groups[k] = {
+                pk: {self._aliases.get((stmt, key), key): row for key, row in _keyed_lines(rows)}
+                for pk, rows in by_period.items()
+            }
         return self._groups[k]
 
     def has_period(self, acc: str, stmt: str, pk: PeriodKey) -> bool:
         g = self.groups(acc, stmt).get(pk)
         return bool(g) and any(r.get("value_presented") is not None for r in g.values())
 
-    def value(self, acc: str, stmt: str, key: str, pk: PeriodKey, concept: str | None = None) -> float | None:
+    def row(self, acc: str, stmt: str, key: str, pk: PeriodKey, concept: str | None = None) -> dict[str, Any] | None:
         """The presented value of line `key` for the period `pk` in filing `acc`; None when absent.
 
         Falls back to the concept when the filing's label for the line drifted, provided the concept
@@ -284,7 +369,40 @@ class _Rows:
                 self._concepts[ck] = by_c
             cands = self._concepts[ck].get(concept, [])
             r = cands[0] if len(cands) == 1 else None
+        return r
+
+    def value(self, acc: str, stmt: str, key: str, pk: PeriodKey, concept: str | None = None) -> float | None:
+        r = self.row(acc, stmt, key, pk, concept)
         return None if r is None else r.get("value_presented")
+
+    def reported(self, r: dict[str, Any] | None, status: str = "reported") -> _Cell:
+        if r is None or r.get("value_presented") is None:
+            return _unavailable("The required reported value is not available in this filing.")
+        p = self._filings.get(r["accession"])
+        source = {
+            k: r.get(k) for k in ("accession", "concept", "taxonomy", "unit", "qtrs", "source", "is_custom", "negating")
+        }
+        source["value"] = r["value_presented"]
+        source["label"] = r.get("label")
+        for k in ("reported_unit", "unit_note"):
+            if r.get(k):
+                source[k] = r[k]
+        if r.get("source") == "fsds":
+            source["date_note"] = (
+                "These stored dates may be rounded or inferred. Confirm exact reporting dates in the original filing."
+            )
+        for k in ("period_start", "period_end", "filed_date"):
+            d = r.get(k)
+            source[k] = d.isoformat() if d else None
+        if p:
+            source["document_url"] = p.primary_doc_url or p.filing_index_url
+            source["filing_index_url"] = p.filing_index_url
+            if not source["filed_date"]:
+                source["filed_date"] = p.filed_date.isoformat() if p.filed_date else None
+        return _Cell(r["value_presented"], status, [source])
+
+    def cell(self, acc: str, stmt: str, key: str, pk: PeriodKey, concept: str) -> _Cell:
+        return self.reported(self.row(acc, stmt, key, pk, concept))
 
     def primary_qtrs(self, acc: str, stmt: str) -> int:
         """Duration of the filing's own column on this statement (0 when it presents instants only)."""
@@ -307,75 +425,120 @@ class _Derive:
             if p.period_type != "transition":
                 self.byq.setdefault((p.fiscal_year, p.fiscal_quarter), p)
 
-    def ytd(self, fy: int, n: int, key: str, concept: str) -> float | None:
+    def ytd(self, fy: int, n: int, key: str, concept: str) -> _Cell:
         p = self.byq.get((fy, n))
         if p is None:
-            return None
-        return self.rows.value(p.accession, self.stmt, key, _pk(p, n), concept)
+            return _unavailable("A required fiscal-period filing is missing.")
+        return self.rows.cell(p.accession, self.stmt, key, _pk(p, n), concept)
 
-    def quarter(self, fy: int, n: int, key: str, concept: str) -> float | None:
+    def _calculate(self, terms: list[tuple[int, _Cell]], formula: str) -> _Cell:
+        sources = [s for _, cell in terms for s in cell.sources]
+        if any(cell.value is None for _, cell in terms):
+            reason = next(cell.reason for _, cell in terms if cell.value is None and cell.reason)
+            return _unavailable(reason, sources)
+        if len({s.get("unit") for s in sources}) != 1:
+            return _unavailable("Reported inputs use different units or currencies.", sources)
+        if len({(s.get("taxonomy") or "").split("/")[0] for s in sources}) != 1:
+            return _unavailable("Reported inputs use different accounting taxonomies.", sources)
+        for source in sources:
+            if reason := additive_reason(source, self.stmt):
+                return _unavailable(reason, sources)
+        if len({bool(s.get("negating")) for s in sources}) != 1:
+            return _unavailable("Reported inputs use different presentation sign conventions.", sources)
+        # Preserve every original input and its coefficient, including inputs of derived quarters.
+        result_sources = [
+            {**s, "coefficient": sign * s.get("coefficient", 1)} for sign, cell in terms for s in cell.sources
+        ]
+        return _Cell(sum(sign * cell.value for sign, cell in terms), "derived", result_sources, formula=formula)
+
+    def _eligibility(self, p: PeriodColumn, key: str, concept: str) -> str | None:
+        candidates = [r for k, r in self.rows.primary(p.accession, self.stmt) if k == key]
+        return additive_reason(candidates[0], self.stmt) if candidates else "No validated source line is available."
+
+    def _difference(self, whole: _Cell, earlier: _Cell, formula: str) -> _Cell:
+        if whole.value is not None and earlier.value is not None:
+            a, b = whole.sources[0], earlier.sources[0]
+            if not a.get("period_start") or not b.get("period_start"):
+                return _unavailable(
+                    "The reporting dates needed to validate this difference are missing.",
+                    whole.sources + earlier.sources,
+                )
+            if (
+                a["period_start"] != b["period_start"]
+                or not a.get("period_end")
+                or not b.get("period_end")
+                or a["period_end"] <= b["period_end"]
+            ):
+                return _unavailable(
+                    "The reported periods do not share a compatible fiscal-year start.", whole.sources + earlier.sources
+                )
+        return self._calculate([(1, whole), (-1, earlier)], formula)
+
+    def quarter(self, fy: int, n: int, key: str, concept: str) -> _Cell:
         p = self.byq.get((fy, n))
         if p is None:
-            return None
-        if n == 4:
-            fy_v = self.rows.value(p.accession, self.stmt, key, _pk(p, 4), concept)
-            if fy_v is None:
-                return None
-            y3 = self.ytd(fy, 3, key, concept)
-            if y3 is not None:
-                return fy_v - y3
-            qs = [self.quarter(fy, i, key, concept) for i in (1, 2, 3)]
-            return None if any(q is None for q in qs) else fy_v - sum(q for q in qs if q is not None)
-        direct = self.rows.value(p.accession, self.stmt, key, _pk(p, 1), concept)
-        if direct is not None or n == 1:
+            return _unavailable("A required fiscal-period filing is missing.")
+        # A 10-K can itself contain a reported Q4: use it even for non-additive concepts.
+        direct = self.rows.cell(p.accession, self.stmt, key, _pk(p, 1), concept)
+        if direct.value is not None or n == 1:
             return direct
+        reason = self._eligibility(p, key, concept)
+        if reason:
+            return _unavailable(reason)
+        if n == 4:
+            fy_v = self.ytd(fy, 4, key, concept)
+            y3 = self.ytd(fy, 3, key, concept)
+            return self._difference(fy_v, y3, "FY − nine months YTD")
         yn, yprev = self.ytd(fy, n, key, concept), self.ytd(fy, n - 1, key, concept)
-        return None if yn is None or yprev is None else yn - yprev
+        return self._difference(yn, yprev, "Current YTD − previous YTD")
 
     def q4_basis(self, fy: int) -> str | None:
         p3 = self.byq.get((fy, 3))
         if p3 is not None and self.rows.has_period(p3.accession, self.stmt, _pk(p3, 3)):
             return f"FY{fy} less nine months to {p3.period_label}"
-        if all((fy, i) in self.byq for i in (1, 2, 3)):
-            return f"FY{fy} less Q1, Q2 and Q3"
         return None
 
-    def ltm(self, fy: int, n: int, key: str, concept: str) -> float | None:
-        if n == 4:
-            return self.ytd(fy, 4, key, concept)
+    def ltm(self, fy: int, n: int, key: str, concept: str) -> _Cell:
         p = self.byq.get((fy, n))
+        if p is None:
+            return _unavailable("A required fiscal-period filing is missing.")
+        direct = self.rows.cell(p.accession, self.stmt, key, _pk(p, 4), concept)
+        if direct.value is not None or n == 4:
+            return direct
+        reason = self._eligibility(p, key, concept)
+        if reason:
+            return _unavailable(reason)
         yn = self.ytd(fy, n, key, concept)
         fy_prev = self.ytd(fy - 1, 4, key, concept)
-        y_prior = None
+        y_prior = _unavailable("A required prior-year YTD value is missing.")
         prior = self.byq.get((fy - 1, n))
-        if p is not None and prior is not None:  # the comparative column in this year's filing first
-            y_prior = self.rows.value(p.accession, self.stmt, key, _pk(prior, n), concept)
-        if y_prior is None:
+        if prior is not None:  # the comparative column in this year's filing first
+            y_prior = self.rows.cell(p.accession, self.stmt, key, _pk(prior, n), concept)
+        original_prior = self.ytd(fy - 1, n, key, concept)
+        if y_prior.value is not None and original_prior.value is not None and y_prior.value != original_prior.value:
+            return _unavailable(
+                "The later comparative changed; a consistent annual/YTD reporting basis has not been verified.",
+                yn.sources + fy_prev.sources + y_prior.sources + original_prior.sources,
+            )
+        if y_prior.value is None:
             y_prior = self.ytd(fy - 1, n, key, concept)
-        if yn is not None and fy_prev is not None and y_prior is not None:
-            return yn + fy_prev - y_prior
-        total = 0.0
-        y, q = fy, n
-        for _ in range(4):
-            v = self.quarter(y, q, key, concept)
-            if v is None:
-                return None
-            total += v
-            q -= 1
-            if q == 0:
-                y, q = y - 1, 4
-        return total
+        tail = self._difference(fy_prev, y_prior, "Prior FY − prior YTD")
+        if yn.value is not None and tail.value is not None:
+            start = yn.sources[0].get("period_start")
+            end = fy_prev.sources[0].get("period_end")
+            if not start or not end or (date.fromisoformat(start) - date.fromisoformat(end)).days != 1:
+                return _unavailable("The annual and current YTD periods are not contiguous.", yn.sources + tail.sources)
+        return self._calculate([(1, yn), (1, tail)], "Current YTD + prior FY − prior YTD")
 
 
 def _select(
     all_periods: list[PeriodColumn], period_labels: list[str] | None, limit: int, mode: str
 ) -> list[PeriodColumn]:
+    eligible = [p for p in all_periods if p.period_type == "annual"] if mode == "annual" else all_periods
     if period_labels:
         wanted = set(period_labels)
-        return [p for p in all_periods if p.period_label in wanted]
-    if mode == "annual":
-        return [p for p in all_periods if p.period_type == "annual"][-limit:]
-    return all_periods[-limit:]
+        return [p for p in eligible if p.period_label in wanted]
+    return eligible[-limit:]
 
 
 def _restating_filing(
@@ -427,7 +590,9 @@ def build_grid(
         oldest = min(p.filed_date for p in shown if p.filed_date) if any(p.filed_date for p in shown) else None
         if oldest:
             need |= {p.accession for p in all_periods if p.filed_date and p.filed_date >= oldest}
-    rows = _Rows(_statement_rows(db, sorted(need), statements, primary_only=not (derived_mode or restated)))
+    rows = _Rows(
+        _statement_rows(db, sorted(need), statements, primary_only=not (derived_mode or restated)), all_periods
+    )
 
     # column labels and basis
     for p in shown:
@@ -475,13 +640,13 @@ def build_grid(
                         unit=r.get("unit"),
                     )
                     lines[key] = ln
-                value = r.get("value_presented")
+                cell = rows.reported(r)
                 if ln.is_abstract:
-                    value = None
+                    cell = _unavailable("This is a statement heading, not a reported value.")
                 elif derive is not None and p.period_type != "transition":
                     if r.get("qtrs"):  # a duration: derive it
                         fn = derive.quarter if period_mode == "quarterly" else derive.ltm
-                        value = fn(p.fiscal_year, p.fiscal_quarter, key, r["concept"])
+                        cell = fn(p.fiscal_year, p.fiscal_quarter, key, r["concept"])
                     elif r.get("period_end_rounded") and r["period_end_rounded"] != month_end_round(p.period_end):
                         # an opening balance: the closing balance of the period the derived flows start after
                         fy, n = p.fiscal_year, p.fiscal_quarter
@@ -490,15 +655,40 @@ def build_grid(
                             prev = (fy - 1, n)
                         pp = derive.byq.get(prev) if n < 4 or period_mode == "quarterly" else None
                         if pp is not None:
-                            value = rows.value(pp.accession, code, key, _pk(pp, 0), r["concept"])
+                            cell = rows.cell(pp.accession, code, key, _pk(pp, 0), r["concept"])
+                        elif (period_mode == "quarterly" and n > 1) or (period_mode == "ltm" and n < 4):
+                            cell = _unavailable("The opening balance for this derived period is unavailable.")
                 elif source is not None:
-                    v = rows.value(
-                        source.accession, code, key, (r.get("period_end_rounded"), r.get("qtrs")), r["concept"]
-                    )
-                    value = v if v is not None else value
-                ln.values[p.period_label] = value
+                    # A newer filing can omit a line that an earlier later filing still presents.
+                    # Resolve provenance per cell, not from the column's first statement.
+                    latest_row = None
+                    for later in sorted(all_periods, key=lambda col: col.filed_date or date.min, reverse=True):
+                        if not later.filed_date or not p.filed_date or later.filed_date <= p.filed_date:
+                            continue
+                        candidate = rows.row(
+                            later.accession, code, key, (r.get("period_end_rounded"), r.get("qtrs")), r["concept"]
+                        )
+                        if candidate is not None and candidate.get("value_presented") is not None:
+                            latest_row = candidate
+                            break
+                    if latest_row is not None and latest_row.get("value_presented") is not None:
+                        if latest_row.get("unit") != r.get("unit"):
+                            cell = _unavailable("The later presentation uses different units or currency.")
+                        else:
+                            cell = rows.reported(latest_row, "latest_presentation")
+                    else:
+                        cell.reason = (
+                            "No value for this line was found in the later comparative; "
+                            "the original reported value is retained."
+                        )
+                ln.values[p.period_label] = cell.value
+                ln.value_metadata[p.period_label] = cell.metadata()
                 if r.get("label"):
-                    ln.labels[p.period_label] = r["label"]
+                    ln.labels[p.period_label] = (
+                        cell.sources[0].get("label") or r["label"]
+                        if cell.status == "latest_presentation" and cell.sources
+                        else r["label"]
+                    )
                 if ln.unit is None and r.get("unit"):
                     ln.unit = r["unit"]
             if derive is not None and p.basis == "derived" and period_mode == "quarterly" and not p.basis_note:
@@ -507,6 +697,9 @@ def build_grid(
         for ln in ordered:
             for p in shown:
                 ln.values.setdefault(p.period_label, None)
+                ln.value_metadata.setdefault(
+                    p.period_label, _unavailable("This line is not available for the selected period.").metadata()
+                )
         grids.append(StatementGrid(code=code, name=STATEMENT_NAMES[code], lines=ordered))
     periods = list(shown) if column_order == "newest_right" else list(reversed(shown))
     return Grid(

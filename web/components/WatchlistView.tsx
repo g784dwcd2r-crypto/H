@@ -11,23 +11,54 @@ export default function WatchlistView({ signedIn, initial }: { signedIn: boolean
   const [list, setList] = useState<Remembered[] | null>(null);
   const [filings, setFilings] = useState<RecentFiling[] | null>(null);
   const [days, setDays] = useState(14);
-  const [email, setEmail] = useState("");
-  const [sub, setSub] = useState<"idle" | "sending" | "done" | "error" | "off">("idle");
+  const [error, setError] = useState<string | null>(null);
+  const [filingError, setFilingError] = useState(false);
+  const [retry, setRetry] = useState(0);
+  const [removing, setRemoving] = useState<number | null>(null);
+  const [sub, setSub] = useState<"loading" | "idle" | "sending" | "done" | "error" | "off">(signedIn ? "loading" : "idle");
+  const [subscribed, setSubscribed] = useState(false);
+  const [alertMessage, setAlertMessage] = useState<string | null>(null);
+  const [subscribedCiks, setSubscribedCiks] = useState<number[]>([]);
+  useEffect(() => {
+    if (!signedIn) return;
+    const controller = new AbortController();
+    fetch("/api/subscribe", { signal: controller.signal }).then((response) => { if (!response.ok) throw new Error("Alerts unavailable"); return response.json(); }).then((data: { subscribed: boolean; ciks: number[] }) => {
+      if (controller.signal.aborted) return;
+      setSubscribed(data.subscribed); setSubscribedCiks(data.ciks ?? []); setSub("idle");
+    }).catch(() => { if (!controller.signal.aborted) setSub("error"); });
+    return () => controller.abort();
+  }, [signedIn]);
+  const saveAlerts = async (enable: boolean) => {
+    setSub("sending"); setAlertMessage(null);
+    try {
+      const response = await fetch("/api/subscribe", { method: enable ? "POST" : "DELETE", headers: { "Content-Type": "application/json" }, ...(enable ? { body: JSON.stringify({ ciks: (list ?? []).map((company) => company.cik) }) } : {}) });
+      if (response.status === 503) { setSub("off"); return; }
+      if (!response.ok) throw new Error("Alerts could not be saved");
+      setSubscribed(enable); setSubscribedCiks(enable ? (list ?? []).map((company) => company.cik) : []); setSub("done");
+      setAlertMessage(enable ? "Alerts are enabled for this list, using your verified account email." : "Email alerts are paused.");
+    } catch { setSub("error"); }
+  };
 
   useEffect(() => {
     if (!signedIn) {
       setList(watchlist.list());
       return;
     }
-    void accountWatchlist.load(initial ?? undefined).then(setList);
-  }, [signedIn, initial]);
+    let alive = true;
+    setError(null);
+    void accountWatchlist.load(initial ?? undefined).then((value) => { if (alive) setList(value); }).catch(() => { if (alive) setError("Your watchlist could not be loaded. Please try again."); });
+    return () => { alive = false; };
+  }, [signedIn, initial, retry]);
   const unfollow = async (c: Remembered) => {
     if (!signedIn) {
       watchlist.toggle(c);
       setList(watchlist.list());
       return;
     }
-    setList(await accountWatchlist.remove(c.cik));
+    setRemoving(c.cik); setError(null);
+    try { setList(await accountWatchlist.remove(c.cik)); }
+    catch { setError("The company could not be removed. Your watchlist has not been changed."); }
+    finally { setRemoving(null); }
   };
   useEffect(() => {
     if (!list) return;
@@ -35,31 +66,28 @@ export default function WatchlistView({ signedIn, initial }: { signedIn: boolean
       setFilings([]);
       return;
     }
-    setFilings(null);
-    fetch(`/api/recent?ciks=${list.map((c) => c.cik).join(",")}&days=${days}`)
-      .then((r) => r.json())
-      .then((d: { filings: RecentFiling[] }) => setFilings(d.filings ?? []))
-      .catch(() => setFilings([]));
-  }, [list, days]);
+    setFilings(null); setFilingError(false);
+    const controller = new AbortController();
+    fetch(`/api/recent?ciks=${list.map((c) => c.cik).join(",")}&days=${days}`, { signal: controller.signal })
+      .then((r) => { if (!r.ok) throw new Error("Unavailable"); return r.json(); })
+      .then((d: { filings: RecentFiling[] }) => { if (!controller.signal.aborted) setFilings(d.filings ?? []); })
+      .catch(() => { if (!controller.signal.aborted) setFilingError(true); });
+    return () => controller.abort();
+  }, [list, days, retry]);
 
-  if (list === null) return null;
-  if (!list.length)
-    return (
-      <div className="empty">
-        <p>Nothing followed yet.</p>
-        <p className="muted">Open a company and press “Follow”. This page then shows what your companies filed, and you can get the results filings by email.{signedIn ? " Companies you follow are kept on your account." : " Sign in to keep the list on every device."}</p>
-        <Link href="/" className="btn">Find a company</Link>
-      </div>
-    );
+  if (list === null) return error ? <div className="notice" role="alert">{error} <button className="linkbtn" onClick={() => setRetry((n) => n + 1)}>Try again</button></div> : <p className="muted" role="status">Loading your watchlist…</p>;
   const results = (filings ?? []).filter((f) => f.is_results);
   const rest = (filings ?? []).filter((f) => !f.is_results);
   return (
     <>
+      {!list.length && <div className="empty"><h2>A place for your companies.</h2><p>Follow a company to collect its latest results and filings here.</p><p className="muted">{signedIn ? "Your watchlist is saved to your account." : "Sign in to keep your list across devices, or get started in this browser."}</p><Link href="/" className="btn">Find a company</Link></div>}
+      {error && <p className="notice" role="alert">{error}</p>}
+      <p className="eyebrow watchlist-count">{list.length} compan{list.length === 1 ? "y" : "ies"} followed{signedIn ? " · Saved to your account" : " · Saved in this browser"}</p>
       <p className="chips">
         {list.map((c) => (
           <span key={c.cik} className="chip link">
             <Link href={`/companies/${c.cik}`}>{c.ticker ?? c.name}</Link>
-            <button type="button" className="x" aria-label={`Stop following ${c.name}`} onClick={() => void unfollow(c)}>×</button>
+            <button type="button" className="x" disabled={removing !== null} aria-label={`Stop following ${c.name}`} onClick={() => void unfollow(c)}>×</button>
           </span>
         ))}
       </p>
@@ -75,7 +103,7 @@ export default function WatchlistView({ signedIn, initial }: { signedIn: boolean
           </select>
         </label>
       </div>
-      {filings === null ? (
+      {filingError ? <div className="notice" role="alert">Recent filings could not be loaded. <button className="linkbtn" onClick={() => setRetry((n) => n + 1)}>Try again</button></div> : filings === null ? (
         <p className="muted">Looking…</p>
       ) : (
         <>
@@ -91,25 +119,17 @@ export default function WatchlistView({ signedIn, initial }: { signedIn: boolean
       )}
       <section className="subscribe">
         <p className="eyebrow">Email me the results filings</p>
-        {sub === "done" ? (
-          <p className="muted">Done. Each weekday morning you get one email when any of these companies filed results.</p>
-        ) : sub === "off" ? (
-          <p className="muted">Email alerts are not switched on for this deployment yet.</p>
-        ) : (
-          <form
-            className="row"
-            onSubmit={async (e) => {
-              e.preventDefault();
-              setSub("sending");
-              const r = await fetch("/api/subscribe", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email, ciks: list.map((c) => c.cik) }) });
-              setSub(r.ok ? "done" : r.status === 503 ? "off" : "error");
-            }}
-          >
-            <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@fund.com" required />
-            <button className="btn" type="submit" disabled={sub === "sending"}>Subscribe</button>
-            {sub === "error" && <span className="muted">That did not go through; check the address.</span>}
-          </form>
-        )}
+        {!signedIn ? <p className="muted"><Link href="/signin">Sign in</Link> to send filing alerts to your verified account email.</p> : <>
+          <p className="muted">{subscribed ? "Email alerts are enabled." : "Receive results filings at your verified account email."} Following changes your watchlist; use “Update alert companies” to apply the current list to email alerts.</p>
+          {sub === "loading" ? <p role="status" className="muted">Loading alert settings…</p> : <div className="row">
+            <button className="btn" type="button" disabled={sub === "sending" || !list.length} onClick={() => void saveAlerts(true)}>{sub === "sending" ? "Saving…" : subscribed ? "Update alert companies" : "Enable email alerts"}</button>
+            {(subscribed || sub === "error") && <button className="btn secondary" type="button" disabled={sub === "sending"} onClick={() => void saveAlerts(false)}>Pause alerts</button>}
+          </div>}
+          {subscribed && <p className="muted small">Alerts currently include {subscribedCiks.length} compan{subscribedCiks.length === 1 ? "y" : "ies"}.</p>}
+          {alertMessage && <p className="muted" role="status">{alertMessage}</p>}
+          {sub === "off" && <p className="notice" role="status">Email alerts are not available on this deployment yet.</p>}
+          {sub === "error" && <p className="err" role="alert">Alert settings could not be loaded or saved. Please try again.</p>}
+        </>}
       </section>
     </>
   );
@@ -117,7 +137,7 @@ export default function WatchlistView({ signedIn, initial }: { signedIn: boolean
 
 function Table({ rows }: { rows: RecentFiling[] }) {
   return (
-    <table>
+    <div className="table-scroll"><table>
       <thead>
         <tr>
           <th>Filed</th>
@@ -139,6 +159,6 @@ function Table({ rows }: { rows: RecentFiling[] }) {
           </tr>
         ))}
       </tbody>
-    </table>
+    </table></div>
   );
 }

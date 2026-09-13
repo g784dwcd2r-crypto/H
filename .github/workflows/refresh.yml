@@ -13,6 +13,9 @@ on:
       index_date:
         description: "daily index date (YYYY-MM-DD); empty = catch up to yesterday"
         required: false
+concurrency:
+  group: disclosure-daily-refresh
+  cancel-in-progress: false
 jobs:
   refresh:
     runs-on: ubuntu-latest
@@ -33,11 +36,12 @@ jobs:
         if: steps.gate.outputs.run == 'true'
       - uses: astral-sh/setup-uv@v3
         if: steps.gate.outputs.run == 'true'
-      - run: uv venv --python 3.12 && uv pip install -e ".[s3]"
+      - run: uv sync --frozen --python 3.12 --extra s3
         if: steps.gate.outputs.run == 'true'
       - name: refresh
         if: steps.gate.outputs.run == 'true'
         env:
+          INDEX_DATE: ${{ github.event.inputs.index_date }}
           SEC_USER_AGENT: ${{ secrets.SEC_USER_AGENT }}
           LAKE_ROOT: ${{ secrets.LAKE_ROOT }}
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
@@ -46,9 +50,14 @@ jobs:
           AWS_REGION: ${{ secrets.AWS_REGION }}
           AWS_ENDPOINT_URL: ${{ secrets.AWS_ENDPOINT_URL }}
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          SMTP_HOST: ${{ secrets.SMTP_HOST }}
+          SMTP_PORT: ${{ secrets.SMTP_PORT || '587' }}
+          SMTP_USER: ${{ secrets.SMTP_USER }}
+          SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+          SITE_URL: ${{ secrets.SITE_URL }}
         run: |
-          if [ -n "${{ github.event.inputs.index_date }}" ]; then
-            .venv/bin/filings-hub refresh --date "${{ github.event.inputs.index_date }}"
+          if [ -n "$INDEX_DATE" ]; then
+            .venv/bin/filings-hub refresh --date "$INDEX_DATE"
           else
             .venv/bin/filings-hub refresh
           fi

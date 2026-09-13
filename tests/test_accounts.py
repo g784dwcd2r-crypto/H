@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import time
 
 import httpx
@@ -120,6 +121,66 @@ def test_validate_pref():
     assert A.validate_pref("global", "", "scale", "x" * 30000, "explicit")
 
 
+@pytest.mark.parametrize("value", ["millions", "true", "123", "null", "", 12, False, None, [1, "a"], {"nested": "x"}])
+def test_postgres_jsonb_scalars_are_decoded_once(pg_url, value):
+    st = A.PostgresUserStore(pg_url)
+    try:
+        user = st.create_user(f"json-{time.time_ns()}@example.com")
+        st.put_pref(user.id, A.Pref("global", "", "test", value))
+        restored = st.list_prefs(user.id)[0].value
+        assert restored == value and type(restored) is type(value)
+    finally:
+        st.conn.close()
+
+
+@pytest.mark.parametrize("backend", ["lake", "postgres"])
+def test_analytics_storage_excludes_private_values(tmp_path, pg_url, backend):
+    st = A.PostgresUserStore(pg_url) if backend == "postgres" else A.LakeUserStore(Storage(str(tmp_path)))
+    try:
+        user = st.create_user(f"privacy-{time.time_ns()}@example.com")
+        at = "2026-09-13T00:00:00+00:00"
+        private = {"filename": "secret-research.xlsx", "companies": [320193], "client": "confidential-client"}
+        for key, new in (
+            ("watchlist", private),
+            ("custom-secret", private),
+            ("scale", "secret"),
+            ("export_config", private),
+            ("scale", "millions"),
+        ):
+            st.add_event(
+                user.id, {"key": key, "scope": "global", "new": new, "old": private, "at": at, "source": "explicit"}
+            )
+        st.add_event(user.id, A.ui_event("export.download", private))
+        st.add_event(user.id, A.ui_event("private-project-name", private))
+        events = st.list_events(user.id)
+        assert len(events) == 3
+        assert {e["key"] for e in events} == {"export_config", "scale", "export.download"}
+        assert next(e["new"] for e in events if e["key"] == "scale") == "millions"
+        encoded = json.dumps(events)
+        assert "secret" not in encoded and "320193" not in encoded and "confidential" not in encoded
+    finally:
+        if backend == "postgres":
+            st.conn.close()
+
+
+def test_legacy_analytics_are_filtered_before_reporting():
+    events = [
+        {"user_id": "a", "key": "watchlist", "scope": "global", "new": [320193], "source": "explicit"},
+        {"user_id": "a", "key": "scale", "scope": "global", "new": "confidential", "source": "explicit"},
+        {
+            "user_id": "a",
+            "key": "export_config",
+            "scope": "global",
+            "new": {"filename": "confidential.xlsx"},
+            "source": "explicit",
+        },
+        {"user_id": "b", **A.ui_event("export.download", {"filename": "confidential.xlsx"})},
+    ]
+    report = A.touch_report(events, 30)
+    assert report["events"] == 2 and report["prefs"][0]["top_values"] == []
+    assert "confidential" not in json.dumps(report) and "320193" not in json.dumps(report)
+
+
 def test_google_exchange_uses_verified_email():
     def handler(req: httpx.Request) -> httpx.Response:
         if req.url.host == "oauth2.googleapis.com":
@@ -146,6 +207,7 @@ def api(lake_copy):
         lake_root=lake_copy.root,
         database_url="",
         api_key="k",
+        admin_emails="events@example.com",
         api_rate_limit_per_minute=1000,
         sec_user_agent="",
         site_url="https://hub.example",
@@ -430,7 +492,7 @@ def test_events_proposals_and_touch_report_endpoints(api):
     assert r.json()["pref"]["source"] == "inferred"
     assert c.get("/me/prefs/resolve?cik=1", headers=hdr).json()["prefs"]["period_mode"]["value"] == "ltm"
     assert c.post("/me/proposals", json={"key": "statement", "action": "accept"}, headers=hdr).status_code == 422
-    report = c.get("/metrics/prefs?days=7", headers=H).json()
+    report = c.get("/metrics/prefs?days=7", headers=hdr).json()
     assert report["users"] == 1 and "period_mode" in {p["key"] for p in report["prefs"]}
     assert any(u["name"] == "export.download" for u in report["ui"])
     assert next(p for p in report["prefs"] if p["key"] == "period_mode")["writes"] == 4
