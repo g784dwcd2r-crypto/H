@@ -15,6 +15,29 @@ from filings_hub.lake.storage import Storage
 from filings_hub.testing import edgar_fixtures as fx
 
 
+def seed_pagination_index(index, storage: Storage) -> None:
+    """A fixed local-only cohort makes pagination acceptance independent of prior reader visits."""
+    filing = {
+        "cik": 320193,
+        "accession": "0000320193-26-999999",
+        "form": "8-K",
+        "filed_date": "2026-01-01",
+        "company_name": "Apple Inc. (synthetic pagination fixture)",
+    }
+    index.register_filing(filing)
+    for number in range(25):
+        doc_id = index.register_document(
+            filing,
+            {
+                "filename": f"synthetic-pagination-{number:02d}.txt",
+                "label": f"Synthetic pagination document {number + 1}",
+            },
+        )
+        text = f"Disclosurepaginationfixture entry {number + 1}. Synthetic browser acceptance content only."
+        index.add_version(storage, doc_id, text.encode(), text)
+    index.inventory_status(filing["cik"], filing["accession"], "complete")
+
+
 def main() -> None:
     root = Path(os.environ.get("SMOKE_LAKE_ROOT", "work/browser-smoke-lake")).resolve()
     marker = root / ".synthetic-preview"
@@ -67,6 +90,7 @@ def main() -> None:
         [(datetime.fromisoformat(current["indexed_at"]) - timedelta(minutes=1)).isoformat(), earlier],
     )
     index.add_version(storage, current["document_id"], raw, current["text_content"], current["pages"])
+    seed_pagination_index(index, storage)
     index.close()
     uvicorn.run(app, host="127.0.0.1", port=int(os.environ.get("SMOKE_API_PORT", "8100")))
 

@@ -52,9 +52,9 @@ If browser storage fails, the open tab retains an in-memory fallback and warns t
 
 - 26 frontend unit tests passed; TypeScript and the production build passed.
 - 26 combined production-server browser journeys passed, including eight new usability scenarios; no browser runtime exceptions were recorded.
-- 82 focused Python tests passed, zero skips, covering projects, account security, captured-version comparison, statements and historical snapshots with local/disposable PostgreSQL parity where applicable.
+- 83 focused Python tests passed, zero skips, covering projects, account security, captured-version comparison, statements and historical snapshots with local/disposable PostgreSQL parity where applicable.
 - Frozen dependency lock, Ruff, formatting and diff-whitespace checks passed. Frontend dependency audit reports zero vulnerabilities.
-- Browser evidence uses synthetic accounts/data. Green checks do not establish comprehensive SEC coverage, source completeness, production delivery or institutional service reliability. Exact-head GitHub CI is recorded on the PR.
+- Browser evidence uses synthetic accounts/data. Green checks do not establish comprehensive SEC coverage, source completeness, production delivery or institutional service reliability. The first web CI attempt exposed a pagination-fixture assumption; the final suite seeds a fixed 25-document synthetic cohort and retains hidden browser artifacts. Exact-head GitHub CI is recorded on the PR.
 
 Run the existing synthetic preview described in `platform-delivery.md`, then `npm run test:browser` from `web`. Custom preview locations use `SMOKE_BASE_URL` and `SMOKE_API_BASE_URL`; the additional suite defaults to web3100/API8100 for CI. Screenshots and JSON acceptance results are retained in `web/.browser-results/usability`.
 
