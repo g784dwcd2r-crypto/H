@@ -16,8 +16,8 @@ jobs:
         options: >-
           --health-cmd "pg_isready -U test" --health-interval 5s --health-timeout 5s --health-retries 10
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v3
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v7
       - run: uv lock --check && uv sync --frozen --python 3.12 --extra dev
       - run: .venv/bin/ruff check . && .venv/bin/ruff format --check .
       - run: .venv/bin/pytest --cov=filings_hub --cov-report=term
@@ -29,8 +29,8 @@ jobs:
       run:
         working-directory: web
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
         with:
           node-version: '22'
           cache: npm
@@ -40,7 +40,7 @@ jobs:
       - run: npm test
       - run: npm run build
       - run: npm audit --omit=dev --audit-level=high
-      - uses: astral-sh/setup-uv@v3
+      - uses: astral-sh/setup-uv@v7
       - run: uv sync --frozen --python 3.12 --extra dev
         working-directory: .
       - run: npx playwright install --with-deps chromium
@@ -74,7 +74,7 @@ jobs:
           FILINGS_API_KEY: admin-preview
           PLATFORM_ADMIN_ORIGIN: http://localhost:3201
       - run: npm run test:admin
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v5
         if: always()
         with:
           name: browser-acceptance

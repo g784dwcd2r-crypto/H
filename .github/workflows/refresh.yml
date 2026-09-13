@@ -32,9 +32,9 @@ jobs:
           else
             echo "run=false" >> "$GITHUB_OUTPUT"
           fi
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         if: steps.gate.outputs.run == 'true'
-      - uses: astral-sh/setup-uv@v3
+      - uses: astral-sh/setup-uv@v7
         if: steps.gate.outputs.run == 'true'
       - run: uv sync --frozen --python 3.12 --extra s3
         if: steps.gate.outputs.run == 'true'
