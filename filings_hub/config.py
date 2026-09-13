@@ -28,6 +28,11 @@ class Settings(BaseSettings):
 
     api_key: str = ""
     site_url: str = Field(default="", description="Public URL of the web app, used in alert emails.")
+    session_secret: str = Field(default="", description="Signs session tokens; empty = random per process.")
+    session_days: int = 30
+    google_client_id: str = ""
+    google_client_secret: str = ""
+    auth_dev_links: bool = Field(default=False, description="Return magic links in the API response (dev only).")
     api_rate_limit_per_minute: int = 60
 
     edgar_requests_per_second: float = 10.0

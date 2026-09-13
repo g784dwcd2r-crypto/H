@@ -14,6 +14,8 @@ GET /companies/{cik}/peers                         same industry, by size
 GET /filings/recent?ciks=                          what the followed companies filed lately
 POST /subscriptions                                email alerts for followed companies
 POST /requests                                     coverage requests (other regions)
+POST /auth/magic-link · /auth/verify · /auth/google  sign in; GET /auth/config
+GET /me; GET/PUT/DELETE /me/prefs; GET /me/prefs/resolve; POST /me/prefs/export · /import · /reset
 GET /health
 """
 
@@ -25,9 +27,9 @@ import uuid
 from datetime import date, timedelta
 from typing import Any
 
-from fastapi import Body, Depends, FastAPI, HTTPException, Query, Response
+from fastapi import Body, Depends, FastAPI, Header, HTTPException, Query, Response
 
-from filings_hub import __version__
+from filings_hub import __version__, accounts
 from filings_hub.api.security import RateLimiter, make_auth
 from filings_hub.config import Settings, get_settings
 from filings_hub.db.database import Database
@@ -133,10 +135,24 @@ def create_app(
     if client is None and "@" in (s.sec_user_agent or ""):
         client = client_from_settings()
     docs_cache = DocumentCache(storage, client)
+    users = accounts.store_from_settings(storage, s.database_url)
+    signer = accounts.SessionSigner(s.session_secret, s.session_days)
+    magic_limiter = RateLimiter(3)
 
     app = FastAPI(title="Filings Hub API", version=__version__, docs_url="/docs")
     app.state.db = database
     app.state.edgar = client
+    app.state.users = users
+    app.state.signer = signer
+
+    def current_user(
+        _: str = Depends(auth), x_session: str | None = Header(default=None, alias="X-Session")
+    ) -> accounts.User:
+        uid = signer.verify(x_session)
+        user = users.get_user(uid) if uid else None
+        if user is None:
+            raise HTTPException(401, "sign in required")
+        return user
 
     def resolve_cik(cik: str) -> int:
         if cik.isdigit():
@@ -504,6 +520,148 @@ def create_app(
         rid = uuid.uuid4().hex[:12]
         _store(f"{layout.REQUESTS}/{rid}.json", {"id": rid, "region": region, "note": note, "email": email})
         return {"stored": True, "id": rid}
+
+    # -- accounts ----------------------------------------------------------------------------------
+    @app.get("/auth/config")
+    def auth_config(_: str = Depends(auth)) -> dict[str, Any]:
+        return {
+            "email_link": bool(s.smtp_host) or s.auth_dev_links,
+            "google_client_id": s.google_client_id or None,
+            "site_url": s.site_url,
+        }
+
+    @app.post("/auth/magic-link")
+    def magic_link(payload: dict[str, Any] = Body(...), _: str = Depends(auth)) -> dict[str, Any]:
+        email = str(payload.get("email") or "").strip().lower()
+        if not EMAIL_RE.match(email):
+            raise HTTPException(422, "a valid email is required")
+        ok, retry = magic_limiter.check(email)
+        if not ok:
+            raise HTTPException(429, f"too many links requested; try again in {retry}s")
+        try:
+            _token, link = accounts.issue_magic_link(users, email, s.site_url)
+        except Exception as e:
+            log.warning("could not store sign-in token: %s", e)
+            raise HTTPException(503, "sign-in is not enabled on this deployment (read-only lake)") from e
+        out: dict[str, Any] = {"sent": False}
+        if s.smtp_host:
+            from filings_hub.ingest.alerts import send_email
+
+            body = (
+                "Sign in to Filings Hub with this link (valid for 15 minutes):\n\n"
+                f"{link}\n\nIf you did not ask for it, ignore this email."
+            )
+            try:
+                out["sent"] = send_email(email, "Your Filings Hub sign-in link", body, s)
+            except Exception as e:
+                log.error("magic link email failed: %s", e)
+        if s.auth_dev_links:
+            out["dev_link"] = link
+        if not out["sent"] and not s.auth_dev_links:
+            raise HTTPException(503, "email sign-in is not configured (SMTP_HOST)")
+        return out
+
+    @app.post("/auth/verify")
+    def verify_link(payload: dict[str, Any] = Body(...), _: str = Depends(auth)) -> dict[str, Any]:
+        token = str(payload.get("token") or "")
+        user = accounts.redeem_magic_link(users, token) if token else None
+        if user is None:
+            raise HTTPException(401, "that sign-in link is invalid or has expired")
+        return {"session": signer.sign(user.id), "user": user.to_dict()}
+
+    @app.post("/auth/google")
+    def google_signin(payload: dict[str, Any] = Body(...), _: str = Depends(auth)) -> dict[str, Any]:
+        if not (s.google_client_id and s.google_client_secret):
+            raise HTTPException(503, "Google sign-in is not configured")
+        code = str(payload.get("code") or "")
+        redirect_uri = str(payload.get("redirect_uri") or "")
+        email = accounts.google_email_for_code(
+            code, redirect_uri, s.google_client_id, s.google_client_secret, http=getattr(app.state, "google_http", None)
+        )
+        if not email:
+            raise HTTPException(401, "Google did not confirm an email for that code")
+        user = accounts.get_or_create_user(users, email)
+        return {"session": signer.sign(user.id), "user": user.to_dict()}
+
+    @app.get("/me")
+    def me(user: accounts.User = Depends(current_user)) -> dict[str, Any]:
+        return {"user": user.to_dict()}
+
+    # -- preferences -------------------------------------------------------------------------------
+    @app.get("/me/prefs")
+    def list_prefs(user: accounts.User = Depends(current_user)) -> dict[str, Any]:
+        return {"prefs": [p.to_dict() for p in users.list_prefs(user.id)], "defaults": accounts.DEFAULTS}
+
+    @app.put("/me/prefs")
+    def put_pref(payload: dict[str, Any] = Body(...), user: accounts.User = Depends(current_user)) -> dict[str, Any]:
+        scope = str(payload.get("scope") or "global")
+        scope_key = str(payload.get("scope_key") or "")
+        key = str(payload.get("key") or "")
+        source = str(payload.get("source") or "explicit")
+        value = payload.get("value")
+        problem = accounts.validate_pref(scope, scope_key, key, value, source)
+        if problem:
+            raise HTTPException(422, problem)
+        old = next((p.value for p in users.list_prefs(user.id) if p.ident == (scope, scope_key, key)), None)
+        pref = accounts.Pref(scope=scope, scope_key=scope_key, key=key, value=value, source=source)
+        users.put_pref(user.id, pref)
+        users.add_event(
+            user.id, {"key": key, "scope": scope, "old": old, "new": value, "source": source, "at": pref.updated_at}
+        )
+        return {"pref": pref.to_dict()}
+
+    @app.delete("/me/prefs")
+    def delete_pref(
+        scope: str, key: str, scope_key: str = "", user: accounts.User = Depends(current_user)
+    ) -> dict[str, Any]:
+        """Reset one preference to its default (the scope below takes over)."""
+        removed = users.delete_pref(user.id, scope, scope_key, key)
+        return {"removed": removed}
+
+    @app.get("/me/prefs/resolve")
+    def resolve_prefs(
+        cik: int | None = None,
+        sic: str | None = None,
+        statement: str | None = None,
+        user: accounts.User = Depends(current_user),
+    ) -> dict[str, Any]:
+        """Every preference that applies to this context, with the scope that answered."""
+        if cik is not None and sic is None:
+            rows = database.query("SELECT sic FROM companies WHERE cik = ?", [cik])
+            sic = rows[0]["sic"] if rows else None
+        return {
+            "context": {"cik": cik, "sic": sic, "statement": statement},
+            "prefs": accounts.resolve(users.list_prefs(user.id), cik, sic, statement),
+        }
+
+    @app.post("/me/prefs/export")
+    def export_prefs(user: accounts.User = Depends(current_user)) -> dict[str, Any]:
+        return {"version": 1, "email": user.email, "prefs": [p.to_dict() for p in users.list_prefs(user.id)]}
+
+    @app.post("/me/prefs/import")
+    def import_prefs(
+        payload: dict[str, Any] = Body(...), user: accounts.User = Depends(current_user)
+    ) -> dict[str, Any]:
+        prefs = payload.get("prefs")
+        if not isinstance(prefs, list) or len(prefs) > 2000:
+            raise HTTPException(422, "prefs must be a list (at most 2000)")
+        n = 0
+        for p in prefs:
+            if not isinstance(p, dict):
+                continue
+            scope, sk, key = str(p.get("scope") or "global"), str(p.get("scope_key") or ""), str(p.get("key") or "")
+            source = str(p.get("source") or "explicit")
+            if accounts.validate_pref(scope, sk, key, p.get("value"), source):
+                continue
+            users.put_pref(
+                user.id, accounts.Pref(scope=scope, scope_key=sk, key=key, value=p.get("value"), source=source)
+            )
+            n += 1
+        return {"imported": n}
+
+    @app.post("/me/prefs/reset")
+    def reset_prefs(user: accounts.User = Depends(current_user)) -> dict[str, Any]:
+        return {"removed": users.delete_all_prefs(user.id)}
 
     @app.get("/metrics")
     def metrics(days: int = Query(30, le=365), _: str = Depends(auth)) -> dict[str, Any]:
