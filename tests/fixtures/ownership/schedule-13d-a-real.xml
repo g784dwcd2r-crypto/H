@@ -1,0 +1,162 @@
+<?xml version="1.0" encoding="UTF-8"?><edgarSubmission xmlns="http://www.sec.gov/edgar/schedule13D" xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <schemaVersion>X0202</schemaVersion>
+<headerData>
+    <submissionType>SCHEDULE 13D/A</submissionType>
+    <filerInfo>
+      <filer>
+        <filerCredentials>
+          <cik>0000072971</cik>
+          <ccc>XXXXXXXX</ccc>
+        </filerCredentials>
+      </filer>
+      <liveTestFlag>LIVE</liveTestFlag>
+
+
+
+    </filerInfo>
+  </headerData>
+  <formData>
+    <coverPageHeader>
+      <amendmentNo>4</amendmentNo>
+      <securitiesClassTitle>MUNIFUND PREFERRED SHARES</securitiesClassTitle>
+      <dateOfEvent>06/10/2026</dateOfEvent>
+      <previouslyFiledFlag>false</previouslyFiledFlag>
+      <issuerInfo>
+        <issuerCIK>0001083839</issuerCIK>
+        <issuerCusips>
+          <issuerCusipNumber>67066V812</issuerCusipNumber>
+        </issuerCusips>
+        <issuerName>NUVEEN QUALITY MUNICIPAL INCOME FUND</issuerName>
+        <address>
+          <street1 xmlns="http://www.sec.gov/edgar/common">333 West Wacker Drive</street1>
+          <city xmlns="http://www.sec.gov/edgar/common">Chicago</city>
+          <stateOrCountry xmlns="http://www.sec.gov/edgar/common">IL</stateOrCountry>
+          <zipCode xmlns="http://www.sec.gov/edgar/common">60606</zipCode>
+        </address>
+      </issuerInfo>
+      <authorizedPersons>
+        <notificationInfo>
+          <personName>Vera Gurova, Senior Counsel</personName>
+          <personPhoneNum>(704) 339-2335</personPhoneNum>
+          <personAddress>
+            <street1 xmlns="http://www.sec.gov/edgar/common">Wells Fargo &amp; Company</street1>
+            <street2 xmlns="http://www.sec.gov/edgar/common">401 S. Tryon Street, 26th Floor</street2>
+            <city xmlns="http://www.sec.gov/edgar/common">Charlotte</city>
+            <stateOrCountry xmlns="http://www.sec.gov/edgar/common">NC</stateOrCountry>
+            <zipCode xmlns="http://www.sec.gov/edgar/common">28202</zipCode>
+          </personAddress>
+        </notificationInfo>
+      </authorizedPersons>
+    </coverPageHeader>
+    <reportingPersons>
+      <reportingPersonInfo>
+        <reportingPersonCIK>0000072971</reportingPersonCIK>
+        <reportingPersonNoCIK>N</reportingPersonNoCIK>
+        <reportingPersonName>Wells Fargo &amp; Company</reportingPersonName>
+        <memberOfGroup>b</memberOfGroup>
+        <fundType>WC</fundType>
+        <legalProceedings>Y</legalProceedings>
+        <citizenshipOrOrganization>DE</citizenshipOrOrganization>
+        <soleVotingPower>0</soleVotingPower>
+        <sharedVotingPower>2238</sharedVotingPower>
+        <soleDispositivePower>0</soleDispositivePower>
+        <sharedDispositivePower>2238</sharedDispositivePower>
+        <aggregateAmountOwned>2238</aggregateAmountOwned>
+        <isAggregateExcludeShares>N</isAggregateExcludeShares>
+        <percentOfClass>13.54</percentOfClass>
+        <typeOfReportingPerson>HC</typeOfReportingPerson>
+      </reportingPersonInfo>
+      <reportingPersonInfo>
+        <reportingPersonCIK>0001585457</reportingPersonCIK>
+        <reportingPersonNoCIK>N</reportingPersonNoCIK>
+        <reportingPersonName>Wells Fargo Municipal Capital Strategies, LLC</reportingPersonName>
+        <memberOfGroup>b</memberOfGroup>
+        <fundType>WC</fundType>
+        <legalProceedings>Y</legalProceedings>
+        <citizenshipOrOrganization>DE</citizenshipOrOrganization>
+        <soleVotingPower>0</soleVotingPower>
+        <sharedVotingPower>2238</sharedVotingPower>
+        <soleDispositivePower>0</soleDispositivePower>
+        <sharedDispositivePower>2238</sharedDispositivePower>
+        <aggregateAmountOwned>2238</aggregateAmountOwned>
+        <isAggregateExcludeShares>N</isAggregateExcludeShares>
+        <percentOfClass>13.54</percentOfClass>
+        <typeOfReportingPerson>OO</typeOfReportingPerson>
+      </reportingPersonInfo>
+    </reportingPersons>
+    <items1To7>
+      <item1>
+        <securityTitle>MUNIFUND PREFERRED SHARES</securityTitle>
+        <issuerName>NUVEEN QUALITY MUNICIPAL INCOME FUND</issuerName>
+        <issuerPrincipalAddress>
+          <street1 xmlns="http://www.sec.gov/edgar/common">333 West Wacker Drive</street1>
+          <city xmlns="http://www.sec.gov/edgar/common">Chicago</city>
+          <stateOrCountry xmlns="http://www.sec.gov/edgar/common">IL</stateOrCountry>
+          <zipCode xmlns="http://www.sec.gov/edgar/common">60606</zipCode>
+        </issuerPrincipalAddress>
+        <commentText>This Amendment No. 4 (this "Amendment") amends, as set forth below, the statement on Schedule 13D, dated May 3, 2024 and filed with the SEC on May 7, 2024 (the "Original Schedule 13D"), as amended by Amendment No. 1 dated July 1, 2024 and filed with SEC on July 3, 2024 (the "Amendment No. 1"), as further amended by Amendment No. 2 dated December 9, 2024 and filed with SEC on December 11, 2024 (the "Amendment No. 2"), as further amended by Amendment No. 3 dated March 11, 2026 and filed with SEC on March 13, 2026 (the "Amendment No. 3") for Wells Fargo &amp; Company ("Wells Fargo") and Wells Fargo Municipal Capital Strategies, LLC ("Capital Strategies") (collectively, the "Reporting Persons") with respect to the MuniFund Preferred Shares, Series A (the "MFP Shares") of Nuveen Quality Municipal Income Fund (the "Issuer").
+
+This Amendment is being filed in relation to the redemption by the Issuer on June 10, 2026 of 750 MFP Shares (CUSIP No. 67066V812) of the Issuer held by Capital Strategies.</commentText>
+      </item1>
+      <item2>
+        <filingPersonName>This information is not changed by this Amendment.</filingPersonName>
+        <principalBusinessAddress>This information is not changed by this Amendment.</principalBusinessAddress>
+        <principalJob>Item 2 of the Original Schedule 13D is hereby amended by deleting Schedule I and Schedule II referenced therein and replacing them with Schedule I and Schedule II included with this Amendment and attached as an Exhibit hereto.</principalJob>
+        <hasBeenConvicted>Item 2 of the Original Schedule 13D is hereby amended by deleting Schedule I and Schedule II referenced therein and replacing them with Schedule I and Schedule II included with this Amendment and attached as an Exhibit hereto.</hasBeenConvicted>
+        <convictionDescription>Item 2 of the Original Schedule 13D is hereby amended by deleting Schedule I and Schedule II referenced therein and replacing them with Schedule I and Schedule II included with this Amendment and attached as an Exhibit hereto.</convictionDescription>
+        <citizenship>Item 2 of the Original Schedule 13D is hereby amended by deleting Schedule I and Schedule II referenced therein and replacing them with Schedule I and Schedule II included with this Amendment and attached as an Exhibit hereto.</citizenship>
+      </item2>
+      <item3>
+        <fundsSource>This information is not changed by this Amendment.</fundsSource>
+      </item3>
+      <item4>
+        <transactionPurpose>This information is not changed by this Amendment.</transactionPurpose>
+      </item4>
+      <item5>
+        <percentageOfClassSecurities>This information is not changed by this Amendment.</percentageOfClassSecurities>
+        <numberOfShares>This information is not changed by this Amendment.</numberOfShares>
+        <transactionDesc>This information is not changed by this Amendment.</transactionDesc>
+        <listOfShareholders>This information is not changed by this Amendment.</listOfShareholders>
+        <date5PercentOwnership>This information is not changed by this Amendment.</date5PercentOwnership>
+      </item5>
+      <item6>
+        <contractDescription>This information is not changed by this Amendment.</contractDescription>
+      </item6>
+      <item7>
+        <filedExhibits>Item 7 of the Original Schedule 13D is hereby amended by deleting Exhibit 99.1 and Exhibit 99.2 thereto and inserting the following exhibits in their place:
+
+"Exhibit         Description of Exhibit
+
+99.1              Joint Filing Agreement
+
+99.2              Limited Power of Attorney
+
+Item 7 of the Original Schedule 13D is hereby further amended by adding the following Exhibit to the listings of exhibits to be attached to this Schedule 13D:
+
+"Exhibit         Description of Exhibit
+
+99.8              Amended and Restated Schedule I and Schedule II"</filedExhibits>
+      </item7>
+    </items1To7>
+    <signatureInfo>
+      <signaturePerson>
+        <signatureReportingPerson>Wells Fargo &amp; Company</signatureReportingPerson>
+        <signatureDetails>
+          <signature>/s/ Patricia Arce</signature>
+          <title>Patricia Arce, Designated Signer</title>
+          <date>06/12/2026</date>
+        </signatureDetails>
+      </signaturePerson>
+      <signaturePerson>
+        <signatureReportingPerson>Wells Fargo Municipal Capital Strategies, LLC</signatureReportingPerson>
+        <signatureDetails>
+          <signature>/s/ Daniel Frizsell</signature>
+          <title>Daniel Frizsell, Vice President</title>
+          <date>06/12/2026</date>
+        </signatureDetails>
+      </signaturePerson>
+      <commentText>Please note that Item 2 of the Original Schedule 13D is hereby amended by deleting Schedule I and Schedule II referenced therein and replacing them with the amended and restated Schedule I and Schedule II attached to this Amendment.</commentText>
+    </signatureInfo>
+  </formData>
+
+</edgarSubmission>

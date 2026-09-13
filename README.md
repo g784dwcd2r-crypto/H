@@ -217,3 +217,7 @@ The golden set covers the characteristics the plan names — a 52/53-week filer,
 year ends, a bank with no gross profit line, two REITs, two insurers, a biotech, dual share classes,
 and a 40-F filer reporting under IFRS. It is a CSV of tickers, resolved to CIKs from the loaded data,
 so it carries no hard-coded identifiers that could go stale: [`filings_hub/data/golden_set.csv`](filings_hub/data/golden_set.csv).
+
+## Ownership disclosures
+
+The company ownership workspace separates insiders, institutional reported positions and major beneficial-ownership disclosures. Current SEC XML ingestion, exact reported values, expandable cards, source readers, CSV exports and separate opt-in alerts are documented in [the ownership operator guide](docs/ownership.md). Coverage is partial; this is not a complete or live shareholder register. Start forward ingestion with `filings-hub ownership sync`; no historical backfill or production schedule is enabled automatically.

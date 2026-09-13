@@ -1,0 +1,1 @@
+export default function OwnershipLoading() { return <section className="loading-state" role="status"><p className="eyebrow">Ownership disclosures</p><h1>Reading reported activity…</h1><p>Loading insider, institutional and beneficial-ownership records with their source coverage.</p><div className="loading-line"/><div className="loading-line short"/></section>; }

@@ -1,6 +1,8 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import CompanyNav from "@/components/CompanyNav";
+import CompanyOwnership from "@/components/CompanyOwnership";
+import { Suspense } from "react";
 import FollowButton from "@/components/FollowButton";
 import HeadlineCards from "@/components/HeadlineCards";
 import { api, NotFound } from "@/lib/server-api";
@@ -136,6 +138,8 @@ export default async function CompanyPage({ params }: { params: Promise<{ cik: s
           <div className="muted"><Link href={`/companies/${id}/statements`}>View statements</Link></div>
         </div>
       </section>
+
+      <Suspense fallback={<p role="status" className="muted">Loading ownership coverage…</p>}><CompanyOwnership cik={id}/></Suspense>
 
       <form className="findin" action={`/companies/${id}/search`} method="get">
         <input name="q" placeholder={`Search inside ${c.ticker ?? "the company"}'s filings, e.g. buyback, guidance, impairment`} aria-label="Search inside filings" minLength={2} required />

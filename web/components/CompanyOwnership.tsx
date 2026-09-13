@@ -1,0 +1,8 @@
+import Link from "next/link";
+import { workspaceRequest } from "@/lib/workspace-api";
+import { FLOW_COPY, OWNERSHIP_FLOWS, type OwnershipResponse } from "@/lib/ownership";
+import styles from "./Ownership.module.css";
+export default async function CompanyOwnership({ cik }: { cik: string }) {
+  const responses = await Promise.all(OWNERSHIP_FLOWS.map(flow => workspaceRequest<OwnershipResponse>(`/companies/${cik}/ownership/${flow}?limit=1`)));
+  return <section className={styles.companySection} aria-labelledby="company-ownership-title"><div className={styles.flowHeading}><div><p className="eyebrow">People, managers, ownership disclosures</p><h2 id="company-ownership-title">Ownership, in context.</h2></div><Link className="text-link" href={`/companies/${cik}/ownership`}>Explore ownership →</Link></div><div className={styles.previewGrid}>{OWNERSHIP_FLOWS.map((flow,i) => {const data = responses[i].data, latest = data?.items[0];return <article key={flow}><p className={styles.smallTitle}>{FLOW_COPY[flow].title}</p><h3>{latest ? latest.name : data ? "No parsed records" : "Currently unavailable"}</h3><p>{latest ? latest.summary : data ? "An empty index is not evidence that no ownership activity occurred." : "The ownership service could not be reached. Coverage is unknown."}</p>{latest && <small>Filed {latest.reported_date}</small>}<Link href={`/companies/${cik}/ownership#${flow}`}>View {FLOW_COPY[flow].title.toLowerCase()} →</Link></article>;})}</div><p className={styles.note}>Partial parsed coverage. Insider transactions, delayed manager positions and beneficial-ownership disclosures are presented separately.</p></section>;
+}

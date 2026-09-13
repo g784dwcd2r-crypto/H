@@ -94,6 +94,9 @@ def main() -> None:
     )
     index.add_version(storage, current["document_id"], raw, current["text_content"], current["pages"])
     seed_pagination_index(index, storage)
+    from filings_hub.testing.ownership_fixtures import seed_ownership
+
+    seed_ownership(index, storage)
     # Explicitly synthetic, stable documents exercise source quotes, counter-evidence and exact arithmetic.
     for suffix, source in [
         (

@@ -17,6 +17,11 @@ app = typer.Typer(
     help="Disclosure: SEC EDGAR -> period hub -> as-reported statements -> Excel.",
 )
 
+# Imported lazily by Typer commands' dependencies; no network or database work at registration.
+from filings_hub.ownership.cli import app as ownership_app  # noqa: E402
+
+app.add_typer(ownership_app, name="ownership")
+
 
 def _setup_logging(verbose: bool) -> None:
     logging.basicConfig(

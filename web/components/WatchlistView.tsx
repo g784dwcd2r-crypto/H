@@ -6,6 +6,8 @@ import type { RecentFiling } from "@/lib/api";
 import { fmtDate } from "@/lib/api";
 import { watchlist, type Remembered } from "@/lib/local";
 import { accountWatchlist } from "@/lib/watchlist-client";
+import OwnershipMorning from "@/components/OwnershipMorning";
+import { OWNERSHIP_FLOWS, FLOW_COPY, type OwnershipFlow } from "@/lib/ownership";
 
 export default function WatchlistView({ signedIn, initial }: { signedIn: boolean; initial: Remembered[] | null }) {
   const [list, setList] = useState<Remembered[] | null>(null);
@@ -19,23 +21,24 @@ export default function WatchlistView({ signedIn, initial }: { signedIn: boolean
   const [subscribed, setSubscribed] = useState(false);
   const [alertMessage, setAlertMessage] = useState<string | null>(null);
   const [subscribedCiks, setSubscribedCiks] = useState<number[]>([]);
+  const [ownershipFlows, setOwnershipFlows] = useState<OwnershipFlow[]>([]);
   useEffect(() => {
     if (!signedIn) return;
     const controller = new AbortController();
-    fetch("/api/subscribe", { signal: controller.signal }).then((response) => { if (!response.ok) throw new Error("Alerts unavailable"); return response.json(); }).then((data: { subscribed: boolean; ciks: number[] }) => {
+    fetch("/api/subscribe", { signal: controller.signal }).then((response) => { if (!response.ok) throw new Error("Alerts unavailable"); return response.json(); }).then((data: { subscribed: boolean; ciks: number[]; ownership_flows?: OwnershipFlow[] }) => {
       if (controller.signal.aborted) return;
-      setSubscribed(data.subscribed); setSubscribedCiks(data.ciks ?? []); setSub("idle");
+      setSubscribed(data.subscribed); setSubscribedCiks(data.ciks ?? []); setOwnershipFlows((data.ownership_flows ?? []).filter(flow => OWNERSHIP_FLOWS.includes(flow))); setSub("idle");
     }).catch(() => { if (!controller.signal.aborted) setSub("error"); });
     return () => controller.abort();
   }, [signedIn]);
   const saveAlerts = async (enable: boolean) => {
     setSub("sending"); setAlertMessage(null);
     try {
-      const response = await fetch("/api/subscribe", { method: enable ? "POST" : "DELETE", headers: { "Content-Type": "application/json" }, ...(enable ? { body: JSON.stringify({ ciks: (list ?? []).map((company) => company.cik) }) } : {}) });
+      const response = await fetch("/api/subscribe", { method: enable ? "POST" : "DELETE", headers: { "Content-Type": "application/json" }, ...(enable ? { body: JSON.stringify({ ciks: (list ?? []).map((company) => company.cik), ownership_flows: ownershipFlows }) } : {}) });
       if (response.status === 503) { setSub("off"); return; }
       if (!response.ok) throw new Error("Alerts could not be saved");
       setSubscribed(enable); setSubscribedCiks(enable ? (list ?? []).map((company) => company.cik) : []); setSub("done");
-      setAlertMessage(enable ? "Alerts are enabled for this list, using your verified account email." : "Email alerts are paused.");
+      setAlertMessage(enable ? `Alerts are enabled for this list, using your verified account email.${ownershipFlows.length ? ` Selected ownership groups: ${ownershipFlows.map(flow => FLOW_COPY[flow].title.toLowerCase()).join(", ")}.` : " Ownership alerts are not selected."}` : "Email alerts are paused.");
     } catch { setSub("error"); }
   };
 
@@ -117,10 +120,12 @@ export default function WatchlistView({ signedIn, initial }: { signedIn: boolean
           {rest.length === 0 ? <p className="muted">Quiet.</p> : <Table rows={rest} />}
         </>
       )}
+      <OwnershipMorning companies={list} days={days}/>
       <section className="subscribe">
-        <p className="eyebrow">Email me the results filings</p>
+        <p className="eyebrow">Email filing alerts</p>
         {!signedIn ? <p className="muted"><Link href="/signin">Sign in</Link> to send filing alerts to your verified account email.</p> : <>
           <p className="muted">{subscribed ? "Email alerts are enabled." : "Receive results filings at your verified account email."} Following changes your watchlist; use “Update alert companies” to apply the current list to email alerts.</p>
+          <fieldset disabled={sub === "loading" || sub === "sending"} style={{border:"1px solid var(--line)",padding:"16px",margin:"18px 0"}}><legend>Optional ownership alerts</legend><p className="muted small">Select each disclosure type explicitly. Results filing alerts remain included; ownership groups are kept separate in the digest.</p>{OWNERSHIP_FLOWS.map(flow => <label key={flow} style={{display:"flex",alignItems:"center",gap:10,margin:"10px 0",fontSize:13}}><input type="checkbox" checked={ownershipFlows.includes(flow)} onChange={event => {setOwnershipFlows(previous => event.target.checked ? [...previous,flow] : previous.filter(item => item !== flow));setAlertMessage("Ownership alert choices changed. Enable or update alerts to save them.");}}/>{FLOW_COPY[flow].title}</label>)}</fieldset>
           {sub === "loading" ? <p role="status" className="muted">Loading alert settings…</p> : <div className="row">
             <button className="btn" type="button" disabled={sub === "sending" || !list.length} onClick={() => void saveAlerts(true)}>{sub === "sending" ? "Saving…" : subscribed ? "Update alert companies" : "Enable email alerts"}</button>
             {(subscribed || sub === "error") && <button className="btn secondary" type="button" disabled={sub === "sending"} onClick={() => void saveAlerts(false)}>Pause alerts</button>}

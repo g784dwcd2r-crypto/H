@@ -6,7 +6,7 @@ export async function POST(req: NextRequest) {
   const token = await sessionToken();
   if (!token) return Response.json({ error: "sign in required" }, { status: 401 });
   const body = await req.json().catch(() => ({}));
-  const r = await api.post("/subscriptions", { ciks: body.ciks }, token);
+  const r = await api.post("/subscriptions", { ciks: body.ciks, ownership_flows: body.ownership_flows ?? [] }, token);
   return Response.json(r.data, { status: r.status });
 }
 
