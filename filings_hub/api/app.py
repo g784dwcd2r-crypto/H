@@ -182,6 +182,11 @@ def create_app(
         return user
 
     app.include_router(tenancy.security_router(account_security, signer, current_user))
+    from filings_hub.launch import LaunchStore, launch_router
+
+    launch = LaunchStore(account_security, identity_secret=s.session_secret)
+    app.state.launch = launch
+    app.include_router(launch_router(launch, auth, current_user))
     from filings_hub import projects
 
     app.include_router(projects.project_router(account_security, current_user))
@@ -669,6 +674,13 @@ def create_app(
         return {"stored": True, "id": rid}
 
     # -- accounts ----------------------------------------------------------------------------------
+    def return_context(payload: dict[str, Any]) -> dict[str, Any]:
+        try:
+            context = accounts.auth_return_context(payload.get("next"), payload.get("region"))
+        except ValueError as error:
+            raise HTTPException(422, str(error)) from error
+        return {"next_path": context.get("next"), "region": context.get("region")}
+
     @app.get("/auth/config")
     def auth_config(_: str = Depends(auth)) -> dict[str, Any]:
         return {
@@ -681,6 +693,7 @@ def create_app(
 
     @app.post("/auth/magic-link")
     def magic_link(payload: dict[str, Any] = Body(...), _: str = Depends(auth)) -> dict[str, Any]:
+        context = return_context(payload)
         email = str(payload.get("email") or "").strip().lower()
         if not EMAIL_RE.match(email):
             raise HTTPException(422, "a valid email is required")
@@ -689,7 +702,7 @@ def create_app(
         if not ok:
             raise HTTPException(429, f"too many links requested; try again in {retry}s")
         try:
-            _token, link = accounts.issue_magic_link(users, email, s.site_url)
+            _token, link = accounts.issue_magic_link(users, email, s.site_url, **context)
         except Exception as e:
             log.warning("could not store sign-in token: %s", e)
             raise HTTPException(503, "sign-in is not enabled on this deployment (read-only lake)") from e
@@ -714,6 +727,7 @@ def create_app(
     @app.post("/auth/signup")
     def signup(payload: dict[str, Any] = Body(...), _: str = Depends(auth)) -> dict[str, Any]:
         """New account: the profile rides with the sign-in link and lands on the user when it is redeemed."""
+        context = return_context(payload)
         problem = accounts.validate_signup(payload, platform_admin.configuration()["business_email_only"])
         if problem:
             raise HTTPException(422, problem)
@@ -726,7 +740,7 @@ def create_app(
         profile["marketing_opt_in"] = bool(payload.get("marketing_opt_in"))
         profile["terms_accepted_at"] = date.today().isoformat()
         try:
-            _token, link = accounts.issue_magic_link(users, email, s.site_url, profile)
+            _token, link = accounts.issue_magic_link(users, email, s.site_url, profile, **context)
         except Exception as e:
             log.warning("could not store sign-up token: %s", e)
             raise HTTPException(503, "sign-up is not enabled on this deployment (read-only lake)") from e

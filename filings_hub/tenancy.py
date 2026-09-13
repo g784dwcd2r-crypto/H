@@ -38,6 +38,8 @@ TABLES = {
     "platform_settings": ("platform_admin_settings", ()),
     "platform_job_commands": ("platform_admin_job_commands", ("job_id", "status")),
     "research_runs": ("cited_research_runs", ("owner_id", "project_id")),
+    "launch_memberships": ("launch_memberships", ("campaign_id", "user_id", "status", "position")),
+    "demo_requests": ("demo_requests", ("email", "caller_hash", "status", "created_at")),
 }
 ROLES = frozenset({"owner", "admin", "member"})
 

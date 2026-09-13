@@ -1,0 +1,4 @@
+import DemoRequestForm from "@/components/DemoRequestForm";
+import styles from "@/components/Marketing.module.css";
+export const metadata={title:"Request a demo"};
+export default function Page(){return <div className={`${styles.page} ${styles.formGrid}`}><div className={styles.hero}><p className="eyebrow">Request a demo</p><h1>Your research.<br/>A closer look.</h1><p>Tell us what you analyse, and we’ll tailor a walkthrough around your workflow.</p><ol className={styles.steps}><li>Bring a company, a reporting question or an ownership change.</li><li>Explore the available filings, financials and source evidence.</li><li>Discuss the coverage and account setup your work needs.</li></ol><p className={styles.note}>Independent researchers and teams are welcome. The form requests a conversation; it does not book a meeting or commit you to a plan.</p></div><div className={styles.formCard}><DemoRequestForm/></div></div>;}

@@ -1,6 +1,8 @@
 "use client";
 
 import { useState } from "react";
+import type { LoginRegion } from "@/lib/public-navigation";
+import AuthRegionNotice from "./AuthRegionNotice";
 
 const ROLES: Record<string, string[]> = {
   "Hedge fund": ["Long/short equity analyst", "Event-driven analyst", "Credit analyst", "Portfolio manager", "Quant / data", "Other"],
@@ -19,7 +21,7 @@ const COUNTRIES = [
   "Brazil", "Mexico", "South Africa", "Other",
 ];
 
-export default function SignUpForm({ businessOnly, emailLink }: { businessOnly: boolean; emailLink: boolean }) {
+export default function SignUpForm({ businessOnly, emailLink, next = "/", region = null }: { businessOnly: boolean; emailLink: boolean; next?: string; region?: LoginRegion | null }) {
   const [f, setF] = useState({
     email: "",
     first_name: "",
@@ -58,17 +60,23 @@ export default function SignUpForm({ businessOnly, emailLink }: { businessOnly: 
         e.preventDefault();
         setError(null);
         setState("sending");
-        const r = await fetch("/api/auth/signup", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...f, accept_terms: true }) });
-        const d = (await r.json().catch(() => ({}))) as { detail?: string; dev_link?: string };
-        if (r.ok) {
-          setDevLink(d.dev_link ?? null);
-          setState("sent");
-        } else {
-          setError(d.detail ?? "That did not go through. Please try again.");
-          setState(r.status === 503 ? "off" : "error");
+        try {
+          const r = await fetch("/api/auth/signup", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...f, accept_terms: true, next, region }) });
+          const d = (await r.json().catch(() => ({}))) as { detail?: string; dev_link?: string };
+          if (r.ok) {
+            setDevLink(d.dev_link ?? null);
+            setState("sent");
+          } else {
+            setError(d.detail ?? "That did not go through. Please try again.");
+            setState(r.status === 503 ? "off" : "error");
+          }
+        } catch {
+          setError("That did not go through. Check your connection and try again. Your details are still here.");
+          setState("error");
         }
       }}
     >
+      <AuthRegionNotice region={region} />
       <label>
         <span>{businessOnly ? "Business email" : "Email"} *</span>
         <input type="email" value={f.email} onChange={(e) => set("email", e.target.value)} required autoFocus />

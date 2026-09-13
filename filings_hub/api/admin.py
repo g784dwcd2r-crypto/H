@@ -152,6 +152,30 @@ def attach_admin(app, store: AdminStore, database):
     def sources(token=Depends(session)):
         return ops.sources(token)
 
+    @router.get("/launch-memberships")
+    def launch_memberships(
+        q: str = Query("", max_length=150),
+        status: str = Query("", max_length=20),
+        limit: int = Query(25, ge=1, le=100),
+        offset: int = Query(0, ge=0, le=1_000_000),
+        token=Depends(session),
+    ):
+        return app.state.launch.launch_memberships(store, token, q, status, limit, offset)
+
+    @router.get("/demo-requests")
+    def demo_requests(
+        q: str = Query("", max_length=150),
+        status: str = Query("", max_length=20),
+        limit: int = Query(25, ge=1, le=100),
+        offset: int = Query(0, ge=0, le=1_000_000),
+        token=Depends(session),
+    ):
+        return app.state.launch.demo_requests(store, token, q, status, limit, offset)
+
+    @router.post("/demo-requests/{ident}/status")
+    def demo_status(ident: str, payload: dict[str, Any] = Body(...), token=Depends(session)):
+        return app.state.launch.demo_status(store, token, ident, payload)
+
     @router.post("/jobs/{job_id}/{action}")
     def job_action(job_id: str, action: str, payload: dict[str, Any] = Body(...), token=Depends(session)):
         return ops.job_action(token, job_id, action, payload)
