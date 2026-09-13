@@ -48,3 +48,20 @@ export function indexedPageTexts(text: string, pages: IndexedDocument["pages"]):
   const characters = Array.from(text);
   return pages.map(page => ({ page: page.page, text: characters.slice(page.start, page.end).join("") }));
 }
+
+/** Preserve only local filing-search context; never turn a return link into an external redirect. */
+export function researchReturnPath(value?: string): string | null {
+  if (!value || value.length > 5000) return null;
+  try {
+    const parsed = new URL(value, "https://disclosure.invalid");
+    if (parsed.origin !== "https://disclosure.invalid" || parsed.pathname !== "/research" || !value.startsWith("/research")) return null;
+    const query = new URLSearchParams();
+    for (const key of ["q", "cik", "form", "from", "to", "offset"]) { const item = parsed.searchParams.get(key); if (item) query.set(key,item); }
+    return `/research${query.size ? `?${query}` : ""}`;
+  } catch { return null; }
+}
+export function indexedDocumentHref(version: string, returnTo?: string | null): string {
+  const path = `/research/documents/${encodeURIComponent(version)}`;
+  const safeReturn = researchReturnPath(returnTo ?? undefined);
+  return safeReturn ? `${path}?${new URLSearchParams({return_to:safeReturn})}` : path;
+}

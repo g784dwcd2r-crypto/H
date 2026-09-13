@@ -1,15 +1,15 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ProjectRequestError, projectRequest, referencePointer } from "@/lib/project-client";
 import type { Project, ProjectNote, SourceReference } from "@/lib/workspace-types";
 
-type Draft = { title: string; body: string; kind: "note" | "thesis"; citations: SourceReference[] };
+import { clearProjectDraft, noteDraft as draftOf, readProjectDraft, writeProjectDraft, type NoteDraft as Draft } from "@/lib/project-drafts";
 const empty = (): Draft => ({ title: "", body: "", kind: "note", citations: [] });
-const draftOf = (note: ProjectNote): Draft => ({ title: note.title, body: note.body, kind: note.kind, citations: note.citations });
 
-export default function ProjectWorkspace({ initialProject, initialNotes }: { initialProject: Project; initialNotes: ProjectNote[] }) {
+
+export default function ProjectWorkspace({ initialProject, initialNotes, accountId }: { initialProject: Project; initialNotes: ProjectNote[]; accountId: string }) {
   const router = useRouter();
   const [project, setProject] = useState(initialProject);
   const [notes, setNotes] = useState(initialNotes);
@@ -29,13 +29,37 @@ export default function ProjectWorkspace({ initialProject, initialNotes }: { ini
   const [referenceId, setReferenceId] = useState("");
   const [referenceVersion, setReferenceVersion] = useState("");
   const base = `/${project.id}`;
+  const editVersion = useRef(0);
+  const [draftReady, setDraftReady] = useState(false);
+  const [durableDraft, setDurableDraft] = useState(true);
+  const draftStorage = () => { try { return window.sessionStorage; } catch { return null; } };
+  useEffect(() => {
+    const recovered = readProjectDraft(draftStorage(), accountId, initialProject.id);
+    if (recovered) {
+      const savedNote = initialNotes.find(note => note.id === recovered.noteId) ?? null;
+      const changedRemotely = !!savedNote && savedNote.revision !== recovered.baseRevision;
+      setCurrent(savedNote && recovered.baseRevision ? {...savedNote,revision:recovered.baseRevision} : null);
+      setDraft(recovered.draft); setDirty(true); setConflict(changedRemotely);
+      setNotice("Your unsaved draft was recovered in this tab. Review it, then save to your project.");
+      if (changedRemotely) setError("The saved note changed while you were away. Compare the latest version before saving your recovered draft.");
+      else if (recovered.noteId && !savedNote) setNotice("The original note is no longer available. Your recovered writing is a new unsaved draft.");
+    }
+    setDraftReady(true);
+    // The server rechecks account and project access before mounting this editor.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [accountId, initialProject.id]);
+  useEffect(() => {
+    if (!draftReady) return;
+    if (dirty) setDurableDraft(writeProjectDraft(draftStorage(), {version:1,accountId,projectId:project.id,noteId:current?.id ?? null,baseRevision:current?.revision ?? null,draft}));
+    else clearProjectDraft(draftStorage(),accountId,project.id);
+  }, [accountId,project.id,current,draft,dirty,draftReady]);
   useEffect(() => {
     if (!dirty) return;
     const handler = (event: BeforeUnloadEvent) => { event.preventDefault(); event.returnValue = ""; };
     window.addEventListener("beforeunload", handler);
     return () => window.removeEventListener("beforeunload", handler);
   }, [dirty]);
-  const change = (next: Partial<Draft>) => { setDraft(value => ({ ...value, ...next })); setDirty(true); setNotice(null); };
+  const change = (next: Partial<Draft>) => { editVersion.current += 1; setDraft(value => ({ ...value, ...next })); setDirty(true); setNotice(null); };
   const open = (note: ProjectNote | null) => {
     if (dirty && !window.confirm("Discard the unsaved draft and open another note?")) return;
     setCurrent(note); setDraft(note ? draftOf(note) : empty()); setDirty(false); setError(null); setNotice(null); setConflict(false); setLatest(null);
@@ -55,6 +79,7 @@ export default function ProjectWorkspace({ initialProject, initialNotes }: { ini
     finally { setExporting(false); }
   };
   const save = async () => {
+    const submittedVersion = editVersion.current;
     setBusy(true); setError(null); setNotice(null);
     try {
       const payload = current ? {
@@ -65,7 +90,9 @@ export default function ProjectWorkspace({ initialProject, initialNotes }: { ini
         citations: draft.citations.map(referencePointer),
       } : { ...draft, title: draft.title.trim(), citations: draft.citations.map(referencePointer) };
       const response = await projectRequest<{ note: ProjectNote & { project_revision?: number } }>(current ? `${base}/notes/${current.id}` : `${base}/notes`, current ? "PATCH" : "POST", payload);
-      setCurrent(response.note); setDraft(draftOf(response.note)); setNotes(list => [response.note, ...list.filter(note => note.id !== response.note.id)]); updateProjectRevision(response.note.project_revision); setDirty(false); setConflict(false); setLatest(null); setNotice("Saved to this project.");
+      setCurrent(response.note); setNotes(list => [response.note, ...list.filter(note => note.id !== response.note.id)]); updateProjectRevision(response.note.project_revision); setConflict(false); setLatest(null);
+      if (editVersion.current === submittedVersion) { setDraft(draftOf(response.note)); setDirty(false); setNotice("Saved to this project."); }
+      else { setDirty(true); setNotice("The submitted version was saved. Your newer edits are still here and remain unsaved."); }
     } catch (e) { setError(e instanceof Error ? e.message : "Your note could not be saved."); setConflict(e instanceof ProjectRequestError && e.status === 409); }
     finally { setBusy(false); }
   };
@@ -77,13 +104,14 @@ export default function ProjectWorkspace({ initialProject, initialNotes }: { ini
     finally { setBusy(false); }
   };
   return <div className="project-workspace-page">
-    <p className="crumb"><Link href="/projects" onClick={e => { if (dirty && !window.confirm("Leave this project and discard your unsaved draft?")) e.preventDefault(); }}>← All projects</Link></p>
+    <p className="crumb"><Link href="/projects">← All projects</Link></p>
     <div className="research-heading"><div><p className="eyebrow">{project.organization_id ? "Organisation project" : "Personal project"}</p><h1>{project.name}</h1><p className="lead">{project.description || "Notes, a working thesis and the sources behind your research."}</p></div><div className="project-header-actions"><button className="btn secondary" type="button" disabled={exporting || busy} onClick={() => void downloadResearch()}>{exporting ? "Preparing download…" : "Download saved research"}</button>{project.can_manage && <button className="linkbtn" onClick={() => setProjectOptions(value => !value)} aria-expanded={projectOptions}>Project settings</button>}<p>Portable JSON of saved notes and references. Source documents are linked, not bundled.</p></div></div>
     {projectOptions && <form className="project-create" onSubmit={async event => { event.preventDefault(); setBusy(true); setError(null); try { const response = await projectRequest<{ project: Project }>(base, "PATCH", { expected_revision: project.revision, name, description }); setProject(response.project); setProjectOptions(false); setNotice("Project details saved."); } catch (e) { setError(e instanceof Error ? e.message : "Project details could not be saved."); } finally { setBusy(false); } }}>
       <label>Project name<input value={name} onChange={e => setName(e.target.value)} required maxLength={160}/></label><label>Description<textarea value={description} onChange={e => setDescription(e.target.value)} maxLength={2000}/></label><div className="row"><button className="btn" disabled={busy}>Save project details</button><button type="button" className="linkbtn danger-action" disabled={busy} onClick={async () => { if (!window.confirm(`Delete “${project.name}” and all its notes? This cannot be undone.`)) return; setBusy(true); try { await projectRequest(`${base}?expected_revision=${project.revision}`, "DELETE"); setDirty(false); router.push("/projects"); } catch (e) { setError(e instanceof Error ? e.message : "The project could not be deleted."); } finally { setBusy(false); } }}>Delete project</button></div><p className="filter-hint">Project access is fixed at creation. {project.organization_id ? "Organisation members can read and edit notes; owners and admins manage deletion." : "Only your account can access this project."}</p>
     </form>}
     {error && <div className="notice" role="alert">{error}{conflict && !latest && <button className="linkbtn" disabled={busy} onClick={() => void loadLatest()}>Compare latest saved version</button>}</div>}
     {notice && <p className="saved" role="status">{notice}</p>}
+    {dirty && <p className="notice draft-recovery-notice">{durableDraft ? "Unsaved writing is kept for your account in this browser tab. It is not saved to the project or included in downloads until you save." : "This browser could not retain a reload-safe draft. Your writing is still in this open page; save before reloading or closing the tab."}</p>}
     <div className="project-workspace">
       <aside className="project-notes-nav" aria-label="Project notes"><div><h2>Notes & theses</h2><button className="linkbtn" disabled={busy} onClick={() => open(null)}>+ New note</button></div>{notes.length ? <ul>{notes.map(note => <li key={note.id}><button onClick={() => open(note)} disabled={busy} aria-current={current?.id === note.id ? "true" : undefined}><span>{note.kind === "thesis" ? "Thesis" : "Note"}</span><strong>{note.title}</strong><small>{note.citations.length} source {note.citations.length === 1 ? "reference" : "references"}</small></button></li>)}</ul> : <p className="muted">No saved notes yet. Write your first note here.</p>}<Link href="/research">Find source documents ↗</Link></aside>
       <section className="note-editor" aria-label="Research note editor">
