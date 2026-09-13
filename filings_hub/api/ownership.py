@@ -13,7 +13,7 @@ from typing import Literal
 from fastapi import Depends, FastAPI, HTTPException, Query
 from fastapi.responses import Response
 
-from filings_hub.ownership.store import OwnershipStore, number
+from filings_hub.ownership.store import OwnershipStore, SourceIntegrityError, number
 from filings_hub.research_index import ResearchIndex
 
 Flow = Literal["insiders", "institutions", "events"]
@@ -81,6 +81,10 @@ def attach_ownership_routes(app: FastAPI, *, database, storage, auth, index=None
             return action()
         except ValueError as error:
             raise HTTPException(422, str(error)) from error
+        except (SourceIntegrityError, OSError) as error:
+            raise HTTPException(
+                503, "The retained ownership source is unavailable or failed integrity verification."
+            ) from error
 
     app.router.add_event_handler("shutdown", close)
 
@@ -132,7 +136,7 @@ def attach_ownership_routes(app: FastAPI, *, database, storage, auth, index=None
 
     @app.get("/ownership/recent")
     def recent(
-        ciks: str = Query(..., max_length=600),
+        ciks: str = Query(..., max_length=2400),
         flow: Flow = "insiders",
         since: date | None = None,
         limit: int = Query(50, ge=1, le=100),

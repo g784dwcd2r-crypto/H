@@ -8,7 +8,9 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
+import tempfile
 from collections import defaultdict
 from datetime import date, timedelta
 from decimal import Decimal, InvalidOperation
@@ -19,7 +21,14 @@ from filings_hub.research_index import ResearchIndex, now
 
 KINDS = {"insiders", "institutions", "events"}
 MIGRATION = Path(__file__).parents[1] / "db/migrations/0016_ownership.sql"
-NOTE = "Partial observed SEC coverage. Filing dates differ from transaction/report dates; undisclosed and unprocessed holdings are unknown."
+NOTE = (
+    "Partial observed SEC coverage. Filing dates differ from transaction/report "
+    "dates; undisclosed and unprocessed holdings are unknown."
+)
+
+
+class SourceIntegrityError(RuntimeError):
+    """Persisted bytes cannot substantiate the source version they are labelled with."""
 
 
 def encode(value):
@@ -144,7 +153,8 @@ class OwnershipStore:
             raise ValueError("Ownership state is too large.")
         with self.index.transaction():
             self.index.execute(
-                "INSERT INTO research_index_meta(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                "INSERT INTO research_index_meta(key,value) VALUES(?,?) ON CONFLICT(key) DO "
+                "UPDATE SET value=excluded.value",
                 ["ownership:" + key, encode(value)],
             )
 
@@ -152,10 +162,40 @@ class OwnershipStore:
         if self.index.postgres:
             self.index.execute("SELECT pg_advisory_xact_lock(71894216700516)")
 
+    def _persist_content(self, path, content):
+        expected = hashlib.sha256(content).hexdigest()
+        if self.storage.exists(path):
+            with self.storage.open(path) as stream:
+                actual = stream.read(len(content) + 1)
+            if len(actual) == len(content) and hashlib.sha256(actual).hexdigest() == expected:
+                return
+        if self.storage.is_remote:
+            self.storage.write_bytes(path, content)
+        else:
+            target = Path(self.storage.full(path))
+            target.parent.mkdir(parents=True, exist_ok=True)
+            temporary = None
+            try:
+                with tempfile.NamedTemporaryFile(dir=target.parent, delete=False) as stream:
+                    temporary = stream.name
+                    stream.write(content)
+                    stream.flush()
+                    os.fsync(stream.fileno())
+                os.replace(temporary, target)
+            finally:
+                if temporary and os.path.exists(temporary):
+                    os.unlink(temporary)
+        with self.storage.open(path) as stream:
+            actual = stream.read(len(content) + 1)
+        if len(actual) != len(content) or hashlib.sha256(actual).hexdigest() != expected:
+            raise SourceIntegrityError("Ownership source storage did not retain the expected bytes.")
+
     def _metadata(self, metadata):
         from filings_hub.ownership.parse import normalize_form
 
         result = dict(metadata)
+        for key in ("id", "status", "discovery_sources", "source_aliases"):
+            result.pop(key, None)
         result["form"] = normalize_form(result["form"])
         result["filer_cik"] = cik_value(result["filer_cik"])
         if not re.fullmatch(r"\d{10}-\d{2}-\d{6}", str(result.get("accession", ""))):
@@ -169,14 +209,21 @@ class OwnershipStore:
 
     def register_filing(self, metadata):
         data = self._metadata(metadata)
-        ident = digest([data["filer_cik"], data["accession"]])
+        ident = digest(data["accession"])
         with self.index.transaction():
             self._lock()
             prior = self.index.query("SELECT * FROM ownership_ingest_state WHERE id=?", [ident])
             if prior:
                 old = json.loads(prior[0]["metadata"])
-                if any(old[key] != data[key] for key in ("filer_cik", "accession", "form", "filed_date", "source_url")):
+                if any(old[key] != data[key] for key in ("accession", "form", "filed_date")):
                     raise ValueError("Conflicting filing metadata cannot replace existing provenance.")
+                alias = {"filer_cik": data["filer_cik"], "source_url": data["source_url"]}
+                aliases = old.get(
+                    "discovery_sources", [{"filer_cik": old["filer_cik"], "source_url": old["source_url"]}]
+                )
+                if alias not in aliases:
+                    old["discovery_sources"] = [*aliases, alias]
+                    self.index.execute("UPDATE ownership_ingest_state SET metadata=? WHERE id=?", [encode(old), ident])
                 return {**prior[0], "metadata": old}
             self.index.execute(
                 "INSERT INTO ownership_ingest_state(id,accession,filer_cik,issuer_cik,kind,status,metadata,updated_at) "
@@ -200,7 +247,7 @@ class OwnershipStore:
             {**json.loads(row["metadata"]), "id": row["id"], "status": row["status"]}
             for row in self.index.query(
                 "SELECT id,status,metadata FROM ownership_ingest_state WHERE status IN ('pending','failed') "
-                "ORDER BY CASE WHEN status='pending' THEN 0 ELSE 1 END,updated_at,id LIMIT ?",
+                "ORDER BY updated_at,id LIMIT ?",
                 [limit],
             )
         ]
@@ -233,7 +280,8 @@ class OwnershipStore:
                     raise ValueError("Conflicting CUSIP mapping requires explicit investigation; no mapping changed.")
                 return prior[0]
             self.index.execute(
-                "INSERT INTO ownership_security_mappings(cusip,issuer_cik,security_title,source_url,created_at) VALUES(?,?,?,?,?)",
+                "INSERT INTO ownership_security_mappings(cusip,issuer_cik,security_title,sou"
+                "rce_url,created_at) VALUES(?,?,?,?,?)",
                 [code, issuer, title, provenance, now()],
             )
         return mapping
@@ -266,12 +314,33 @@ class OwnershipStore:
         if len({row["filename"] for row in retained}) != len(retained):
             raise ValueError("Duplicate document filenames are ambiguous.")
         retained.sort(key=lambda row: row["filename"])
-        parsed["filing"] = filing
-        version = digest([parsed, [{key: value for key, value in row.items() if key != "raw"} for row in retained]])
         timestamp = now()
         with self.index.transaction():
             self._lock()
             registered = self.register_filing(filing)
+            for key in ("filer_cik", "source_url"):
+                filing[key] = registered["metadata"][key]
+            parsed["filing"] = filing
+            version = digest(
+                [parsed, [{key: row[key] for key in ("filename", "sha256", "content_bytes")} for row in retained]]
+            )
+            provenance = registered["metadata"]
+            aliases = provenance.get("source_aliases", [])
+            for row in retained:
+                alias = {
+                    "filing_id": version,
+                    "filename": row["filename"],
+                    "source_url": row["source_url"],
+                    "sha256": row["sha256"],
+                }
+                if alias not in aliases:
+                    aliases.append(alias)
+            provenance["source_aliases"] = aliases
+            self.index.execute(
+                "UPDATE ownership_ingest_state SET metadata=? WHERE id=?", [encode(provenance), registered["id"]]
+            )
+            for row in retained:
+                self._persist_content(f"ownership/raw/{row['sha256']}.bin", row["raw"])
             existing = self.index.query("SELECT id,documents FROM ownership_filings WHERE id=?", [version])
             if existing:
                 # A replay of an old version must never move the current pointer backwards.
@@ -303,8 +372,6 @@ class OwnershipStore:
             for row in retained:
                 document_id = digest([version, row["filename"], row["sha256"]])
                 raw_path = f"ownership/raw/{row['sha256']}.bin"
-                if not self.storage.exists(raw_path):
-                    self.storage.write_bytes(raw_path, row["raw"])
                 sources.append(
                     {
                         "document_id": document_id,
@@ -319,7 +386,8 @@ class OwnershipStore:
                     }
                 )
             self.index.execute(
-                "INSERT INTO ownership_filings(id,state_id,kind,filer_cik,issuer_cik,manager_cik,accession,form,filed_date,"
+                "INSERT INTO ownership_filings(id,state_id,kind,filer_cik,issuer_cik,manager"
+                "_cik,accession,form,filed_date,"
                 "report_period,record,documents,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 [
                     version,
@@ -368,10 +436,7 @@ class OwnershipStore:
                 for code in event.get("cusips") or ([event["cusip"]] if event.get("cusip") else []):
                     self.map_security(code, issuer, event.get("security_title"), filing["source_url"])
             normalized = f"ownership/{kind}/{version}.json"
-            if not self.storage.exists(normalized):
-                self.storage.write_bytes(
-                    normalized, encode({**parsed, "filing": filing, "documents": sources}).encode()
-                )
+            self._persist_content(normalized, encode({**parsed, "filing": filing, "documents": sources}).encode())
             self.index.execute(
                 "UPDATE ownership_ingest_state SET status='parsed',issuer_cik=?,error=NULL,current_filing_id=?,"
                 "last_successful_at=?,updated_at=? WHERE id=?",
@@ -401,8 +466,8 @@ class OwnershipStore:
             args.extend(managers)
         where = " WHERE " + " AND ".join(clauses) if clauses else ""
         return self.index.query(
-            "SELECT f.*,s.status AS processing_status FROM ownership_filings f JOIN ownership_ingest_state s ON s.current_filing_id=f.id"
-            + where,
+            "SELECT f.*,s.status AS processing_status FROM ownership_filings f JOIN owne"
+            "rship_ingest_state s ON s.current_filing_id=f.id" + where,
             args,
         )
 
@@ -412,7 +477,9 @@ class OwnershipStore:
             scope = (
                 ""
                 if issuer is None
-                else " WHERE s.issuer_cik=? OR s.current_filing_id IN (SELECT p.filing_id FROM ownership_institutions p JOIN ownership_security_mappings m ON m.cusip=p.cusip WHERE m.issuer_cik=?)"
+                else " WHERE s.issuer_cik=? OR s.current_filing_id IN (SELECT p.filing_id FROM ow"
+                "nership_institutions p JOIN ownership_security_mappings m ON m.cusip=p.cusi"
+                "p WHERE m.issuer_cik=?)"
             )
             args = [] if issuer is None else [issuer, issuer]
             counts = {
@@ -422,12 +489,14 @@ class OwnershipStore:
                 )
             }
             observed = self.index.query(
-                "SELECT max(s.last_successful_at) latest,count(s.current_filing_id) parsed FROM ownership_ingest_state s"
-                + scope,
+                "SELECT max(s.last_successful_at) latest,count(s.current_filing_id) parsed F"
+                "ROM ownership_ingest_state s" + scope,
                 args,
             )[0]
             unresolved = self.index.query(
-                "SELECT count(*) n FROM ownership_institutions p JOIN ownership_ingest_state s ON s.current_filing_id=p.filing_id LEFT JOIN ownership_security_mappings m ON m.cusip=p.cusip WHERE m.cusip IS NULL"
+                "SELECT count(*) n FROM ownership_institutions p JOIN ownership_ingest_state"
+                " s ON s.current_filing_id=p.filing_id LEFT JOIN ownership_security_mappings"
+                " m ON m.cusip=p.cusip WHERE m.cusip IS NULL"
             )[0]["n"]
             unassigned = self.index.query(
                 "SELECT count(*) n FROM ownership_ingest_state WHERE issuer_cik IS NULL AND current_filing_id IS NULL"
@@ -497,12 +566,15 @@ class OwnershipStore:
             if not eligible:
                 continue
             latest, filing = eligible[0]
-            bucket = lambda row: (
-                row.get("security_title"),
-                row.get("is_derivative"),
-                row.get("ownership_form"),
-                row.get("nature_of_ownership"),
-            )
+
+            def bucket(row):
+                return (
+                    row.get("security_title"),
+                    row.get("is_derivative"),
+                    row.get("ownership_form"),
+                    row.get("nature_of_ownership"),
+                )
+
             selected = bucket(latest)
             series_key = digest([cik, owner, selected])
             series, transactions, docs, seen = [], [], [], set()
@@ -557,7 +629,14 @@ class OwnershipStore:
                 if code == "P" and ad == "A"
                 else "Sale"
                 if code == "S" and ad == "D"
-                else f"Reported transaction ({code or 'code unavailable'})"
+                else {
+                    "A": "Award or grant",
+                    "M": "Exercise or conversion",
+                    "F": "Shares withheld or delivered for exercise or tax",
+                    "G": "Gift",
+                    "D": "Disposition to issuer",
+                    "J": "Other transaction; read explanation",
+                }.get(code, f"Reported transaction ({code or 'code unavailable'})")
             )
             badges = ["Partial history"]
             if self._uncertain(filing):
@@ -625,7 +704,9 @@ class OwnershipStore:
         managers = {
             row["manager_cik"]
             for row in self.index.query(
-                "SELECT DISTINCT p.manager_cik FROM ownership_institutions p JOIN ownership_ingest_state s ON s.current_filing_id=p.filing_id JOIN ownership_security_mappings m ON m.cusip=p.cusip WHERE m.issuer_cik=?",
+                "SELECT DISTINCT p.manager_cik FROM ownership_institutions p JOIN ownership_"
+                "ingest_state s ON s.current_filing_id=p.filing_id JOIN ownership_security_m"
+                "appings m ON m.cusip=p.cusip WHERE m.issuer_cik=?",
                 [cik],
             )
         }
@@ -636,7 +717,9 @@ class OwnershipStore:
         }
         rows = defaultdict(list)
         for row in self.index.query(
-            "SELECT p.* FROM ownership_institutions p JOIN ownership_ingest_state s ON s.current_filing_id=p.filing_id JOIN ownership_security_mappings m ON m.cusip=p.cusip WHERE m.issuer_cik=?",
+            "SELECT p.* FROM ownership_institutions p JOIN ownership_ingest_state s ON s"
+            ".current_filing_id=p.filing_id JOIN ownership_security_mappings m ON m.cusi"
+            "p=p.cusip WHERE m.issuer_cik=?",
             [cik],
         ):
             if row["filing_id"] in filings:
@@ -646,12 +729,15 @@ class OwnershipStore:
                 if row["cusip"] in mapped:
                     managers.add(row["manager_cik"])
         cards = []
-        key_for = lambda row: (
-            row["cusip"],
-            row.get("security_title"),
-            row.get("share_type"),
-            row.get("put_call") or "",
-        )
+
+        def key_for(row):
+            return (
+                row["cusip"],
+                row.get("security_title"),
+                row.get("share_type"),
+                row.get("put_call") or "",
+            )
+
         for manager in managers:
             periods = defaultdict(list)
             for filing in filings.values():
@@ -785,7 +871,8 @@ class OwnershipStore:
                     if self._uncertain(filing)
                     else ["Disclosed beneficial ownership"],
                     "history": [],
-                    "history_note": "Separate reporting-person disclosures; percentages are not summed into a group stake.",
+                    "history_note": "Separate reporting-person disclosures; percentages are not summed into a gr"
+                    "oup stake.",
                     "metrics": metrics,
                     "documents": self._documents(filing, cik),
                     "transactions": [],
@@ -845,7 +932,10 @@ class OwnershipStore:
         start = iso(from_date) if from_date else (date.fromisoformat(end) - timedelta(days=30)).isoformat()
         identities = set()
         for row in self.index.query(
-            "SELECT i.record,i.owner_key,i.filing_id,f.record filing_record FROM ownership_insiders i JOIN ownership_filings f ON f.id=i.filing_id JOIN ownership_ingest_state s ON s.current_filing_id=f.id WHERE i.issuer_cik=? AND f.filed_date>=? AND f.filed_date<=?",
+            "SELECT i.record,i.owner_key,i.filing_id,f.record filing_record FROM ownersh"
+            "ip_insiders i JOIN ownership_filings f ON f.id=i.filing_id JOIN ownership_i"
+            "ngest_state s ON s.current_filing_id=f.id WHERE i.issuer_cik=? AND f.filed_"
+            "date>=? AND f.filed_date<=?",
             [cik, start, end],
         ):
             item, filing = json.loads(row["record"]), json.loads(row["filing_record"])
@@ -869,7 +959,8 @@ class OwnershipStore:
             "unique_reporting_identities": len(identities),
             "from": start,
             "to": end,
-            "note": "Observed P acquisitions filed in this window. Joint reporting copies count as one group; grants and exercises are excluded. Partial coverage.",
+            "note": "Observed P acquisitions filed in this window. Joint reporting copies count "
+            "as one group; grants and exercises are excluded. Partial coverage.",
         }
 
     def _comparison_link(self, filing, cik):
@@ -882,14 +973,16 @@ class OwnershipStore:
         if len(same) != 1 or same[0]["id"] != filing["id"] or len(previous) != 1 or self._uncertain(previous[0]):
             return None
         rows = self.index.query(
-            "SELECT p.id FROM ownership_institutions p JOIN ownership_security_mappings m ON m.cusip=p.cusip WHERE p.filing_id=? AND m.issuer_cik=? LIMIT 1",
+            "SELECT p.id FROM ownership_institutions p JOIN ownership_security_mappings "
+            "m ON m.cusip=p.cusip WHERE p.filing_id=? AND m.issuer_cik=? LIMIT 1",
             [previous[0]["id"], cik],
         )
         return (
             {
                 "type": "adjacent_quarter_comparison",
                 "prior_accession": previous[0]["accession"],
-                "note": "The preceding quarter contains a verified issuer position. This filing contains no mapped issuer row; absence is not a confirmed exit.",
+                "note": "The preceding quarter contains a verified issuer position. This filing cont"
+                "ains no mapped issuer row; absence is not a confirmed exit.",
             }
             if rows
             else None
@@ -910,7 +1003,8 @@ class OwnershipStore:
                     continue
                 if filing["kind"] == "institutions":
                     rows = self.index.query(
-                        "SELECT p.record FROM ownership_institutions p JOIN ownership_security_mappings m ON m.cusip=p.cusip WHERE p.filing_id=? AND m.issuer_cik=?",
+                        "SELECT p.record FROM ownership_institutions p JOIN ownership_security_mappi"
+                        "ngs m ON m.cusip=p.cusip WHERE p.filing_id=? AND m.issuer_cik=?",
                         [filing["id"], cik],
                     )
                     linkage = {"type": "verified_cusip_position"} if rows else self._comparison_link(filing, cik)
@@ -926,7 +1020,11 @@ class OwnershipStore:
                     )
                 records = [json.loads(row["record"]) for row in rows]
                 with self.storage.open(source["raw_path"], "rb") as stream:
-                    raw = stream.read(1_000_001)
+                    raw = stream.read(25_000_001)
+                if len(raw) != source["content_bytes"] or hashlib.sha256(raw).hexdigest() != source["sha256"]:
+                    raise SourceIntegrityError(
+                        "Stored ownership source failed integrity verification; reingest the source."
+                    )
                 metadata = next(row for row in self._documents(filing, cik) if row["document_id"] == document_id)
                 return {
                     "document": metadata,
@@ -942,8 +1040,8 @@ class OwnershipStore:
 
     def feed(self, ciks, since, kind, limit=50):
         issuers = list(dict.fromkeys(cik_value(value) for value in ciks))
-        if not issuers or len(issuers) > 50 or not 1 <= limit <= 100 or kind not in KINDS:
-            raise ValueError("Choose 1–50 companies and a separate ownership flow.")
+        if not issuers or len(issuers) > 200 or not 1 <= limit <= 100 or kind not in KINDS:
+            raise ValueError("Choose 1–200 companies and a separate ownership flow.")
         since = iso(str(since)[:10]) if since else None
         with self.index.transaction(read_only=True):
             items = [
@@ -959,7 +1057,7 @@ class OwnershipStore:
 
     def notification_events(self, ciks, since, kind, limit=100, offset=0):
         issuers = list(dict.fromkeys(cik_value(value) for value in ciks))
-        if not issuers or len(issuers) > 50 or kind not in KINDS or not 1 <= limit <= 500 or offset < 0:
+        if not issuers or len(issuers) > 200 or kind not in KINDS or not 1 <= limit <= 500 or offset < 0:
             raise ValueError("Invalid ownership notification scope.")
         since = iso(str(since)[:10]) if since else None
         events = []
@@ -969,7 +1067,9 @@ class OwnershipStore:
                     managers = [
                         row["manager_cik"]
                         for row in self.index.query(
-                            "SELECT DISTINCT p.manager_cik FROM ownership_institutions p JOIN ownership_ingest_state s ON s.current_filing_id=p.filing_id JOIN ownership_security_mappings m ON m.cusip=p.cusip WHERE m.issuer_cik=?",
+                            "SELECT DISTINCT p.manager_cik FROM ownership_institutions p JOIN ownership_"
+                            "ingest_state s ON s.current_filing_id=p.filing_id JOIN ownership_security_m"
+                            "appings m ON m.cusip=p.cusip WHERE m.issuer_cik=?",
                             [cik],
                         )
                     ]
@@ -981,7 +1081,8 @@ class OwnershipStore:
                         continue
                     if kind == "institutions":
                         direct = self.index.query(
-                            "SELECT p.id FROM ownership_institutions p JOIN ownership_security_mappings m ON m.cusip=p.cusip WHERE p.filing_id=? AND m.issuer_cik=? LIMIT 1",
+                            "SELECT p.id FROM ownership_institutions p JOIN ownership_security_mappings "
+                            "m ON m.cusip=p.cusip WHERE p.filing_id=? AND m.issuer_cik=? LIMIT 1",
                             [filing["id"], cik],
                         )
                         if not direct and not self._comparison_link(filing, cik):
@@ -995,7 +1096,8 @@ class OwnershipStore:
                             "form": filing["form"],
                             "filed_date": filing["filed_date"],
                             "name": record.get("manager_name") or record.get("issuer_name") or "Ownership disclosure",
-                            "summary": f"{filing['form']} ownership filing observed; inspect its reported date and source context.",
+                            "summary": f"{filing['form']} ownership filing observed; "
+                            "inspect its reported date and source context.",
                             "source_url": record["source_url"],
                         }
                     )
@@ -1033,7 +1135,9 @@ class OwnershipStore:
         with self.index.transaction(read_only=True):
             # Bounded row retrieval is separate from the deliberately bounded card expanders.
             records = self.index.query(
-                f"SELECT r.record row_record,f.record filing_record FROM {table} r JOIN ownership_filings f ON f.id=r.filing_id JOIN ownership_ingest_state s ON s.current_filing_id=f.id"
+                f"SELECT r.record row_record,f.record filing_record FROM {table} r "
+                "JOIN ownership_filings f ON f.id=r.filing_id "
+                "JOIN ownership_ingest_state s ON s.current_filing_id=f.id"
                 + join
                 + " WHERE "
                 + scope

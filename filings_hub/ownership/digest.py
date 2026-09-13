@@ -27,7 +27,11 @@ def send_ownership_digests(store, storage, *, sender=None, site_url: str = "", m
     send = sender or alerts.send_email
     sent = failures = 0
     for sub in load_subscriptions(storage):
-        ciks = [int(c) for c in sub.get("ciks", [])]
+        try:
+            ciks = [int(c) for c in sub.get("ciks", [])]
+        except (TypeError, ValueError):
+            failures += 1
+            continue
         if not ciks:
             continue
         for kind, label in FLOW_LABELS.items():
@@ -44,9 +48,15 @@ def send_ownership_digests(store, storage, *, sender=None, site_url: str = "", m
             cursor_key = f"notify:{sid}:{kind}:{audience}"
             offset = int((store.get_state(cursor_key) or {}).get("offset", 0))
             next_offset = offset
+            query_failed = False
             # Cycle back to zero at the end, so late filings and newly mapped positions are revisited.
             for _ in range(max_pages):
-                events = store.notification_events(ciks, since, kind, limit=100, offset=offset)
+                try:
+                    events = store.notification_events(ciks, since, kind, limit=100, offset=offset)
+                except Exception:
+                    failures += 1
+                    query_failed = True
+                    break
                 next_offset = 0 if len(events) < 100 else offset + len(events)
                 for event in events:
                     rid = hashlib.sha256(str(event["id"]).encode()).hexdigest()
@@ -55,6 +65,8 @@ def send_ownership_digests(store, storage, *, sender=None, site_url: str = "", m
                 if mine or len(events) < 100:
                     break
                 offset = next_offset
+            if query_failed:
+                continue
             if not mine:
                 store.set_state(cursor_key, {"offset": next_offset})
                 continue

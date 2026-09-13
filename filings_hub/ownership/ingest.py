@@ -83,7 +83,7 @@ def fetch_documents(client: EdgarClient, metadata: dict) -> list[dict]:
         if not FILENAME.fullmatch(filename) or ".." in filename or filename in seen:
             continue
         doc_type = (item.get("doc_type") or "").upper()
-        primary = doc_type == meta["form"]
+        primary = normalize_form(doc_type) == meta["form"]
         is_xml = filename.lower().endswith(".xml") and not filename.lower().startswith("filingsummary")
         exhibit = doc_type.startswith("EX-") and filename.lower().endswith((".htm", ".html", ".txt", ".pdf"))
         if is_xml or primary or exhibit:
@@ -92,7 +92,13 @@ def fetch_documents(client: EdgarClient, metadata: dict) -> list[dict]:
     if len(selected) > MAX_DOCUMENTS:
         raise ValueError("Ownership filing exceeds the document-count limit; operator review required")
     if not any(item["filename"].lower().endswith(".xml") for item in selected):
-        raise UnsupportedFiling("No supported XML source; legacy text filing retained in coverage")
+        if any(
+            normalize_form(item.get("doc_type") or "") == meta["form"]
+            and item["filename"].lower().endswith((".htm", ".html", ".txt"))
+            for item in selected
+        ):
+            raise UnsupportedFiling("Identified non-XML primary filing; legacy text retained in coverage")
+        raise ValueError("Incomplete ownership document inventory; retained for retry")
     documents = []
     total = 0
     for item in selected:

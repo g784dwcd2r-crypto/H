@@ -55,7 +55,7 @@ Current implementation uses daily master indexes, not intraday streaming. A firs
 
 ## Persistence and delivery
 
-Migration `0016_ownership.sql` creates separate filing, insider, institution, event, security-mapping and ingest-state tables. Local development uses the existing SQLite research index; remote serving uses Postgres. Immutable source bytes are addressed by hash under `ownership/raw`; normalized objects are separated by flow. Revised source versions retain provenance. Read endpoints never fetch SEC documents or trigger ingestion.
+Migration `0016_ownership.sql` creates separate filing, insider, institution, event, security-mapping and ingest-state tables. Local development uses the existing SQLite research index; remote serving uses Postgres. Immutable source bytes are addressed by hash under `ownership/raw`; normalized objects are separated by flow. Revised source versions retain provenance. Cofiled company/person paths resolve to one logical accession while preserving alternate source references. Stored source hashes are verified; incomplete writes are repaired before publication. Read endpoints never fetch SEC documents or trigger ingestion.
 
 Ownership email preferences are explicit `ownership_flows` values: `insiders`, `institutions`, `events`. Existing accounts remain results-only until they opt in. Delivery scans individual filing events from the subscription start date, rather than only the latest person card. Receipts are separate by account and flow. Bounded scans rotate and revisit earlier dates to catch delayed filings or newly mapped positions. SMTP delivery and receipt storage cannot be atomic: a crash after successful delivery but before receipt publication may duplicate a message.
 

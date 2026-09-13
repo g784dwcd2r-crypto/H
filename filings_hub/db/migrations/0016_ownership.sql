@@ -4,7 +4,7 @@ CREATE TABLE IF NOT EXISTS ownership_ingest_state (
     issuer_cik BIGINT, kind TEXT NOT NULL, status TEXT NOT NULL,
     metadata TEXT NOT NULL, error TEXT, updated_at TEXT NOT NULL,
     last_successful_at TEXT, current_filing_id TEXT,
-    UNIQUE(filer_cik, accession)
+    UNIQUE(accession)
 );
 CREATE INDEX IF NOT EXISTS ownership_pending_idx ON ownership_ingest_state(status,updated_at);
 CREATE TABLE IF NOT EXISTS ownership_filings (

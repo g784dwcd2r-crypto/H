@@ -64,3 +64,16 @@ def test_failed_delivery_retries_and_bounded_scan_rotates_to_late_events(tmp_pat
     assert send_ownership_digests(events, storage, sender=lambda *args: sent.append(args) or True, max_pages=1) == 0
     assert send_ownership_digests(events, storage, sender=lambda *args: sent.append(args) or True, max_pages=1) == 1
     assert len(storage.glob("ownership/deliveries/*/insiders/*.json")) == 206
+
+
+def test_one_bad_subscription_does_not_prevent_other_deliveries(tmp_path):
+    storage, events, sent = Storage(str(tmp_path)), Events(), []
+    subscribe(storage, ["insiders"])
+    storage.write_text(
+        "subscriptions/000-bad.json",
+        json.dumps({"email": "bad@example.test", "ciks": ["invalid"], "ownership_flows": ["insiders"]}),
+    )
+    with pytest.raises(DigestDeliveryError) as failure:
+        send_ownership_digests(events, storage, sender=lambda *args: sent.append(args) or True)
+    assert failure.value.sent == 1
+    assert len(sent) == 1 and sent[0][0] == "analyst@example.test"

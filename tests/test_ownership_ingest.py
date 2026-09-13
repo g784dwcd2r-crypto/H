@@ -131,3 +131,19 @@ def test_operator_verified_no_index_day_is_explicit_and_auditable(store):
     assert result["status"] == "ok"
     assert store.get_state("discovery:forward")["next_date"] == "2026-09-11"
     assert store.get_state(f"skip-date:{DAY}")["reason"]
+
+
+def test_200_error_page_is_retryable_but_positive_legacy_inventory_is_unsupported(store):
+    meta = filing_metadata(320193, "0000320193-26-000011", "SC 13D", str(DAY))
+    with EdgarClient(
+        "Fixture fixture@example.com",
+        transport=httpx.MockTransport(lambda _: httpx.Response(200, text="Temporarily unavailable")),
+    ) as client:
+        assert process_filing(store, client, meta)["status"] == "failed"
+    assert len(store.pending()) == 1
+    html = '<table class="tableFile"><tr><td>1</td><td>Schedule</td><td><a href="primary.htm">primary.htm</a></td><td>SC 13D</td><td>200</td></tr></table>'
+    with EdgarClient(
+        "Fixture fixture@example.com", transport=httpx.MockTransport(lambda _: httpx.Response(200, text=html))
+    ) as client:
+        assert process_filing(store, client, meta)["status"] == "unsupported"
+    assert store.pending() == []
