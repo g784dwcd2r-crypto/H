@@ -59,6 +59,7 @@ artifacts = ["filings_hub/data/*.csv", "filings_hub/data/*.md"]
 include = ["filings_hub", "tests", "README.md", "pyproject.toml"]
 
 [tool.ruff]
+extend-exclude = ["notebooks"]  # exploratory; not held to the package's line length and one-statement-per-line style
 line-length = 120
 target-version = "py312"
 
