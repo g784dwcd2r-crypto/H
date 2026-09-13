@@ -18,6 +18,7 @@ def _app(storage: Storage, edgar: bool = True):
         database_url="",
         api_key="k",
         admin_emails="admin@example.com",
+        smtp_host="smtp.example.test",
         api_rate_limit_per_minute=1000,
         sec_user_agent="",
         _env_file=None,
@@ -291,3 +292,26 @@ def test_subscriptions_and_requests(client_rw, monkeypatch):
     # a read-only lake answers 503, not a crash
     monkeypatch.setattr(Storage, "write_text", lambda *a, **k: (_ for _ in ()).throw(PermissionError("ro")))
     assert c.post("/subscriptions", json={"ciks": [1]}, headers=headers).status_code == 503
+
+
+def test_alerts_cannot_be_enabled_without_a_delivery_service(lake_copy):
+    app = create_app(
+        Settings(
+            lake_root=lake_copy.root,
+            database_url="",
+            api_key="k",
+            smtp_host="",
+            auth_dev_links=False,
+            sec_user_agent="",
+            _env_file=None,
+        )
+    )
+    try:
+        user = app.state.users.create_user("verified@example.com")
+        headers = {**H, "X-Session": app.state.signer.sign(user.id)}
+        with TestClient(app) as client:
+            assert client.post("/subscriptions", json={"ciks": [fx.APPLE]}, headers=headers).status_code == 503
+            assert client.get("/subscriptions", headers=headers).json()["subscribed"] is False
+            assert client.delete("/subscriptions", headers=headers).status_code == 200
+    finally:
+        app.state.db.close()

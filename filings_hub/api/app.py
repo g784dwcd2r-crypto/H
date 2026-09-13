@@ -573,6 +573,8 @@ def create_app(
 
     @app.post("/subscriptions")
     def subscribe(payload: dict[str, Any] = Body(...), user: accounts.User = Depends(current_user)) -> dict[str, Any]:
+        if not s.smtp_host and not s.auth_dev_links:
+            raise HTTPException(503, "email delivery is not configured on this deployment")
         email = user.email
         ciks = payload.get("ciks") or []
         if payload.get("email") and str(payload["email"]).strip().lower() != email.lower():

@@ -15,7 +15,7 @@ This change makes the existing research workflow concrete and reviewable. It is 
 
 ## Verification
 
-Final local results (2026-09-13): **302 Python tests passed, zero skipped**, including disposable Postgres and moto S3; **92% aggregate coverage**. **10 frontend unit tests**, typecheck, production build and **7 browser scenarios** passed with zero browser runtime exceptions. npm audit reports **zero vulnerabilities**, including development dependencies. Browser scenarios ran against the production build in headless Chrome with synthetic fixtures. Remote CI results are reported on the PR.
+Final local results (2026-09-13): **302 Python tests passed, zero skipped**, including disposable Postgres and moto S3; **92% aggregate coverage**. **10 frontend unit tests**, typecheck, production build and **7 browser scenarios** passed with zero browser runtime exceptions. npm audit reports **zero vulnerabilities**, including development dependencies. Browser scenarios ran against the production build in headless Chrome with synthetic fixtures. The initial GitHub CI run also passed both backend and browser jobs. A follow-up regression prevents enabling alerts without a configured SMTP service; current CI results are reported on the PR.
 
 See [selected real-company acceptance](real-data-acceptance.md) for independently checked issuer values and the bounds of that sample. See [financial methodology](financial-methodology.md), [recovery](recovery.md), and [design](disclosure-design.md) for implementation contracts.
 
