@@ -1,5 +1,5 @@
 name: live-check
-# Reads the deployed services from a runner (last manual trigger: 2026-09-13T22:33Z) and prints what a visitor would see. No secrets:
+# Reads the deployed services from a runner (last manual trigger: 2026-09-13T22:49Z) and prints what a visitor would see. No secrets:
 # only public pages. Run it from the Actions tab after a deploy, or it runs when this file changes.
 on:
   workflow_dispatch:
