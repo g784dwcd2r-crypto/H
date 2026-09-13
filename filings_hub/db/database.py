@@ -53,6 +53,8 @@ LOCAL_TABLES = {
 }
 LOCAL_CACHE_TTL = 600.0
 MISSING_VIEW_TTL = 30.0
+PARTITION_TTL = 600.0  # how long "company X has a statements partition" is trusted on a remote lake
+PER_COMPANY_TABLES = ("documents", "facts", "statements", "statement_checks")  # partitioned by cik
 PARTITIONED_TABLES = {
     "filings": layout.FILINGS,
     "documents": layout.DOCUMENTS,
@@ -72,6 +74,7 @@ class Database:
         self._remote_checked = 0.0
         self._missing_checked = 0.0
         self._missing_views: set[str] = set()
+        self._partitions: dict[tuple[str, int], tuple[float, bool]] = {}
         if self.url.startswith(("postgresql://", "postgres://")):
             self.backend = "postgres"
             import psycopg
@@ -82,7 +85,10 @@ class Database:
             if storage is None:
                 raise ValueError("DuckDB backend needs a lake Storage")
             self.backend = "duckdb"
-            self.duck = Duck(storage)
+            from filings_hub.config import get_settings
+
+            cfg = get_settings()
+            self.duck = Duck(storage, threads=cfg.duckdb_threads or None, memory_limit=cfg.duckdb_memory_limit or None)
             if local_cache and storage.is_remote:
                 self._local_dir = tempfile.mkdtemp(prefix="filings-hub-cache-")
             self._prepare_duck_views()
@@ -135,6 +141,9 @@ class Database:
                 # A separate ingestion process cannot invalidate this process's S3 directory cache.
                 # Refresh listings even when all views exist and local small-table caching is off.
                 self.storage.fs.invalidate_cache()
+                duck_fs = getattr(self.storage, "duck_fs", None)
+                if duck_fs is not None and duck_fs is not self.storage.fs:
+                    duck_fs.invalidate_cache()
                 self._remote_checked = now
             if cache_due:
                 self._local_checked = now
@@ -192,7 +201,10 @@ class Database:
         A lake that is still being backfilled (or has a table with no rows yet) must answer queries with
         an empty result, not fail: the API is expected to be up while `filings-hub backfill` runs.
         """
-        views = self.duck.create_views()
+        # On a remote lake the per-company tables get no whole-table view (binding one lists every
+        # object in the table); they read from the typed empty stand-in and `table()` scopes real
+        # reads to one company's partition.
+        views = self.duck.create_views(partitioned=not self.is_remote_lake)
         if self._local_dir is not None:
             for name, rel in LOCAL_TABLES.items():
                 if self._localise(name, rel):
@@ -202,9 +214,12 @@ class Database:
         self._missing_checked = time.monotonic()
         self._remote_checked = self._missing_checked
         for name, schema in self._empty_table_schemas().items():
+            # the typed empty stand-in is always registered: `table()` reads from it when a company
+            # has no partition, and a missing dataset's view points at it until the data arrives
+            self.duck.register(f"_empty_{name}", schema.empty_table())
             if not views.get(name):
-                self._missing_views.add(name)
-                self.duck.register(f"_empty_{name}", schema.empty_table())
+                if not (self.is_remote_lake and name in PER_COMPANY_TABLES):
+                    self._missing_views.add(name)  # per-company tables are never retried as whole views
                 self.duck.sql(f"CREATE OR REPLACE VIEW {name} AS SELECT * FROM _empty_{name}")
         # periods_serving adds the statements source and check outcome to each period
         self.duck.sql(f"CREATE OR REPLACE VIEW periods_serving AS {PERIODS_SERVING_SQL}")
@@ -217,6 +232,69 @@ class Database:
     @property
     def periods_table(self) -> str:
         return "periods" if self.backend == "postgres" else "periods_serving"
+
+    @property
+    def is_remote_lake(self) -> bool:
+        """DuckDB over object storage: whole-table scans list millions of objects and are avoided."""
+        return self.backend == "duckdb" and self.storage is not None and self.storage.is_remote
+
+    def _partition_exists(self, name: str, cik: int) -> bool:
+        assert self.storage is not None
+        key = (name, int(cik))
+        now = time.monotonic()
+        hit = self._partitions.get(key)
+        if hit is not None and now - hit[0] < PARTITION_TTL and hit[1]:
+            return True
+        if hit is not None and now - hit[0] < MISSING_VIEW_TTL:
+            return hit[1]
+        found = self.storage.any_parquet_under(f"{PARTITIONED_TABLES[name]}/cik={int(cik)}")
+        self._partitions[key] = (now, found)
+        return found
+
+    def table(self, name: str, cik: int | None = None, ciks: Sequence[int] | None = None) -> str:
+        """The SQL source to read `name` from for one company (or a few).
+
+        Locally and on Postgres it is the table itself. On a remote lake a per-company table is read
+        from that company's partition folder only: one small listing and a handful of parquet footers
+        instead of a listing of every object in the table. `filings` is partitioned by year, not by
+        company, and stays a whole-table view (row-group statistics keep a per-company read cheap).
+        """
+        ids = [int(cik)] if cik is not None else [int(c) for c in (ciks or [])]
+        if not self.is_remote_lake or name not in PARTITIONED_TABLES or name == "filings" or not ids:
+            return name
+        globs = [
+            self.duck.path(f"{PARTITIONED_TABLES[name]}/cik={c}/*.parquet")
+            for c in dict.fromkeys(ids)
+            if self._partition_exists(name, c)
+        ]
+        if not globs:
+            return f"(SELECT * FROM _empty_{name})"
+        listed = ", ".join(f"'{g}'" for g in globs)
+        return f"read_parquet([{listed}], hive_partitioning=true, union_by_name=true)"
+
+    def periods_table_for(self, cik: int) -> str:
+        """`periods_table` for one company. On a remote lake the statements source and check outcome
+        come from that company's statements partition rather than a join over the whole table."""
+        if not self.is_remote_lake:
+            return self.periods_table
+        c = int(cik)
+        return (
+            "(SELECT p.*, s.statements_source, s.checks_passed FROM periods p LEFT JOIN ("
+            "SELECT cik, accession, CASE WHEN bool_or(source = 'fsds') THEN 'fsds' ELSE 'facts_fallback' END "
+            f"AS statements_source, bool_and(checks_passed) AS checks_passed FROM {self.table('statements', c)} "
+            "WHERE statement IN ('IS', 'BS', 'CF') AND is_primary_period GROUP BY cik, accession) s "
+            f"ON s.accession = p.results_accession AND s.cik = p.cik WHERE p.cik = {c})"
+        )
+
+    def warm(self) -> None:
+        """Touch the year-partitioned filings table once so its parquet footers are cached before the
+        first company page asks for them (a cold read over object storage takes several seconds)."""
+        if not self.is_remote_lake:
+            return
+        try:
+            self.duck.fetch_dicts("SELECT count(*) AS n FROM filings WHERE cik = 0")
+        except Exception as e:  # pragma: no cover - warming is best effort
+            log.warning("filings warm-up failed: %s", e)
 
     def query(self, sql: str, params: Sequence[Any] = ()) -> list[dict[str, Any]]:
         if self.backend == "duckdb":

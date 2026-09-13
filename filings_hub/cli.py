@@ -80,6 +80,22 @@ def finish(verbose: bool = False) -> None:
 
 
 @app.command()
+def compact(
+    years: str = typer.Option("", help="comma-separated years; empty = every year"),
+    verbose: bool = False,
+) -> None:
+    """Rewrite the filings table sorted by company in small row groups, so a company page served from
+    object storage reads a few row groups instead of the whole table. Run once after a backfill made
+    before this command existed; the loaders now write that layout themselves."""
+    _setup_logging(verbose)
+    from filings_hub.ingest.sync_filings import compact_filings
+
+    wanted = [int(y) for y in years.split(",") if y.strip()] or None
+    done = compact_filings(_storage(), wanted)
+    typer.echo(f"compacted {len(done)} years, {sum(done.values()):,} filings")
+
+
+@app.command()
 def refresh(
     index_date: str | None = typer.Option(
         None, "--date", help="daily index date (YYYY-MM-DD); default = catch up to yesterday"

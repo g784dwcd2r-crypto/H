@@ -44,6 +44,10 @@ services:
         generateValue: true               # signs sign-in sessions; keep it stable across deploys
       - key: SITE_URL
         value: https://filings-hub-web.onrender.com   # where sign-in links and alert emails point
+      - key: DUCKDB_MEMORY_LIMIT           # the free instance has 512MB; DuckDB spills to disk past this
+        value: 128MB
+      - key: DUCKDB_THREADS
+        value: 2
       - key: API_RATE_LIMIT_PER_MINUTE
         value: "600"
 

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import threading
 from typing import Any
 
@@ -21,7 +22,9 @@ def to_arrow(result: duckdb.DuckDBPyConnection) -> pa.Table:
 class Duck:
     """One DuckDB connection bound to a lake. Views are created lazily and tolerate missing data."""
 
-    def __init__(self, storage: Storage, database: str = ":memory:", threads: int | None = None):
+    def __init__(
+        self, storage: Storage, database: str = ":memory:", threads: int | None = None, memory_limit: str | None = None
+    ):
         self.storage = storage
         # One DuckDB connection is not safe for concurrent use: `execute` on a second thread replaces
         # the pending result of the first, which silently pairs one query's columns with another's rows.
@@ -31,12 +34,21 @@ class Duck:
         self.con = duckdb.connect(database)
         if threads:
             self.sql(f"SET threads={int(threads)}")
+        if memory_limit:
+            # A small serving instance (512MB on the free tier) must not let DuckDB claim 80% of the
+            # machine: the cap makes it spill to disk instead of being killed.
+            self.sql(f"SET memory_limit='{memory_limit}'")
         if storage.is_remote:
             # The lake's own fsspec filesystem serves DuckDB too: one credential path, no `httpfs`
             # extension to download, and any S3-compatible endpoint. Reads, globs and partitioned
             # COPY ... APPEND all go through it.
             with self._lock:
-                self.con.register_filesystem(storage.fs)
+                self.con.register_filesystem(getattr(storage, "duck_fs", storage.fs))
+            # Parquet footers and object listings are fetched over the network: keep them for the
+            # life of the connection so a company read a second time costs no round trips.
+            for setting in ("SET parquet_metadata_cache=true", "SET enable_object_cache=true"):
+                with contextlib.suppress(duckdb.Error):  # older DuckDB without the setting
+                    self.sql(setting)
 
     # -- helpers -------------------------------------------------------------------------------
     def path(self, rel: str) -> str:
@@ -46,7 +58,7 @@ class Duck:
         return self.storage.exists(rel)
 
     def has_parquet_under(self, rel_dir: str) -> bool:
-        return bool(self.storage.glob(f"{rel_dir}/**/*.parquet")) or bool(self.storage.glob(f"{rel_dir}/*.parquet"))
+        return self.storage.any_parquet_under(rel_dir)
 
     def scan(self, rel_glob: str, hive: bool = True) -> str:
         """SQL fragment reading parquet files under a lake-relative glob."""
@@ -101,25 +113,37 @@ class Duck:
         DuckDB raises on a pattern that matches no file, which would take down every later query.
         """
         if "*" in rel_glob:
-            if not self.storage.glob(rel_glob):
+            # one request for "is there anything under the fixed part of the pattern", never a listing
+            # of every object the pattern matches (millions on a full remote lake)
+            if not self.storage.any_parquet_under(rel_glob.split("*", 1)[0].rstrip("/")):
                 return False
         elif not self.storage.exists(rel_glob):
             return False
         self.sql(f"CREATE OR REPLACE VIEW {name} AS SELECT * FROM {self.scan(rel_glob, hive)}")
         return True
 
-    def create_views(self) -> dict[str, bool]:
-        """Create standard views. Missing datasets are skipped (returned as False)."""
+    def create_views(self, partitioned: bool = True) -> dict[str, bool]:
+        """Create standard views. Missing datasets are skipped (returned as False).
+
+        `partitioned=False` leaves the per-company tables (documents, facts, statements, checks)
+        without a whole-table view: DuckDB binds a view at creation by listing every file the pattern
+        matches, which on a full remote lake is millions of objects. Those tables are then read one
+        company partition at a time through `Database.table()`.
+        """
+
+        def per_company(name: str, rel: str) -> bool:
+            return self.view(name, f"{rel}/*/*.parquet") if partitioned else False
+
         return {
             "companies": self.view("companies", layout.COMPANIES, hive=False),
             "tickers": self.view("tickers", layout.TICKERS, hive=False),
             "filings": self.view("filings", f"{layout.FILINGS}/*/*.parquet"),
             "periods": self.view("periods", layout.PERIODS, hive=False),
             "company_metrics": self.view("company_metrics", layout.COMPANY_METRICS, hive=False),
-            "documents": self.view("documents", f"{layout.DOCUMENTS}/*/*.parquet"),
-            "facts": self.view("facts", f"{layout.FACTS}/*/*.parquet"),
-            "statements": self.view("statements", f"{layout.STATEMENTS}/*/*.parquet"),
-            "statement_checks": self.view("statement_checks", f"{layout.STATEMENT_CHECKS}/*/*.parquet"),
+            "documents": per_company("documents", layout.DOCUMENTS),
+            "facts": per_company("facts", layout.FACTS),
+            "statements": per_company("statements", layout.STATEMENTS),
+            "statement_checks": per_company("statement_checks", layout.STATEMENT_CHECKS),
             "fsds_sub": self.view("fsds_sub", f"{layout.FSDS}/sub/*/*.parquet"),
             "fsds_num": self.view("fsds_num", f"{layout.FSDS}/num/*/*.parquet"),
             "fsds_pre": self.view("fsds_pre", f"{layout.FSDS}/pre/*/*.parquet"),

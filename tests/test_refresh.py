@@ -363,10 +363,10 @@ def test_retry_repairs_fallback_written_without_checks(lake_copy, monkeypatch):
     expected = f"{layout.statement_checks_cik_dir(fx.APPLE)}/fallback_{fx.APPLE_10K_FY2026}.parquet"
     fsds_before = {p: lake_copy.read_bytes(p) for p in lake_copy.glob(f"{layout.STATEMENTS}/*/fsds_*.parquet")}
 
-    def fail_checks(rel, table):
+    def fail_checks(rel, table, **kwargs):
         if rel == expected:
             raise RuntimeError("crash between statement and check publication")
-        original(rel, table)
+        original(rel, table, **kwargs)
 
     monkeypatch.setattr(lake_copy, "write_parquet", fail_checks)
     first = R.run_refresh(

@@ -140,6 +140,10 @@ def create_app(
     s = settings or get_settings()
     storage = Storage(s.resolved_lake_root())
     database = db or Database(s.database_url, storage)
+    if database.is_remote_lake:
+        import threading
+
+        threading.Thread(target=database.warm, name="filings-warm", daemon=True).start()
     limiter = RateLimiter(s.api_rate_limit_per_minute)
     if not s.api_key:
         log.warning("API_KEY is empty: the API is unauthenticated (dev mode)")
@@ -234,7 +238,7 @@ def create_app(
                 [c],
             )
             periods = reader.query(
-                f"SELECT * FROM {reader.periods_table} WHERE cik = ? ORDER BY period_end DESC LIMIT 12",
+                f"SELECT * FROM {reader.periods_table_for(c)} WHERE cik = ? ORDER BY period_end DESC LIMIT 12",
                 [c],
             )
             latest = periods[0] if periods else None
@@ -255,13 +259,13 @@ def create_app(
             rows = reader.query(
                 f"SELECT p.*, f.filing_index_url AS results_filing_index_url, "
                 f"e.filing_index_url AS earnings_release_filing_index_url "
-                f"FROM {reader.periods_table} p LEFT JOIN filings f "
+                f"FROM {reader.periods_table_for(c)} p LEFT JOIN filings f "
                 f"ON f.accession = p.results_accession AND f.cik = p.cik "
                 f"LEFT JOIN filings e ON e.accession = p.earnings_release_accession AND e.cik = p.cik "
                 f"WHERE p.cik = ? ORDER BY p.period_end DESC LIMIT ?",
                 [c, limit],
             )
-            metrics = period_metrics(reader.query, c)
+            metrics = period_metrics(reader.query, c, reader.table("statements", c))
             for r in rows:
                 r["metrics"] = metrics.get(r["results_accession"]) or dict.fromkeys(METRIC_NAMES)
             return {"cik": c, "periods": rows}
@@ -459,7 +463,7 @@ def create_app(
         """Results filings, earnings releases and amendments of the latest `limit` periods, newest first."""
         rows = database.query(
             f"SELECT results_accession, earnings_release_accession, amendment_accessions "
-            f"FROM {database.periods_table} WHERE cik = ? ORDER BY period_end DESC LIMIT ?",
+            f"FROM {database.periods_table_for(c)} WHERE cik = ? ORDER BY period_end DESC LIMIT ?",
             [c, limit],
         )
         out: list[str] = []
@@ -962,19 +966,27 @@ def create_app(
             "FROM run_log ORDER BY started_at DESC LIMIT ?",
             [days],
         )
-        checks = database.query(
-            f"SELECT fiscal_year, count(*) AS periods, "
-            f"sum(CASE WHEN checks_passed THEN 1 ELSE 0 END) AS passed, "
-            f"sum(CASE WHEN checks_passed IS NOT NULL THEN 1 ELSE 0 END) AS applicable, "
-            f"sum(CASE WHEN statements_source = 'facts_fallback' THEN 1 ELSE 0 END) AS provisional "
-            f"FROM {database.periods_table} GROUP BY fiscal_year ORDER BY fiscal_year DESC LIMIT 10"
+        checks = (
+            []
+            if database.is_remote_lake
+            else database.query(
+                f"SELECT fiscal_year, count(*) AS periods, "
+                f"sum(CASE WHEN checks_passed THEN 1 ELSE 0 END) AS passed, "
+                f"sum(CASE WHEN checks_passed IS NOT NULL THEN 1 ELSE 0 END) AS applicable, "
+                f"sum(CASE WHEN statements_source = 'facts_fallback' THEN 1 ELSE 0 END) AS provisional "
+                f"FROM {database.periods_table} GROUP BY fiscal_year ORDER BY fiscal_year DESC LIMIT 10"
+            )
         )
         for c in checks:
             c["pass_rate"] = (c["passed"] / c["applicable"]) if c["applicable"] else None
         totals = database.query(
             "SELECT (SELECT count(*) FROM companies) AS companies, (SELECT count(*) FROM filings) AS filings, "
-            f"(SELECT count(*) FROM {database.periods_table}) AS periods, "
-            "(SELECT count(DISTINCT accession) FROM statements) AS filings_with_statements"
+            f"(SELECT count(*) FROM {'periods' if database.is_remote_lake else database.periods_table}) AS periods, "
+            + (
+                "NULL AS filings_with_statements"
+                if database.is_remote_lake
+                else "(SELECT count(DISTINCT accession) FROM statements) AS filings_with_statements"
+            )
         )
         return {
             "totals": totals[0] if totals else {},
@@ -988,6 +1000,14 @@ def create_app(
         limit: int = Query(100, ge=1, le=1000), offset: int = Query(0, ge=0), _: accounts.User = Depends(current_admin)
     ) -> dict[str, Any]:
         """Phase 4 data-quality queue: statements whose arithmetic checks failed, newest first."""
+        if database.is_remote_lake:
+            return {
+                "total": None,
+                "limit": limit,
+                "offset": offset,
+                "failed": [],
+                "note": "The failed-checks queue scans every statement partition and is not served from a remote lake.",
+            }
         rows = database.query(
             "SELECT k.accession, k.cik, c.name, c.ticker, k.statement, k.check_name, k.lhs, k.rhs, k.difference, "
             "k.detail, k.source, f.form, f.filed_date, f.filing_index_url "
