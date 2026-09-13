@@ -70,6 +70,11 @@ keyboard and touch users. Decision: upgrade the web app to Next 16 in its own
 PR rather than retry or loosen the browser tests. Until then a red `ci / web`
 that names one of those steps is this bug, not the change under test.
 
+Done the same day: the web app runs Next 16.3.5 on React 19.3 (`middleware.ts`
+became `proxy.ts`, as the framework now requires; `next lint` no longer exists).
+Against a production build, thirty scripted clicks with no prefetch stalled zero
+times where 15.5.25 stalled about one in four, and every browser suite passed.
+
 ## The API opens its port before it reads a single filings footer (2026-09-13)
 
 The first deploy of the per-company layout still never came up. Two reasons, both measured

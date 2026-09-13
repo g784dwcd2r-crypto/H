@@ -222,6 +222,9 @@ def api(
     import uvicorn
 
     port = port if port is not None else int(os.environ.get("PORT") or 8000)
+    # the platform's log is the only window into a remote lake: local copies, the background
+    # filings bind and warm-up failures are logged at INFO by the db layer
+    _setup_logging(verbose=False)
     uvicorn.run("filings_hub.api.app:app_factory", host=host, port=port, reload=reload, factory=True)
 
 
