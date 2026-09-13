@@ -380,7 +380,7 @@ def workbook_from_grid(grid: Grid, options: ExportOptions | None = None) -> Work
     if opts.include_source:
         _write_source(wb, grid, opts)
     wb.properties.title = f"{grid.company_name} - as-reported statements"
-    wb.properties.creator = "filings-hub"
+    wb.properties.creator = "Disclosure"
     return wb
 
 

@@ -5,7 +5,7 @@ import { api } from "@/lib/api";
 import { currentUser } from "@/lib/session";
 
 export const dynamic = "force-dynamic";
-export const metadata = { title: "Sign in · Filings Hub" };
+export const metadata = { title: "Sign in · Disclosure" };
 
 export default async function SignInPage({ searchParams }: { searchParams: Promise<{ error?: string }> }) {
   const { error } = await searchParams;

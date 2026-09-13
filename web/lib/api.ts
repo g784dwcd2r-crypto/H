@@ -1,4 +1,4 @@
-// Server-side client for the Filings Hub API. The API key stays on the server.
+// Server-side client for the Disclosure API. The API key stays on the server.
 
 const RAW_BASE = process.env.FILINGS_API_URL || "http://localhost:8000";
 // Render's Blueprint hands over the API as a bare host:port on the private network; add the scheme.

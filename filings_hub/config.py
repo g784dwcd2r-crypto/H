@@ -13,7 +13,7 @@ class Settings(BaseSettings):
 
     sec_user_agent: str = Field(
         default="",
-        description='Required by SEC fair-access policy, e.g. "Filings Hub you@example.com".',
+        description='Required by SEC fair-access policy, e.g. "Disclosure you@example.com".',
     )
     lake_root: str = Field(default="./data", description="Local dir or s3://bucket/prefix.")
     s3_bucket: str = Field(default="", description="Legacy alias; used when lake_root is unset.")

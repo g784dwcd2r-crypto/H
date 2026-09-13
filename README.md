@@ -1,6 +1,8 @@
-# Filings Hub
+# Disclosure
 
 Any SEC-registered company → clean, period-organised filing hub → as-reported financial statements → Excel. Refreshed daily.
+
+The product is called **Disclosure**; the Python package, the `filings-hub` command and the Render service names keep their original names so nothing deployed has to move.
 
 This repository is **Layer 1** of the plan in [`docs/layer1_execution_plan.md`](docs/layer1_execution_plan.md): the data foundation (Phase 1), the API (Phase 2), the three-screen web app (Phase 3, [`web/`](web/)) and the scale/harden pieces that live in code (Phase 4: metrics, data-quality queue, scheduler worker). No user accounts, no NLP, no non-US filers.
 

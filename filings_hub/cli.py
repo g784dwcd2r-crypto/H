@@ -14,7 +14,7 @@ from filings_hub.config import get_settings
 
 app = typer.Typer(
     add_completion=False,
-    help="Filings Hub: SEC EDGAR -> period hub -> as-reported statements -> Excel.",
+    help="Disclosure: SEC EDGAR -> period hub -> as-reported statements -> Excel.",
 )
 
 

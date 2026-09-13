@@ -1,4 +1,4 @@
-// Streams the workbook from the Filings Hub API so the API key never reaches the browser.
+// Streams the workbook from the Disclosure API so the API key never reaches the browser.
 // Every export option is passed through as-is; the API validates them.
 import { NextRequest } from "next/server";
 import { api } from "@/lib/api";
