@@ -1,0 +1,96 @@
+# Render Blueprint, full layout (paid plans). The repo's root render.yaml is the free-tier layout;
+# copy this file over it (`cp deploy/render.full.yaml render.yaml`) to upgrade, then re-sync the
+# Blueprint. Fill in the `sync: false` variables when prompted. See README.md "Deploy".
+#
+#   filings-hub-db      Render Postgres: the serving tables (companies, filings, periods, statements).
+#   filings-hub-api     FastAPI (Dockerfile). Serves from Postgres; reads facts from the lake on S3.
+#   filings-hub-worker  `filings-hub worker`: the daily EDGAR refresh at 06:00 New York into S3 + Postgres.
+#   filings-hub-web     Next.js (web/Dockerfile). Talks to the API over Render's private network.
+#
+# The lake itself lives in S3 (LAKE_ROOT=s3://bucket/prefix); Render disks cannot be shared between
+# services, so object storage is what lets the worker write and the API read the same lake.
+
+databases:
+  - name: filings-hub-db
+    plan: basic-1gb
+    region: oregon
+    postgresMajorVersion: "16"
+    diskSizeGB: 32
+
+envVarGroups:
+  - name: filings-hub-lake
+    envVars:
+      - key: SEC_USER_AGENT
+        sync: false            # "Company Name contact@email" (SEC fair-access policy)
+      - key: LAKE_ROOT
+        sync: false            # s3://bucket/filings-hub
+      - key: AWS_ACCESS_KEY_ID
+        sync: false
+      - key: AWS_SECRET_ACCESS_KEY
+        sync: false
+      - key: AWS_REGION
+        sync: false            # AWS: the bucket's region. Cloudflare R2: auto
+      - key: AWS_ENDPOINT_URL
+        sync: false            # AWS: leave empty. R2: https://<account-id>.r2.cloudflarestorage.com
+
+services:
+  - type: web
+    name: filings-hub-api
+    runtime: docker
+    region: oregon
+    plan: starter
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    dockerCommand: filings-hub api        # binds to Render's $PORT
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - fromGroup: filings-hub-lake
+      - key: DATABASE_URL
+        fromDatabase:
+          name: filings-hub-db
+          property: connectionString
+      - key: API_KEY
+        generateValue: true               # the web service reads it back via envVarKey below
+      - key: API_RATE_LIMIT_PER_MINUTE
+        value: "600"
+
+  - type: worker
+    name: filings-hub-worker
+    runtime: docker
+    region: oregon
+    plan: standard                        # the refresh scans facts with DuckDB; 512 MB is too small
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    dockerCommand: filings-hub worker --at 06:00 --tz America/New_York
+    autoDeploy: true
+    envVars:
+      - fromGroup: filings-hub-lake
+      - key: DATABASE_URL
+        fromDatabase:
+          name: filings-hub-db
+          property: connectionString
+      - key: SLACK_WEBHOOK_URL
+        sync: false                       # optional: failure / zero-filings alerts
+
+  - type: web
+    name: filings-hub-web
+    runtime: docker
+    region: oregon
+    plan: starter
+    rootDir: web
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    healthCheckPath: /
+    autoDeploy: true
+    envVars:
+      - key: FILINGS_API_URL
+        fromService:
+          type: web
+          name: filings-hub-api
+          property: hostport              # host:port on the private network; the web client adds http://
+      - key: FILINGS_API_KEY
+        fromService:
+          type: web
+          name: filings-hub-api
+          envVarKey: API_KEY

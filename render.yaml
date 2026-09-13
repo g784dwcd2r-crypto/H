@@ -1,21 +1,13 @@
-# Render Blueprint for Filings Hub. Dashboard -> New -> Blueprint -> pick this repo, and Render creates
-# every service below. Fill in the `sync: false` variables when prompted (they are secrets or
-# deployment-specific). See README.md "Deploy to Render" for the order of operations.
+# Render Blueprint, free-tier layout: two free web services serving straight from the lake in
+# object storage (DuckDB, no Postgres). The daily refresh runs in GitHub Actions
+# (.github/workflows/refresh.yml), so nothing here is billed. Trade-offs: free services sleep after
+# 15 minutes idle (the first request afterwards takes ~30 s) and queries read Parquet from R2/S3
+# instead of Postgres, so they are slower than the README's benchmark numbers.
 #
-#   filings-hub-db      Render Postgres: the serving tables (companies, filings, periods, statements).
-#   filings-hub-api     FastAPI (Dockerfile). Serves from Postgres; reads facts from the lake on S3.
-#   filings-hub-worker  `filings-hub worker`: the daily EDGAR refresh at 06:00 New York into S3 + Postgres.
-#   filings-hub-web     Next.js (web/Dockerfile). Talks to the API over Render's private network.
+# The paid layout (Render Postgres for serving, an always-on worker for the refresh) is
+# deploy/render.full.yaml; copy it over this file to upgrade.
 #
-# The lake itself lives in S3 (LAKE_ROOT=s3://bucket/prefix); Render disks cannot be shared between
-# services, so object storage is what lets the worker write and the API read the same lake.
-
-databases:
-  - name: filings-hub-db
-    plan: basic-1gb
-    region: oregon
-    postgresMajorVersion: "16"
-    diskSizeGB: 32
+# Dashboard -> New -> Blueprint -> this repo. Fill in the `sync: false` values when prompted.
 
 envVarGroups:
   - name: filings-hub-lake
@@ -29,54 +21,33 @@ envVarGroups:
       - key: AWS_SECRET_ACCESS_KEY
         sync: false
       - key: AWS_REGION
-        value: us-east-1
-      # For Cloudflare R2 / MinIO add: AWS_ENDPOINT_URL=https://<account>.r2.cloudflarestorage.com
+        sync: false            # AWS: the bucket's region. Cloudflare R2: auto
+      - key: AWS_ENDPOINT_URL
+        sync: false            # AWS: leave empty. R2: https://<account-id>.r2.cloudflarestorage.com
 
 services:
   - type: web
     name: filings-hub-api
     runtime: docker
     region: oregon
-    plan: starter
+    plan: free
     dockerfilePath: ./Dockerfile
     dockerContext: .
-    dockerCommand: filings-hub api        # binds to Render's $PORT
+    dockerCommand: filings-hub api        # binds to Render's $PORT; DATABASE_URL unset = DuckDB over the lake
     healthCheckPath: /health
     autoDeploy: true
     envVars:
       - fromGroup: filings-hub-lake
-      - key: DATABASE_URL
-        fromDatabase:
-          name: filings-hub-db
-          property: connectionString
       - key: API_KEY
         generateValue: true               # the web service reads it back via envVarKey below
       - key: API_RATE_LIMIT_PER_MINUTE
         value: "600"
 
-  - type: worker
-    name: filings-hub-worker
-    runtime: docker
-    region: oregon
-    plan: standard                        # the refresh scans facts with DuckDB; 512 MB is too small
-    dockerfilePath: ./Dockerfile
-    dockerContext: .
-    dockerCommand: filings-hub worker --at 06:00 --tz America/New_York
-    autoDeploy: true
-    envVars:
-      - fromGroup: filings-hub-lake
-      - key: DATABASE_URL
-        fromDatabase:
-          name: filings-hub-db
-          property: connectionString
-      - key: SLACK_WEBHOOK_URL
-        sync: false                       # optional: failure / zero-filings alerts
-
   - type: web
     name: filings-hub-web
     runtime: docker
     region: oregon
-    plan: starter
+    plan: free
     rootDir: web
     dockerfilePath: ./Dockerfile
     dockerContext: .

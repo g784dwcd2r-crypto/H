@@ -1,8 +1,9 @@
 name: daily-refresh
 # 06:00 America/New_York. GitHub cron is UTC, so fire at both 10:00 (EDT) and 11:00 (EST) and let the job
 # skip the one that is not 06:00 local. Move to a proper worker (Phase 4) once the lake outgrows a runner.
-# Only one scheduler may own a lake: this job runs only when the LAKE_ROOT secret is set. On Render the
-# filings-hub-worker service is the scheduler, so leave that secret unset there.
+# Only one scheduler may own a lake: this job runs only when the LAKE_ROOT secret is set. In the free
+# layout (render.yaml) this workflow IS the scheduler; in the full layout (deploy/render.full.yaml)
+# the filings-hub-worker service is, so leave the LAKE_ROOT secret unset in that case.
 on:
   schedule:
     - cron: "0 10 * * 1-5"
@@ -43,6 +44,7 @@ jobs:
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           AWS_REGION: ${{ secrets.AWS_REGION }}
+          AWS_ENDPOINT_URL: ${{ secrets.AWS_ENDPOINT_URL }}
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
         run: |
           if [ -n "${{ github.event.inputs.index_date }}" ]; then
