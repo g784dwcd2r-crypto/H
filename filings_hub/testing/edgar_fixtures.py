@@ -941,7 +941,7 @@ SUB_COLS = [
     "nciks",
     "aciks",
 ]
-NUM_COLS = ["adsh", "tag", "version", "coreg", "ddate", "qtrs", "uom", "value", "footnote"]
+NUM_COLS = ["adsh", "tag", "version", "ddate", "qtrs", "uom", "segments", "coreg", "value", "footnote"]
 PRE_COLS = [
     "adsh",
     "report",
@@ -1045,8 +1045,10 @@ def _dedupe_num(rows: list[str]) -> list[str]:
     generating both would produce a row real data cannot contain."""
     seen: set[tuple[str, ...]] = set()
     out = []
+    idx = [NUM_COLS.index(c) for c in ("adsh", "tag", "version", "coreg", "ddate", "qtrs")]
     for row in rows:
-        key = tuple(row.split("\t")[:6])
+        parts = row.split("\t")
+        key = tuple(parts[i] for i in idx)
         if key in seen:
             continue
         seen.add(key)
@@ -1481,3 +1483,107 @@ def apple_companyfacts_with_fy2026() -> dict[str, Any]:
         for concept, val in APPLE_BS[end_].items():
             add(concept, "USD", _fact(None, end_, val, APPLE_10K_FY2026, fy, fp, form, filed))
     return doc
+
+
+# ----------------------------------------------------------------------------------------------
+# Filing contents: index pages and documents, served by `edgar_document_handler` (httpx.MockTransport)
+# ----------------------------------------------------------------------------------------------
+def filing_by_accession(accession: str) -> tuple[int, dict[str, Any]] | None:
+    for cik, c in COMPANIES.items():
+        for f in c["filings"]:
+            if f["acc"] == accession:
+                return cik, f
+    for f in APPLE_FY2026_FILINGS:
+        if f["acc"] == accession:
+            return APPLE, f
+    return None
+
+
+def exhibits_for(f: dict[str, Any]) -> list[tuple[int, str, str, str, int]]:
+    """(seq, description, filename, type, size) rows of a filing's index page, primary document first."""
+    form = f["form"].split("/")[0]
+    stem = f["doc"].rsplit(".", 1)[0]
+    rows = [(1, form, f["doc"], f["form"], 812_345)]
+    if form == "8-K" and "2.02" in (f["items"] or ""):
+        rows += [
+            (2, "Press Release", f"{stem}ex991.htm", "EX-99.1", 210_000),
+            (3, "Q Financial Data Supplement", f"{stem}ex992.htm", "EX-99.2", 95_000),
+        ]
+    elif form in ("10-K", "20-F", "40-F"):
+        rows += [
+            (2, "Subsidiaries of the Registrant", f"{stem}ex21.htm", "EX-21.1", 4_000),
+            (3, "Consent of Independent Registered Public Accounting Firm", f"{stem}ex23.htm", "EX-23.1", 3_000),
+            (4, "Certification", f"{stem}ex311.htm", "EX-31.1", 5_000),
+            (5, "XBRL INSTANCE DOCUMENT", f"{stem}_htm.xml", "EX-101.INS", 3_000_000),
+            (6, "cover.jpg", "cover.jpg", "GRAPHIC", 50_000),
+        ]
+    elif form == "10-Q":
+        rows += [(2, "Certification", f"{stem}ex311.htm", "EX-31.1", 5_000)]
+    return rows
+
+
+def filing_index_html(cik: int, f: dict[str, Any]) -> str:
+    folder = f"/Archives/edgar/data/{cik}/{f['acc'].replace('-', '')}"
+    trs = []
+    for seq, desc, name, typ, size in exhibits_for(f):
+        href = (
+            f"/ix?doc={folder}/{name}"
+            if seq == 1 and f["form"].split("/")[0] in ("10-K", "10-Q")
+            else f"{folder}/{name}"
+        )
+        trs.append(
+            f"<tr><td scope='row'>{seq}</td><td scope='row'>{desc}</td>"
+            f"<td scope='row'><a href='{href}'>{name}</a></td><td scope='row'>{typ}</td><td scope='row'>{size}</td></tr>"
+        )
+    return (
+        "<html><body><div id='formDiv'><table class='tableFile' summary='Document Format Files'>"
+        "<tr><th>Seq</th><th>Description</th><th>Document</th><th>Type</th><th>Size</th></tr>"
+        + "".join(trs)
+        + "</table></div></body></html>"
+    )
+
+
+def document_html(cik: int, f: dict[str, Any], filename: str) -> str:
+    name = COMPANIES[cik]["name"]
+    form = f["form"].split("/")[0]
+    if filename.endswith("ex991.htm"):
+        return (
+            f"<html><head><title>{name} press release</title></head><body>"
+            f"<p><b>{name} reports results for the quarter ended {f['report']}</b></p>"
+            f"<p>The Board authorized an additional share repurchase (buyback) program and raised the dividend.</p>"
+            f"<p>Revenue grew year over year.</p><script>alert('x')</script></body></html>"
+        )
+    if form in ("10-K", "10-Q"):
+        return (
+            f"<html><head><title>{f['doc']}</title></head><body>"
+            "<table><tr><td><a href='#item7'>Item 7.</a></td><td>Management's Discussion</td></tr></table>"
+            "<p style='font-weight:bold'>PART I</p><div><span>Item 1.</span> Business</div>"
+            f"<p>{name} designs and sells products. Our capital return program includes a buyback of shares.</p>"
+            "<p onclick='evil()'>Item 1A. Risk Factors</p><p>Item 7. Management's Discussion and Analysis</p>"
+            "<p>Item 8. Financial Statements</p>"
+            "<p>CONSOLIDATED STATEMENTS OF OPERATIONS</p><table><tr><td>Net sales</td><td>1,000</td></tr></table>"
+            "<p>CONSOLIDATED BALANCE SHEETS</p><img src='chart.jpg'><iframe src='x'></iframe></body></html>"
+        )
+    return f"<html><body><p>{name} {form} filed {f['filed']}</p></body></html>"
+
+
+def edgar_document_handler(request):
+    """httpx.MockTransport handler for filing index pages and documents; 404 otherwise."""
+    import re
+
+    import httpx
+
+    m = re.match(r"https://www\.sec\.gov/Archives/edgar/data/(\d+)/(\d+)/([^?]+)$", str(request.url))
+    if not m:
+        return httpx.Response(404)
+    cik, folder, name = int(m.group(1)), m.group(2), m.group(3)
+    acc = f"{folder[:10]}-{folder[10:12]}-{folder[12:]}"
+    hit = filing_by_accession(acc)
+    if not hit or hit[0] != cik:
+        return httpx.Response(404)
+    _, f = hit
+    if name == f"{acc}-index.htm":
+        return httpx.Response(200, text=filing_index_html(cik, f))
+    if any(name == row[2] for row in exhibits_for(f)):
+        return httpx.Response(200, text=document_html(cik, f, name))
+    return httpx.Response(404)

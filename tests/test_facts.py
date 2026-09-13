@@ -134,3 +134,74 @@ def test_bulk_loader_reports_bad_company(tmp_path):
     st.write_bytes("cf.zip", buf.getvalue())
     r = sync_facts.load_bulk_companyfacts(st, "cf.zip", workers=1)
     assert r["companies"] == 0 and len(r["failures"]) == 1
+
+
+def test_companyfacts_without_cik_or_facts_is_no_facts(tmp_path):
+    """A few CIKs answer 200 with a document that lacks "cik" (or "facts"): that is 'no facts'."""
+    from datetime import date
+
+    from filings_hub.ingest.sync_facts import refresh_cik_facts
+    from filings_hub.lake.storage import Storage
+
+    class C:
+        def __init__(self, doc):
+            self.doc = doc
+
+        def fetch_companyfacts(self, cik):
+            return self.doc
+
+    st = Storage(str(tmp_path))
+    assert refresh_cik_facts(st, C({}), 5, date(2026, 9, 13)) == 0
+    assert refresh_cik_facts(st, C({"entityName": "X"}), 5, date(2026, 9, 13)) == 0
+    doc = {
+        "entityName": "X",
+        "facts": {
+            "us-gaap": {
+                "Assets": {
+                    "units": {
+                        "USD": [
+                            {
+                                "end": "2025-12-31",
+                                "val": 10.0,
+                                "accn": "0000000005-26-000001",
+                                "fy": 2025,
+                                "fp": "FY",
+                                "form": "10-K",
+                                "filed": "2026-02-01",
+                            }
+                        ]
+                    }
+                }
+            }
+        },
+    }
+    assert refresh_cik_facts(st, C(doc), 5, date(2026, 9, 13)) == 1  # cik filled in from the request
+
+
+def test_api_facts_rerun_reuses_stored_responses(tmp_path):
+    from datetime import date
+
+    from filings_hub.ingest.sync_facts import load_api_companyfacts
+    from filings_hub.lake.storage import Storage
+    from filings_hub.testing import edgar_fixtures as fx
+
+    docs = fx.companyfacts_docs()
+
+    class C:
+        calls = 0
+
+        def fetch_companyfacts(self, cik):
+            C.calls += 1
+            return docs.get(cik)
+
+    st = Storage(str(tmp_path))
+    day = date(2026, 9, 13)
+    first = load_api_companyfacts(st, C(), sorted(docs), day, workers=2)
+    assert first["rows"] > 0 and C.calls == len(docs)
+
+    class Dead:
+        def fetch_companyfacts(self, cik):
+            raise AssertionError("network must not be used on a same-day rerun")
+
+    again = load_api_companyfacts(st, Dead(), sorted(docs), day, workers=2)
+    assert again["rows"] == first["rows"] and again["companies"] == first["companies"] and again["failures"] == []

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { Grid } from "@/lib/api";
 
 type Scale = "units" | "thousands" | "millions";
@@ -22,7 +22,28 @@ export default function StatementTabs({ grid, downloadHref }: { grid: Grid; down
   const [active, setActive] = useState(grid.statements[0]?.code ?? "IS");
   const [scale, setScale] = useState<Scale>("millions");
   const stmt = grid.statements.find((s) => s.code === active) ?? grid.statements[0];
-  if (!stmt) return <div className="empty">No as-reported statements for these periods.</div>;
+  useEffect(() => {
+    // 1, 2, 3 switch statements; m / t / u change the scale
+    const onKey = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement | null;
+      if (t && (t.tagName === "INPUT" || t.tagName === "SELECT" || t.tagName === "TEXTAREA")) return;
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      const n = parseInt(e.key, 10);
+      if (n >= 1 && n <= grid.statements.length) setActive(grid.statements[n - 1].code);
+      else if (e.key === "m") setScale("millions");
+      else if (e.key === "t") setScale("thousands");
+      else if (e.key === "u") setScale("units");
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [grid.statements]);
+  if (!stmt)
+    return (
+      <div className="empty">
+        <p>No as-reported statements for these periods yet.</p>
+        <p className="muted">Statements appear once the filing's XBRL is processed, usually the same day; provisional ones come from the company's facts before the SEC data set catches up.</p>
+      </div>
+    );
   return (
     <>
       <div className="tabs" role="tablist">

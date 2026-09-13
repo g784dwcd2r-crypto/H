@@ -15,10 +15,20 @@ from typing import Any
 
 import pyarrow as pa
 
-from filings_hub.ingest import bulk, fsds, sync_facts, sync_filings, sync_statements, sync_universe
+from filings_hub.ingest import (
+    bulk,
+    digest,
+    documents,
+    fsds,
+    metrics,
+    sync_facts,
+    sync_filings,
+    sync_statements,
+    sync_universe,
+)
 from filings_hub.ingest.alerts import notify
 from filings_hub.ingest.edgar_client import EdgarClient
-from filings_hub.ingest.periods import RESULTS_FORMS
+from filings_hub.ingest.periods import RESULTS_FORMS, base_form
 from filings_hub.ingest.submissions import company_header_table
 from filings_hub.ingest.sync_periods import rebuild_periods
 from filings_hub.lake import layout
@@ -67,6 +77,7 @@ class RunLog:
     failures: list[str] = field(default_factory=list)
     error: str | None = None
     db_loaded: bool = False
+    emails_sent: int = 0
     steps: list[str] = field(default_factory=list)
 
     def step(self, name: str, seconds: float) -> None:
@@ -219,6 +230,27 @@ def run_refresh(
         elif storage.exists(layout.COMPANIES):
             sync_universe.upsert_headers(storage, company_header_table([]), today=today)
 
+        # 2b. exhibit-level contents for the new results filings and 8-Ks (the documents analysts open)
+        new_rows = [r for r in api_rows if r["accession"] in new_accessions]
+        # ... plus a bounded catch-up for the refreshed companies' recent history (ensure_documents skips
+        # what the lake already has, and caps fetches per company), so a company gets its documents the
+        # first time it files rather than one filing at a time
+        recent_cutoff = today - timedelta(days=400)
+        doc_rows = [
+            r
+            for r in api_rows
+            if (digest.is_results_filing(r) or base_form(r.get("form") or "") == "8-K")
+            and (r["accession"] in new_accessions or (r.get("filed_date") and r["filed_date"] >= recent_cutoff))
+        ]
+        for cik in sorted({int(r["cik"]) for r in doc_rows}):
+            mine = [r for r in doc_rows if int(r["cik"]) == cik]
+            try:
+                _, doc_failures = documents.ensure_documents(storage, client, cik, mine)
+                run.failures.extend(f"documents cik {cik} {f}" for f in doc_failures)
+            except Exception as e:
+                run.failures.append(f"documents cik {cik}: {e}")
+                log.exception("documents failed for CIK %s", cik)
+
         # 3. periods (all: cheap and keeps labels consistent)
         rebuild_periods(storage)
 
@@ -230,6 +262,17 @@ def run_refresh(
             except Exception as e:
                 run.failures.append(f"statements cik {cik}: {e}")
                 log.exception("fallback statements failed for CIK %s", cik)
+
+        # 4b. key numbers for the companies whose statements changed
+        if touched_results or run.fsds_quarters_loaded:
+            try:
+                if run.fsds_quarters_loaded:
+                    metrics.build_company_metrics(storage)
+                else:
+                    metrics.upsert_company_metrics(storage, touched_results)
+            except Exception as e:
+                run.failures.append(f"metrics: {e}")
+                log.exception("company metrics failed")
 
         # 5. serving tables
         if load_db:
@@ -249,6 +292,20 @@ def run_refresh(
                     fsds_quarters=run.fsds_quarters_loaded,
                 )
                 run.db_loaded = True
+
+        # 6. email digests for subscribers whose companies filed results
+        if new_rows:
+            try:
+                names = {}
+                if storage.exists(layout.COMPANIES):
+                    t = storage.read_parquet(layout.COMPANIES).select(["cik", "name"])
+                    names = dict(zip(t.column("cik").to_pylist(), t.column("name").to_pylist(), strict=True))
+                from filings_hub.config import get_settings
+
+                run.emails_sent = digest.send_digests(storage, new_rows, names, site_url=get_settings().site_url)
+            except Exception as e:
+                run.failures.append(f"digests: {e}")
+                log.exception("digests failed")
 
         weekday = (
             all(date.fromisoformat(d).weekday() < 5 for d in run.index_dates)

@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import Shortcuts from "@/components/Shortcuts";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -19,11 +20,13 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         />
       </head>
       <body>
+        <Shortcuts />
         <header className="top">
           <div className="inner">
             <Link href="/" className="brand">Filings Hub</Link>
             <nav>
               <Link href="/">Search</Link>
+              <Link href="/watchlist">Watchlist</Link>
               <a href="https://www.sec.gov/edgar" target="_blank" rel="noreferrer">EDGAR</a>
             </nav>
           </div>
@@ -32,7 +35,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <footer className="bottom">
           <div className="inner">
             <span>Filings Hub · SEC filings, organised by period. Statements exactly as reported.</span>
-            <span>Source: SEC EDGAR and the Financial Statement Data Sets. Refreshed daily.</span>
+            <span>Source: SEC EDGAR and the Financial Statement Data Sets. Refreshed daily. Keys: <kbd>/</kbd> search · <kbd>w</kbd> watchlist · <kbd>1</kbd>–<kbd>3</kbd> statements</span>
           </div>
         </footer>
       </body>

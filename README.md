@@ -100,10 +100,24 @@ Every FSDS table load is reconciled and recorded in `fsds/load_log/`: raw rows i
 | `GET /companies/{cik}/filings?form=&from=&to=` | other filings with plain-English labels |
 | `GET /companies/{cik}/statements?periods=FY2025,Q1 2026` | as-reported lines, periods as columns |
 | `GET /companies/{cik}/export.xlsx?periods=` | the workbook |
-| `GET /companies/{cik}/facts?concept=&history=true` | XBRL fact history from the lake |
+| `GET /companies/{cik}/documents · /filings/{acc}/document · /search?q= · /peers, GET /filings/recent, POST /subscriptions · /requests
+GET /companies/{cik}/facts?concept=&history=true` | XBRL fact history from the lake |
 | `GET /metrics` | dashboard feed (Phase 4) |
 | `GET /quality/failed` | failed arithmetic checks queue (Phase 4) |
 | `GET /health` | backend and last run |
+
+## Stage 1 hub features
+
+* **Search that reads minds.** Suggestions as you type; an exact ticker or CIK (or a single match) opens the company page directly. Recently opened and followed companies sit under the search box.
+* **The first three questions, above the fold.** Latest period, next expected results, and the latest annual report, quarterly report, earnings release and proxy, each one click away.
+* **Documents, not just filings.** Each filing's exhibits with plain names (Earnings release, Investor presentation, Financial supplement, Subsidiaries…), from the filing's EDGAR index page, fetched once and kept (`documents/`). `filings-hub documents --tickers AAPL,MSFT` prefetches; the refresh fetches them for new results filings and 8-Ks.
+* **Reader.** Filings open inside the hub: sanitised HTML in a sandboxed frame with a table of contents (Parts, Items, statement titles) and a link back to sec.gov.
+* **Search inside a company's filings.** "Where did they last mention buybacks": phrase search with context across the results filings and earnings releases, newest first (`/companies/{cik}/search?q=`).
+* **Numbers in the period table.** Revenue, net income and diluted EPS per period, read off the as-reported statements; `company_metrics/` holds each company's latest annual numbers (`filings-hub metrics` rebuilds it).
+* **Watchlist.** Follow companies (kept in the browser), see what they filed lately, and subscribe by email to their results filings: the refresh mails a digest (`SMTP_HOST`, `SMTP_USER`, `SMTP_PASSWORD`, `SITE_URL`). Subscriptions and coverage requests are stored in the lake, so the API needs a writable lake for them.
+* **Peers.** Same industry code, biggest first.
+* **Keys.** `/` focuses search, `w` opens the watchlist, `1`–`3` switch statements, `m`/`t`/`u` change the scale.
+* **International as a promise.** UK, Europe and rest-of-world tabs take coverage requests.
 
 ## Web app (Phase 3)
 

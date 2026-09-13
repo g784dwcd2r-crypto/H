@@ -16,7 +16,16 @@ export type Company = {
   last_financial_report_date: string | null;
 };
 
+export type Metrics = {
+  revenue: number | null;
+  net_income: number | null;
+  eps_diluted: number | null;
+  total_assets: number | null;
+  operating_cash_flow: number | null;
+};
+
 export type Period = {
+  metrics?: Metrics;
   period_label: string;
   period_end: string;
   period_type: string;
@@ -70,6 +79,66 @@ export type Grid = {
   statements: { code: string; name: string; lines: GridLine[] }[];
 };
 
+export type Doc = {
+  seq: number;
+  doc_type: string;
+  description: string;
+  filename: string;
+  url: string;
+  size: number;
+  label: string;
+  kind: "primary" | "release" | "presentation" | "letter" | "supplement" | "transcript" | "exhibit" | "support";
+  is_primary: boolean;
+};
+
+export type Documents = { cik: number; documents: Record<string, Doc[]>; failures: string[]; fetch_enabled: boolean };
+
+export type Peer = {
+  cik: number;
+  name: string;
+  ticker: string | null;
+  exchange: string | null;
+  fiscal_year: number | null;
+  revenue: number | null;
+  net_income: number | null;
+  total_assets: number | null;
+};
+
+export type ReaderDoc = {
+  cik: number;
+  accession: string;
+  form: string;
+  filed_date: string | null;
+  filename: string;
+  source_url: string;
+  html: string;
+  toc: { id: string; title: string }[];
+  title: string;
+};
+
+export type SearchHit = { before: string; match: string; after: string; snippet: string };
+export type FilingSearch = {
+  cik: number;
+  query: string;
+  searched: number;
+  fetch_enabled: boolean;
+  results: { accession: string; form: string; label: string; filed_date: string; filename: string; hits: SearchHit[] }[];
+};
+
+export type RecentFiling = {
+  cik: number;
+  name: string | null;
+  ticker: string | null;
+  accession: string;
+  form: string;
+  filed_date: string;
+  items: string[] | null;
+  primary_doc_url: string | null;
+  filing_index_url: string | null;
+  label: string;
+  is_results: boolean;
+};
+
 export type NextExpected = {
   period_label: string;
   period_end: string;
@@ -101,9 +170,39 @@ export const api = {
     get<Grid>(
       `/companies/${encodeURIComponent(cik)}/statements?limit=${limit}` + (periods ? `&periods=${encodeURIComponent(periods)}` : ""),
     ),
+  peers: (cik: string) => get<{ cik: number; sic: string | null; sic_description: string | null; peers: Peer[] }>(`/companies/${encodeURIComponent(cik)}/peers`),
+  documents: (cik: string, limit = 8) => get<Documents>(`/companies/${encodeURIComponent(cik)}/documents?limit=${limit}`, 60),
+  document: (cik: string, accession: string, file?: string) =>
+    get<ReaderDoc>(`/companies/${encodeURIComponent(cik)}/filings/${encodeURIComponent(accession)}/document` + (file ? `?file=${encodeURIComponent(file)}` : ""), 3600),
+  searchFilings: (cik: string, q: string, filings = 20) =>
+    get<FilingSearch>(`/companies/${encodeURIComponent(cik)}/search?q=${encodeURIComponent(q)}&filings=${filings}`, 300),
+  recent: (ciks: number[], days = 14) => get<{ filings: RecentFiling[] }>(`/filings/recent?ciks=${ciks.join(",")}&days=${days}`, 60),
+  post: async (path: string, body: unknown) => {
+    const res = await fetch(`${BASE}${path}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...(KEY ? { "X-API-Key": KEY } : {}) },
+      body: JSON.stringify(body),
+      cache: "no-store",
+    });
+    const data = await res.json().catch(() => ({}));
+    return { ok: res.ok, status: res.status, data } as { ok: boolean; status: number; data: Record<string, unknown> };
+  },
   exportUrl: (cik: string, periods?: string, limit = 8) =>
     `${BASE}/companies/${encodeURIComponent(cik)}/export.xlsx?limit=${limit}` + (periods ? `&periods=${encodeURIComponent(periods)}` : ""),
   key: KEY,
 };
 
 export const fmtDate = (d: string | null | undefined) => (d ? new Date(d + "T00:00:00Z").toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric", timeZone: "UTC" }) : "–");
+
+export const fmtMoney = (v: number | null | undefined): string => {
+  if (v === null || v === undefined || Number.isNaN(v)) return "–";
+  const a = Math.abs(v);
+  const s =
+    a >= 1e12 ? `${(a / 1e12).toFixed(2)}T` : a >= 1e9 ? `${(a / 1e9).toFixed(1)}B` : a >= 1e6 ? `${(a / 1e6).toFixed(1)}M` : a >= 1e3 ? `${(a / 1e3).toFixed(0)}K` : a.toFixed(0);
+  return v < 0 ? `(${s})` : s;
+};
+
+export const fmtEps = (v: number | null | undefined): string =>
+  v === null || v === undefined || Number.isNaN(v) ? "–" : v < 0 ? `(${Math.abs(v).toFixed(2)})` : v.toFixed(2);
+
+export const isAnnual = (form: string | null | undefined) => !!form && (form.startsWith("10-K") || form.endsWith("-F") || form.includes("-F/"));

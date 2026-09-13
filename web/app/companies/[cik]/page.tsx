@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { api, fmtDate, NotFound } from "@/lib/api";
+import FollowButton from "@/components/FollowButton";
+import { api, fmtDate, fmtEps, fmtMoney, isAnnual, NotFound, type Doc, type Period } from "@/lib/api";
 
 export const dynamic = "force-dynamic";
 
@@ -17,6 +18,11 @@ export default async function CompanyPage({ params }: { params: Promise<{ cik: s
   }
   const c = data.company;
   const id = String(c.cik);
+  const [docsResp, peersResp] = await Promise.all([
+    api.documents(id, 10).catch(() => null),
+    api.peers(id).catch(() => null),
+  ]);
+  const docs = docsResp?.documents ?? {};
   const attached = new Set<string>();
   for (const p of periods.periods) {
     attached.add(p.results_accession);
@@ -25,91 +31,194 @@ export default async function CompanyPage({ params }: { params: Promise<{ cik: s
   }
   const other = filings.filings.filter((f) => !attached.has(f.accession) && !RESULTS_FORMS.has(f.form));
   const nxt = data.next_expected;
+  const latest = periods.periods[0];
+  const latestAnnual = periods.periods.find((p) => isAnnual(p.results_form));
+  const latestQuarter = periods.periods.find((p) => !isAnnual(p.results_form));
+  const latestRelease = periods.periods.find((p) => p.earnings_release_accession);
+  const release = (p: Period | undefined): Doc | undefined =>
+    p?.earnings_release_accession ? (docs[p.earnings_release_accession] ?? []).find((d) => d.kind === "release") : undefined;
+  const extras = (p: Period): Doc[] =>
+    [...(docs[p.results_accession] ?? []), ...(p.earnings_release_accession ? docs[p.earnings_release_accession] ?? [] : [])].filter(
+      (d) => d.kind === "presentation" || d.kind === "supplement" || d.kind === "letter" || d.kind === "transcript",
+    );
+  const readerHref = (acc: string, file?: string) => `/companies/${id}/filings/${acc}` + (file ? `?file=${encodeURIComponent(file)}` : "");
+  const proxy = other.find((f) => f.form === "DEF 14A");
 
   return (
     <>
       <p className="crumb"><Link href="/">← Search</Link></p>
-      <p className="eyebrow">Company</p>
-      <h1>
-        {c.name}
-        {c.ticker && <span className="chip">{c.ticker}{c.exchange ? ` · ${c.exchange}` : ""}</span>}
-      </h1>
-      <p className="meta">{c.sic_description ?? ""}{c.fiscal_year_end ? ` · fiscal year ends ${fye(c.fiscal_year_end)}` : ""}</p>
-
-      <div className="cards">
-        <div className="card"><div className="k">Latest period</div><div className="v">{data.latest_period?.period_label ?? "–"}</div></div>
-        <div className="card"><div className="k">Next expected results</div><div className="v">{nxt ? `${nxt.period_label} · ${fmtDate(nxt.expected_results_filed_date)}` : "–"}</div>{nxt?.expected_earnings_release_date && <div className="muted">earnings release ~{fmtDate(nxt.expected_earnings_release_date)}</div>}</div>
-        <div className="card"><div className="k">Download</div><div className="v"><a href={`/api/export?cik=${id}&limit=8`}>Latest 8 periods (.xlsx)</a></div></div>
+      <div className="title-row">
+        <div>
+          <p className="eyebrow">Company</p>
+          <h1>
+            {c.name}
+            {c.ticker && <span className="chip">{c.ticker}{c.exchange ? ` · ${c.exchange}` : ""}</span>}
+          </h1>
+          <p className="meta">{c.sic_description ?? ""}{c.fiscal_year_end ? ` · fiscal year ends ${fye(c.fiscal_year_end)}` : ""}{!c.is_active && " · no financial report in the last 18 months"}</p>
+        </div>
+        <FollowButton company={{ cik: c.cik, name: c.name, ticker: c.ticker }} />
       </div>
+
+      <section className="summary">
+        <div className="block">
+          <div className="k">Latest period</div>
+          <div className="v">{latest?.period_label ?? "–"}</div>
+          {latest && <div className="muted">{isAnnual(latest.results_form) ? "Annual report" : "Quarterly report"} filed {fmtDate(latest.results_filed_date)}</div>}
+        </div>
+        <div className="block">
+          <div className="k">Next expected</div>
+          <div className="v">{nxt ? nxt.period_label : "–"}</div>
+          {nxt && <div className="muted">results ~{fmtDate(nxt.expected_results_filed_date)}{nxt.expected_earnings_release_date ? ` · release ~${fmtDate(nxt.expected_earnings_release_date)}` : ""}</div>}
+        </div>
+        <div className="block docs">
+          <div className="k">Open</div>
+          <ul>
+            {latestAnnual && <li><Link href={readerHref(latestAnnual.results_accession)}>Latest annual report</Link> <span className="muted">{latestAnnual.period_label}</span></li>}
+            {latestQuarter && <li><Link href={readerHref(latestQuarter.results_accession)}>Latest quarterly report</Link> <span className="muted">{latestQuarter.period_label}</span></li>}
+            {latestRelease && (
+              <li>
+                {release(latestRelease) ? (
+                  <Link href={readerHref(latestRelease.earnings_release_accession!, release(latestRelease)!.filename)}>Latest earnings release</Link>
+                ) : (
+                  <a href={latestRelease.earnings_release_primary_doc_url ?? "#"} target="_blank" rel="noreferrer">Latest earnings release</a>
+                )}{" "}
+                <span className="muted">{fmtDate(latestRelease.earnings_release_filed_date)}</span>
+              </li>
+            )}
+            {proxy && <li><Link href={readerHref(proxy.accession)}>Latest proxy statement</Link> <span className="muted">{fmtDate(proxy.filed_date)}</span></li>}
+            {!latestAnnual && !latestQuarter && <li className="muted">No results filings on record.</li>}
+          </ul>
+        </div>
+        <div className="block">
+          <div className="k">Take it with you</div>
+          <div className="v small"><a href={`/api/export?cik=${id}&limit=8`}>Excel, latest 8 periods</a></div>
+          <div className="muted"><Link href={`/companies/${id}/statements`}>View statements</Link></div>
+        </div>
+      </section>
+
+      <form className="findin" action={`/companies/${id}/search`} method="get">
+        <input name="q" placeholder={`Search inside ${c.ticker ?? "the company"}'s filings, e.g. buyback, guidance, impairment`} aria-label="Search inside filings" minLength={2} required />
+        <button className="btn secondary" type="submit">Find</button>
+      </form>
 
       <h2>Periods</h2>
       {periods.periods.length === 0 ? (
-        <div className="empty">No annual or quarterly results filings on record.</div>
+        <div className="empty">
+          <p>No annual or quarterly results filings on record for this registrant.</p>
+          <p className="muted">Funds, trusts and shell registrants often file no financial statements. Everything they did file is under “Other filings” below.</p>
+        </div>
       ) : (
-        <table>
-          <thead>
-            <tr>
-              <th>Period</th>
-              <th>Period end</th>
-              <th>Results filing</th>
-              <th>Earnings release</th>
-              <th>Statements</th>
-              <th></th>
-            </tr>
-          </thead>
-          <tbody>
-            {periods.periods.map((p) => (
-              <tr key={p.period_label}>
-                <td><strong>{p.period_label}</strong>{p.period_type === "transition" && <span className="chip">transition</span>}</td>
-                <td>{fmtDate(p.period_end)}</td>
-                <td>
-                  <a href={p.results_primary_doc_url ?? p.results_filing_index_url ?? "#"} target="_blank" rel="noreferrer">
-                    {p.results_form?.startsWith("10-K") || p.results_form?.endsWith("-F") ? "Annual report" : "Quarterly report"}
-                  </a>
-                  <span className="muted"> · filed {fmtDate(p.results_filed_date)}</span>
-                  {(p.amendment_accessions?.length ?? 0) > 0 && <span className="chip">{p.amendment_accessions!.length} amendment{p.amendment_accessions!.length > 1 ? "s" : ""}</span>}
-                </td>
-                <td>
-                  {p.earnings_release_primary_doc_url ? (
-                    <><a href={p.earnings_release_primary_doc_url} target="_blank" rel="noreferrer">Earnings release</a><span className="muted"> · {fmtDate(p.earnings_release_filed_date)}</span></>
-                  ) : (
-                    <span className="muted">–</span>
-                  )}
-                </td>
-                <td>
-                  {p.statements_source ? (
-                    <>
-                      {p.statements_source === "facts_fallback" && <span className="chip warn">provisional</span>}
-                      {p.checks_passed === true && <span className="chip ok">checks ✓</span>}
-                      {p.checks_passed === false && <span className="chip bad">checks ✗</span>}
-                    </>
-                  ) : (
-                    <span className="muted">not available</span>
-                  )}
-                </td>
-                <td className="actions">
-                  {p.statements_source && <Link href={`/companies/${id}/statements?periods=${encodeURIComponent(p.period_label)}`}>View statements</Link>}
-                  {p.statements_source && <a href={`/api/export?cik=${id}&periods=${encodeURIComponent(p.period_label)}`}>Download</a>}
-                </td>
+        <div className="stmt">
+          <table className="periods">
+            <thead>
+              <tr>
+                <th>Period</th>
+                <th>Filed</th>
+                <th className="num">Revenue</th>
+                <th className="num">Net income</th>
+                <th className="num">Diluted EPS</th>
+                <th>Documents</th>
+                <th>Statements</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {periods.periods.map((p) => {
+                const rel = release(p);
+                const more = extras(p);
+                return (
+                  <tr key={p.period_label}>
+                    <td>
+                      <strong>{p.period_label}</strong>
+                      {p.period_type === "transition" && <span className="chip">transition</span>}
+                      <div className="muted small">{fmtDate(p.period_end)}</div>
+                    </td>
+                    <td className="nowrap">{fmtDate(p.results_filed_date)}</td>
+                    <td className="num">{fmtMoney(p.metrics?.revenue)}</td>
+                    <td className="num">{fmtMoney(p.metrics?.net_income)}</td>
+                    <td className="num">{fmtEps(p.metrics?.eps_diluted)}</td>
+                    <td className="docs-cell">
+                      <Link href={readerHref(p.results_accession)}>{isAnnual(p.results_form) ? "Annual report" : "Quarterly report"}</Link>
+                      {p.earnings_release_accession &&
+                        (rel ? (
+                          <Link href={readerHref(p.earnings_release_accession, rel.filename)}>Earnings release</Link>
+                        ) : (
+                          <a href={p.earnings_release_primary_doc_url ?? "#"} target="_blank" rel="noreferrer">Earnings release</a>
+                        ))}
+                      {more.map((d) => (
+                        <Link key={d.filename} href={readerHref(d.url.includes(p.results_accession.replace(/-/g, "")) ? p.results_accession : p.earnings_release_accession!, d.filename)}>
+                          {d.label}
+                        </Link>
+                      ))}
+                      {(p.amendment_accessions?.length ?? 0) > 0 && <span className="chip">{p.amendment_accessions!.length} amendment{p.amendment_accessions!.length > 1 ? "s" : ""}</span>}
+                    </td>
+                    <td className="actions">
+                      {p.statements_source ? (
+                        <>
+                          <Link href={`/companies/${id}/statements?periods=${encodeURIComponent(p.period_label)}`}>View</Link>
+                          <a href={`/api/export?cik=${id}&periods=${encodeURIComponent(p.period_label)}`}>Excel</a>
+                          {p.statements_source === "facts_fallback" && <span className="chip warn">provisional</span>}
+                          {p.checks_passed === false && <span className="chip bad">checks ✗</span>}
+                        </>
+                      ) : (
+                        <span className="muted">not yet</span>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+      {docsResp && !docsResp.fetch_enabled && <p className="muted small">Exhibit-level documents are shown when the API has EDGAR access; links above open the primary documents.</p>}
+
+      {peersResp && peersResp.peers.length > 0 && (
+        <>
+          <h2>Peers</h2>
+          <p className="muted">Same industry code{peersResp.sic_description ? ` (${peersResp.sic_description})` : ""}, biggest first by latest annual revenue.</p>
+          <table className="peers">
+            <thead>
+              <tr>
+                <th>Company</th>
+                <th>Ticker</th>
+                <th className="num">Revenue</th>
+                <th className="num">Net income</th>
+                <th className="num">Total assets</th>
+                <th>Fiscal year</th>
+              </tr>
+            </thead>
+            <tbody>
+              {peersResp.peers.map((p) => (
+                <tr key={p.cik}>
+                  <td><Link href={`/companies/${p.cik}`}>{p.name}</Link></td>
+                  <td>{p.ticker ?? "–"}</td>
+                  <td className="num">{fmtMoney(p.revenue)}</td>
+                  <td className="num">{fmtMoney(p.net_income)}</td>
+                  <td className="num">{fmtMoney(p.total_assets)}</td>
+                  <td>{p.fiscal_year ?? "–"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </>
       )}
 
       <details>
         <summary>Other filings ({other.length})</summary>
         {other.length === 0 ? (
-          <p className="muted">None.</p>
+          <p className="muted">Nothing besides the results filings above.</p>
         ) : (
           <table>
             <thead><tr><th>Filed</th><th>What it is</th><th></th></tr></thead>
             <tbody>
               {other.map((f) => (
                 <tr key={f.accession}>
-                  <td>{fmtDate(f.filed_date)}</td>
+                  <td className="nowrap">{fmtDate(f.filed_date)}</td>
                   <td>{f.label}</td>
-                  <td><a href={f.primary_doc_url ?? f.filing_index_url ?? "#"} target="_blank" rel="noreferrer">Open</a></td>
+                  <td className="actions">
+                    {f.primary_doc_url?.match(/\.(htm|html|txt)$/i) ? <Link href={readerHref(f.accession)}>Read</Link> : null}
+                    <a href={f.primary_doc_url ?? f.filing_index_url ?? "#"} target="_blank" rel="noreferrer">sec.gov</a>
+                  </td>
                 </tr>
               ))}
             </tbody>

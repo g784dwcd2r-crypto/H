@@ -14,6 +14,12 @@ Layout (relative to LAKE_ROOT):
   companies/tickers.parquet
   filings/year={yyyy}/*.parquet                              partitioned by filed year
   periods/periods.parquet
+  company_metrics/company_metrics.parquet                    latest annual key numbers per company
+  documents/cik={cik}/*.parquet                              exhibit-level contents of filings (lazy)
+  raw/edgar/documents/{cik}/{accession}/{file}               cached filing documents (lazy)
+  text/cik={cik}/{accession}-{file}.txt                      extracted text for in-filing search (lazy)
+  subscriptions/{id}.json                                    email alert subscriptions
+  requests/{id}.json                                         coverage requests (other regions)
   facts/cik={cik}/*.parquet                                  partitioned by CIK
   fsds/{sub,num,pre,tag}/quarter={yyyy}q{n}/*.parquet
   statements/cik={cik}/*.parquet
@@ -60,6 +66,11 @@ COMPANIES = "companies/companies.parquet"
 TICKERS = "companies/tickers.parquet"
 FILINGS = "filings"
 PERIODS = "periods/periods.parquet"
+COMPANY_METRICS = "company_metrics/company_metrics.parquet"
+DOCUMENTS = "documents"
+TEXT = "text"
+SUBSCRIPTIONS = "subscriptions"
+REQUESTS = "requests"
 FACTS = "facts"
 FSDS = "fsds"
 FSDS_LOAD_LOG = "fsds/load_log"  # one row per table per quarter: raw vs loaded vs rejected rows
@@ -70,6 +81,18 @@ RUN_LOG = "run_log"
 
 def filings_year_dir(year: int) -> str:
     return f"{FILINGS}/year={year}"
+
+
+def documents_cik_dir(cik: int) -> str:
+    return f"{DOCUMENTS}/cik={cik}"
+
+
+def raw_document(cik: int, accession: str, filename: str) -> str:
+    return f"{RAW}/documents/{cik}/{accession}/{filename}"
+
+
+def text_cache(cik: int, accession: str, filename: str) -> str:
+    return f"{TEXT}/cik={cik}/{accession}-{filename}.txt"
 
 
 def facts_cik_dir(cik: int) -> str:

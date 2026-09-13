@@ -190,3 +190,20 @@ CREATE INDEX IF NOT EXISTS filings_accession_idx ON filings (accession);
 -- ==== 0004_run_log_steps.sql ====
 -- 0004: per-step timings on run_log, so a slow backfill can be attributed to a step.
 ALTER TABLE run_log ADD COLUMN IF NOT EXISTS steps TEXT[];
+
+-- ==== 0005_company_metrics.sql ====
+-- 0005: latest annual key numbers per company (peers, ranking). Rebuilt from the lake on every load.
+CREATE TABLE IF NOT EXISTS company_metrics (
+    cik                 BIGINT PRIMARY KEY,
+    period_label        TEXT,
+    fiscal_year         INTEGER,
+    period_end          DATE,
+    results_accession   TEXT,
+    revenue             DOUBLE PRECISION,
+    net_income          DOUBLE PRECISION,
+    eps_diluted         DOUBLE PRECISION,
+    total_assets        DOUBLE PRECISION,
+    operating_cash_flow DOUBLE PRECISION
+);
+CREATE INDEX IF NOT EXISTS company_metrics_revenue_idx ON company_metrics (revenue DESC NULLS LAST);
+CREATE INDEX IF NOT EXISTS companies_sic_idx ON companies (sic);
