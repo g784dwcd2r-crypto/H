@@ -5,15 +5,30 @@ import { useEffect, useState } from "react";
 import type { RecentFiling } from "@/lib/api";
 import { fmtDate } from "@/lib/api";
 import { watchlist, type Remembered } from "@/lib/local";
+import { accountWatchlist } from "@/lib/watchlist-client";
 
-export default function WatchlistView() {
+export default function WatchlistView({ signedIn, initial }: { signedIn: boolean; initial: Remembered[] | null }) {
   const [list, setList] = useState<Remembered[] | null>(null);
   const [filings, setFilings] = useState<RecentFiling[] | null>(null);
   const [days, setDays] = useState(14);
   const [email, setEmail] = useState("");
   const [sub, setSub] = useState<"idle" | "sending" | "done" | "error" | "off">("idle");
 
-  useEffect(() => setList(watchlist.list()), []);
+  useEffect(() => {
+    if (!signedIn) {
+      setList(watchlist.list());
+      return;
+    }
+    void accountWatchlist.load(initial ?? undefined).then(setList);
+  }, [signedIn, initial]);
+  const unfollow = async (c: Remembered) => {
+    if (!signedIn) {
+      watchlist.toggle(c);
+      setList(watchlist.list());
+      return;
+    }
+    setList(await accountWatchlist.remove(c.cik));
+  };
   useEffect(() => {
     if (!list) return;
     if (!list.length) {
@@ -32,7 +47,7 @@ export default function WatchlistView() {
     return (
       <div className="empty">
         <p>Nothing followed yet.</p>
-        <p className="muted">Open a company and press “Follow”. This page then shows what your companies filed, and you can get the results filings by email.</p>
+        <p className="muted">Open a company and press “Follow”. This page then shows what your companies filed, and you can get the results filings by email.{signedIn ? " Companies you follow are kept on your account." : " Sign in to keep the list on every device."}</p>
         <Link href="/" className="btn">Find a company</Link>
       </div>
     );
@@ -44,7 +59,7 @@ export default function WatchlistView() {
         {list.map((c) => (
           <span key={c.cik} className="chip link">
             <Link href={`/companies/${c.cik}`}>{c.ticker ?? c.name}</Link>
-            <button type="button" className="x" aria-label={`Stop following ${c.name}`} onClick={() => { watchlist.toggle(c); setList(watchlist.list()); }}>×</button>
+            <button type="button" className="x" aria-label={`Stop following ${c.name}`} onClick={() => void unfollow(c)}>×</button>
           </span>
         ))}
       </p>

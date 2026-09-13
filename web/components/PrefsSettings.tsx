@@ -10,7 +10,28 @@ const SCOPE_WORDS: Record<string, (k: string) => string> = {
   statement: (k) => `statement ${k.replace(":", " · ")}`,
   export: (k) => `export profile ${k}`,
 };
-const KEY_WORDS: Record<string, string> = { scale: "Scale", statement: "Statement that opens first", periods_shown: "Periods shown" };
+const KEY_WORDS: Record<string, string> = {
+  scale: "Scale",
+  statement: "Statement that opens first",
+  periods_shown: "Periods shown",
+  period_mode: "Period view",
+  restated: "Latest-filed comparatives",
+  column_order: "Column order",
+  negative_style: "Negative numbers",
+  headline_cards: "Headline cards",
+  export_config: "Export settings",
+  profile: "Export profile",
+  watchlist: "Followed companies",
+  proposals_dismissed: "Dismissed proposals",
+};
+const showValue = (v: unknown): string => {
+  if (Array.isArray(v)) return v.map((x) => (typeof x === "object" && x !== null ? ((x as { ticker?: string; name?: string }).ticker ?? (x as { name?: string }).name ?? "") : String(x))).join(", ");
+  if (typeof v === "object" && v !== null) {
+    const o = v as Record<string, unknown>;
+    return Object.keys(o).length === 0 ? "(empty)" : Object.entries(o).filter(([, x]) => typeof x !== "object").map(([k, x]) => `${k}=${String(x)}`).join(" · ");
+  }
+  return String(v);
+};
 
 export default function PrefsSettings({ initial, defaults }: { initial: Pref[]; defaults: Record<string, unknown> }) {
   const [prefs, setPrefs] = useState(initial);
@@ -72,7 +93,7 @@ export default function PrefsSettings({ initial, defaults }: { initial: Pref[]; 
             {sorted.map((p) => (
               <tr key={`${p.scope}|${p.scope_key}|${p.key}`}>
                 <td>{KEY_WORDS[p.key] ?? p.key}</td>
-                <td>{String(p.value)}</td>
+                <td className="small">{showValue(p.value)}</td>
                 <td>{(SCOPE_WORDS[p.scope] ?? ((k: string) => `${p.scope} ${k}`))(p.scope_key)}</td>
                 <td className="muted">{p.source === "explicit" ? "you set it" : p.source === "inferred" ? "suggested, you accepted" : "preset"}</td>
                 <td className="actions">

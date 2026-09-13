@@ -354,3 +354,101 @@ def test_postgres_store_profile(pg_url):
     got.title = "VP"
     st.update_user(got)
     assert st.get_user(u.id).title == "VP"
+
+
+def test_proposals_three_strikes_dismiss_twice_accept_writes_inferred(tmp_path):
+    st = A.LakeUserStore(Storage(str(tmp_path)))
+    u = st.create_user("p@example.com")
+    for cik in ("1", "2"):
+        st.put_pref(u.id, A.Pref("company", cik, "period_mode", "quarterly"))
+    assert A.proposals(st.list_prefs(u.id)) == []  # two companies: not yet
+    st.put_pref(u.id, A.Pref("company", "3", "period_mode", "quarterly"))
+    st.put_pref(u.id, A.Pref("company", "3", "scale", "billions", source="inferred"))  # inferred ones never count
+    props = A.proposals(st.list_prefs(u.id))
+    assert len(props) == 1 and props[0]["key"] == "period_mode" and props[0]["value"] == "quarterly"
+    assert props[0]["companies"] == ["1", "2", "3"] and props[0]["current"] == "as_filed"
+    # once the global value already says so, nothing to propose
+    st.put_pref(u.id, A.Pref("global", "", "period_mode", "quarterly"))
+    assert A.proposals(st.list_prefs(u.id)) == []
+    st.delete_pref(u.id, "global", "", "period_mode")
+    # dismissed once: still shown; twice: gone for good
+    assert A.dismiss_proposal(st, u.id, "period_mode", "quarterly") == 1
+    assert len(A.proposals(st.list_prefs(u.id))) == 1
+    assert A.dismiss_proposal(st, u.id, "period_mode", "quarterly") == 2
+    assert A.proposals(st.list_prefs(u.id)) == []
+    # accepting writes the global preference with source=inferred and logs the event
+    st.put_pref(u.id, A.Pref("company", "4", "scale", "billions"))
+    st.put_pref(u.id, A.Pref("company", "5", "scale", "billions"))
+    st.put_pref(u.id, A.Pref("company", "6", "scale", "billions"))
+    assert A.proposals(st.list_prefs(u.id))[0]["key"] == "scale"
+    pref = A.accept_proposal(st, u.id, "scale", "billions")
+    assert pref.source == "inferred" and A.resolve(st.list_prefs(u.id), cik=99)["scale"]["source"] == "inferred"
+    assert A.proposals(st.list_prefs(u.id)) == []
+    events = st.list_events(u.id)
+    assert events[0]["key"] == "scale" and events[0]["source"] == "inferred" and events[0]["user_id"] == u.id
+    with pytest.raises(ValueError):
+        A.accept_proposal(st, u.id, "statement", "CF")
+
+
+def test_touch_report_counts_prefs_and_ui_events():
+    events = [
+        {"user_id": "a", "key": "scale", "scope": "company", "new": "thousands", "source": "explicit"},
+        {"user_id": "a", "key": "scale", "scope": "global", "new": "thousands", "source": "inferred"},
+        {"user_id": "b", "key": "scale", "scope": "company", "new": "billions", "source": "explicit"},
+        {"user_id": "b", "key": "period_mode", "scope": "global", "new": "ltm", "source": "explicit"},
+        {"user_id": "a", **A.ui_event("export.download", {"layout": "one_sheet"})},
+        {"user_id": "b", **A.ui_event("export.download", None)},
+    ]
+    r = A.touch_report(events, 7)
+    assert r["events"] == 6 and r["users"] == 2 and r["days"] == 7
+    scale = r["prefs"][0]
+    assert scale["key"] == "scale" and scale["writes"] == 3 and scale["users"] == 2 and scale["inferred"] == 1
+    assert scale["scopes"] == {"company": 2, "global": 1}
+    assert scale["top_values"][0] == {"value": "thousands", "n": 2}
+    assert r["ui"] == [{"name": "export.download", "count": 2, "users": 2}]
+    assert A.validate_event({"name": "x" * 61}) and A.validate_event({"name": "ok", "props": "no"}) is not None
+    assert A.validate_event({"name": "card.swap", "props": {"slot": 1}}) is None
+
+
+def test_events_proposals_and_touch_report_endpoints(api):
+    c, _app = api
+    hdr = _sign_in(c, "events@example.com")
+    assert c.post(
+        "/me/events", json={"name": "export.download", "props": {"layout": "one_sheet"}}, headers=hdr
+    ).json() == {"ok": True}
+    assert c.post("/me/events", json={"name": ""}, headers=hdr).status_code == 422
+    assert c.get("/me/proposals", headers=hdr).json()["proposals"] == []
+    for cik in ("320193", "19617", "1652044"):
+        c.put(
+            "/me/prefs", json={"scope": "company", "scope_key": cik, "key": "period_mode", "value": "ltm"}, headers=hdr
+        )
+    props = c.get("/me/proposals", headers=hdr).json()["proposals"]
+    assert len(props) == 1 and props[0]["value"] == "ltm"
+    r = c.post("/me/proposals", json={"key": "period_mode", "value": "ltm", "action": "dismiss"}, headers=hdr)
+    assert r.json()["dismissed"] == 1
+    r = c.post("/me/proposals", json={"key": "period_mode", "value": "ltm", "action": "accept"}, headers=hdr)
+    assert r.json()["pref"]["source"] == "inferred"
+    assert c.get("/me/prefs/resolve?cik=1", headers=hdr).json()["prefs"]["period_mode"]["value"] == "ltm"
+    assert c.post("/me/proposals", json={"key": "statement", "action": "accept"}, headers=hdr).status_code == 422
+    report = c.get("/metrics/prefs?days=7", headers=H).json()
+    assert report["users"] == 1 and "period_mode" in {p["key"] for p in report["prefs"]}
+    assert any(u["name"] == "export.download" for u in report["ui"])
+    assert next(p for p in report["prefs"] if p["key"] == "period_mode")["writes"] == 4
+
+
+def test_statement_and_export_params(api):
+    c, _app = api
+    q = c.get("/companies/320193/statements?period_mode=quarterly&limit=8&column_order=newest_left", headers=H).json()
+    assert q["period_mode"] == "quarterly" and q["periods"][0]["period_label"] == "Q3 2026"
+    assert any(p["period_label"] == "Q4 2025" and p["basis"] == "derived" for p in q["periods"])
+    assert c.get("/companies/320193/statements?period_mode=weekly", headers=H).status_code == 422
+    r = c.get("/companies/320193/statements?periods=FY2024,FY2025&restated=true", headers=H).json()
+    assert r["restated"] is True and r["periods"][0]["basis"] == "restated"
+    x = c.get(
+        "/companies/AAPL/export.xlsx?limit=4&layout=one_sheet&orientation=periods_down&subtotals=formulas"
+        "&include=source,concepts&scale=millions&filename={ticker}-{mode}&period_mode=ltm",
+        headers=H,
+    )
+    assert x.status_code == 200 and x.headers["content-disposition"] == 'attachment; filename="AAPL-ltm.xlsx"'
+    assert c.get("/companies/AAPL/export.xlsx?layout=pdf", headers=H).status_code == 422
+    assert c.get("/companies/AAPL/export.xlsx?filename={owner}", headers=H).status_code == 422

@@ -10,19 +10,14 @@ export type Company = {
   name: string;
   ticker: string | null;
   exchange: string | null;
+  sic: string | null;
   sic_description: string | null;
   fiscal_year_end: string | null;
   is_active: boolean;
   last_financial_report_date: string | null;
 };
 
-export type Metrics = {
-  revenue: number | null;
-  net_income: number | null;
-  eps_diluted: number | null;
-  total_assets: number | null;
-  operating_cash_flow: number | null;
-};
+export type Metrics = Record<string, number | null>;
 
 export type Period = {
   metrics?: Metrics;
@@ -58,25 +53,115 @@ export type GridLine = {
   label: string;
   is_abstract: boolean;
   is_subtotal: boolean;
+  parent_concept: string | null;
   unit: string | null;
   values: Record<string, number | null>;
+};
+
+export type PeriodMode = "as_filed" | "quarterly" | "annual" | "ltm";
+export type ColumnOrder = "newest_right" | "newest_left";
+export type GridParams = { period_mode?: PeriodMode; restated?: boolean; column_order?: ColumnOrder };
+
+export type GridPeriod = {
+  period_label: string;
+  filed_label: string;
+  period_end: string;
+  fiscal_year: number;
+  fiscal_quarter: number;
+  period_type: string;
+  accession: string;
+  form: string | null;
+  filed_date: string | null;
+  filing_index_url: string | null;
+  is_provisional: boolean;
+  checks_passed: boolean | null;
+  basis: "as filed" | "derived" | "restated";
+  basis_note: string | null;
+  restated_from: string | null;
 };
 
 export type Grid = {
   cik: number;
   company_name: string;
   ticker: string | null;
-  periods: {
-    period_label: string;
-    period_end: string;
-    accession: string;
-    form: string | null;
-    filed_date: string | null;
-    filing_index_url: string | null;
-    is_provisional: boolean;
-    checks_passed: boolean | null;
-  }[];
+  period_mode: PeriodMode;
+  restated: boolean;
+  column_order: ColumnOrder;
+  periods: GridPeriod[];
   statements: { code: string; name: string; lines: GridLine[] }[];
+};
+
+/** Everything the export dialog can set; mirrors ExportOptions on the API plus the grid parameters. */
+export type ExportConfig = {
+  period_mode: PeriodMode;
+  restated: boolean;
+  column_order: ColumnOrder;
+  limit: number;
+  layout: "sheet_per_statement" | "one_sheet";
+  orientation: "periods_across" | "periods_down";
+  subtotals: "values" | "formulas";
+  include_source: boolean;
+  include_checks: boolean;
+  include_concepts: boolean;
+  include_filed_dates: boolean;
+  scale: "units" | "thousands" | "millions" | "billions";
+  negative_style: "parentheses" | "minus";
+  filename: string;
+  statements: string[];
+};
+
+export const EXPORT_DEFAULTS: ExportConfig = {
+  period_mode: "as_filed",
+  restated: false,
+  column_order: "newest_right",
+  limit: 8,
+  layout: "sheet_per_statement",
+  orientation: "periods_across",
+  subtotals: "values",
+  include_source: true,
+  include_checks: true,
+  include_concepts: true,
+  include_filed_dates: true,
+  scale: "units",
+  negative_style: "parentheses",
+  filename: "{ticker}-statements",
+  statements: ["IS", "BS", "CF", "EQ", "CI"],
+};
+
+export function exportQuery(cik: string, cfg: Partial<ExportConfig>, periods?: string): string {
+  const c = { ...EXPORT_DEFAULTS, ...cfg };
+  const q = new URLSearchParams({
+    cik,
+    limit: String(c.limit),
+    period_mode: c.period_mode,
+    restated: String(c.restated),
+    column_order: c.column_order,
+    layout: c.layout,
+    orientation: c.orientation,
+    subtotals: c.subtotals,
+    include: (["source", "checks", "concepts", "filed_dates"] as const).filter((k) => c[`include_${k}` as keyof ExportConfig]).join(","),
+    scale: c.scale,
+    negative_style: c.negative_style,
+    filename: c.filename,
+    statements: c.statements.join(","),
+  });
+  if (periods) q.set("periods", periods);
+  return q.toString();
+}
+
+export type Proposal = { id: string; key: string; value: unknown; companies: string[]; current: unknown; message: string };
+export type TouchReport = {
+  days: number;
+  events: number;
+  users: number;
+  prefs: { key: string; writes: number; users: number; inferred: number; scopes: Record<string, number>; top_values: { value: unknown; n: number }[] }[];
+  ui: { name: string; count: number; users: number }[];
+};
+export type Dashboard = {
+  totals: { companies?: number; filings?: number; periods?: number; filings_with_statements?: number };
+  filings_per_day: { filed_date: string; filings: number }[];
+  runs: { run_id: string; kind: string; status: string; started_at: string; duration_seconds: number | null; new_filings: number | null; ciks_refreshed: number | null; statements_built: number | null }[];
+  checks_by_fiscal_year: { fiscal_year: number; periods: number; passed: number; applicable: number; provisional: number; pass_rate: number | null }[];
 };
 
 export type Doc = {
@@ -191,15 +276,24 @@ export type AuthConfig = { email_link: boolean; google_client_id: string | null;
 export const api = {
   search: (q: string) => get<{ results: Company[] }>(`/search?q=${encodeURIComponent(q)}`, 60),
   company: (cik: string) =>
-    get<{ company: Company; tickers: { ticker: string; exchange: string | null }[]; latest_period: Period | null; next_expected: NextExpected }>(
-      `/companies/${encodeURIComponent(cik)}`,
-    ),
+    get<{
+      company: Company;
+      tickers: { ticker: string; exchange: string | null }[];
+      latest_period: Period | null;
+      next_expected: NextExpected;
+      headline_preset: string[];
+      metric_labels: Record<string, string>;
+    }>(`/companies/${encodeURIComponent(cik)}`),
   periods: (cik: string) => get<{ periods: Period[] }>(`/companies/${encodeURIComponent(cik)}/periods?limit=60`),
   filings: (cik: string) => get<{ filings: Filing[] }>(`/companies/${encodeURIComponent(cik)}/filings?limit=200`),
-  statements: (cik: string, periods?: string, limit = 8) =>
-    get<Grid>(
-      `/companies/${encodeURIComponent(cik)}/statements?limit=${limit}` + (periods ? `&periods=${encodeURIComponent(periods)}` : ""),
-    ),
+  statements: (cik: string, periods?: string, limit = 8, params: GridParams = {}) => {
+    const q = new URLSearchParams({ limit: String(limit) });
+    if (periods) q.set("periods", periods);
+    if (params.period_mode) q.set("period_mode", params.period_mode);
+    if (params.restated) q.set("restated", "true");
+    if (params.column_order) q.set("column_order", params.column_order);
+    return get<Grid>(`/companies/${encodeURIComponent(cik)}/statements?${q.toString()}`);
+  },
   peers: (cik: string) => get<{ cik: number; sic: string | null; sic_description: string | null; peers: Peer[] }>(`/companies/${encodeURIComponent(cik)}/peers`),
   documents: (cik: string, limit = 8) => get<Documents>(`/companies/${encodeURIComponent(cik)}/documents?limit=${limit}`, 60),
   document: (cik: string, accession: string, file?: string) =>
@@ -227,8 +321,10 @@ export const api = {
     if (ctx.statement) q.set("statement", ctx.statement);
     return get<{ prefs: Resolved }>(`/me/prefs/resolve?${q.toString()}`, 0, session);
   },
-  exportUrl: (cik: string, periods?: string, limit = 8) =>
-    `${BASE}/companies/${encodeURIComponent(cik)}/export.xlsx?limit=${limit}` + (periods ? `&periods=${encodeURIComponent(periods)}` : ""),
+  exportUrl: (cik: string, query: URLSearchParams) => `${BASE}/companies/${encodeURIComponent(cik)}/export.xlsx?${query.toString()}`,
+  proposals: (session: string) => get<{ proposals: Proposal[] }>("/me/proposals", 0, session),
+  dashboard: (days = 30) => get<Dashboard>(`/metrics?days=${days}`, 60),
+  touchReport: (days = 30) => get<TouchReport>(`/metrics/prefs?days=${days}`, 60),
   key: KEY,
 };
 

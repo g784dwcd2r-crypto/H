@@ -33,11 +33,11 @@ from filings_hub import __version__, accounts
 from filings_hub.api.security import RateLimiter, make_auth
 from filings_hub.config import Settings, get_settings
 from filings_hub.db.database import Database
-from filings_hub.export.excel import export_excel
-from filings_hub.export.grid import build_grid
+from filings_hub.export.excel import ExportOptions, export_workbook
+from filings_hub.export.grid import COLUMN_ORDERS, PERIOD_MODES, build_grid
 from filings_hub.ingest import digest, documents
 from filings_hub.ingest.edgar_client import EdgarClient, EdgarError, client_from_settings
-from filings_hub.ingest.metrics import METRIC_NAMES, period_metrics
+from filings_hub.ingest.metrics import METRIC_LABELS, METRIC_NAMES, headline_preset, period_metrics
 from filings_hub.ingest.periods import base_form, next_expected_results
 from filings_hub.lake import layout
 from filings_hub.lake.storage import Storage
@@ -203,6 +203,8 @@ def create_app(
             "tickers": tickers,
             "latest_period": latest,
             "next_expected": nxt,
+            "headline_preset": headline_preset(rows[0].get("sic")),
+            "metric_labels": METRIC_LABELS,
         }
 
     @app.get("/companies/{cik}/periods")
@@ -255,27 +257,96 @@ def create_app(
     def _labels(periods: str | None) -> list[str] | None:
         return [p.strip() for p in periods.split(",") if p.strip()] if periods else None
 
+    def _grid_params(period_mode: str, column_order: str) -> None:
+        if period_mode not in PERIOD_MODES:
+            raise HTTPException(422, f"period_mode must be one of {', '.join(PERIOD_MODES)}")
+        if column_order not in COLUMN_ORDERS:
+            raise HTTPException(422, f"column_order must be one of {', '.join(COLUMN_ORDERS)}")
+
     @app.get("/companies/{cik}/statements")
     def company_statements(
-        cik: str, periods: str | None = None, limit: int = Query(8, le=60), _: str = Depends(auth)
+        cik: str,
+        periods: str | None = None,
+        limit: int = Query(8, le=60),
+        period_mode: str = "as_filed",
+        restated: bool = False,
+        column_order: str = "newest_right",
+        _: str = Depends(auth),
     ) -> dict[str, Any]:
+        """The statement grid. `period_mode`: as_filed | quarterly | annual | ltm; `restated` takes
+        comparatives from the latest filing that presents the period (as-filed and annual modes)."""
         c = resolve_cik(cik)
+        _grid_params(period_mode, column_order)
         try:
-            return build_grid(database, c, _labels(periods), limit).to_dict()
+            return build_grid(
+                database,
+                c,
+                _labels(periods),
+                limit,
+                period_mode=period_mode,
+                restated=restated,
+                column_order=column_order,
+            ).to_dict()
         except KeyError as e:
             raise HTTPException(404, str(e)) from e
 
+    def _export_options(
+        layout: str | None,
+        orientation: str | None,
+        subtotals: str | None,
+        include: str | None,
+        scale: str | None,
+        negative_style: str | None,
+        filename: str | None,
+        statements: str | None,
+    ) -> ExportOptions:
+        """Export options from query parameters. `include` is a comma list drawn from
+        source, checks, concepts, filed_dates; leaving it out keeps everything."""
+        d: dict[str, Any] = {
+            "layout": layout,
+            "orientation": orientation,
+            "subtotals": subtotals,
+            "scale": scale,
+            "negative_style": negative_style,
+            "filename": filename,
+            "statements": statements,
+        }
+        if include is not None:
+            wanted = {w.strip() for w in include.split(",") if w.strip()}
+            for k in ("source", "checks", "concepts", "filed_dates"):
+                d[f"include_{k}"] = k in wanted
+        try:
+            return ExportOptions.from_dict(d)
+        except ValueError as e:
+            raise HTTPException(422, str(e)) from e
+
     @app.get("/companies/{cik}/export.xlsx")
     def company_export(
-        cik: str, periods: str | None = None, limit: int = Query(8, le=60), _: str = Depends(auth)
+        cik: str,
+        periods: str | None = None,
+        limit: int = Query(8, le=60),
+        period_mode: str = "as_filed",
+        restated: bool = False,
+        column_order: str = "newest_right",
+        layout: str | None = None,
+        orientation: str | None = None,
+        subtotals: str | None = None,
+        include: str | None = None,
+        scale: str | None = None,
+        negative_style: str | None = None,
+        filename: str | None = None,
+        statements: str | None = None,
+        _: str = Depends(auth),
     ) -> Response:
         c = resolve_cik(cik)
+        _grid_params(period_mode, column_order)
+        opts = _export_options(layout, orientation, subtotals, include, scale, negative_style, filename, statements)
         try:
-            data = export_excel(database, c, _labels(periods), limit)
+            data, fname = export_workbook(
+                database, c, _labels(periods), limit, opts, period_mode, restated, column_order
+            )
         except KeyError as e:
             raise HTTPException(404, str(e)) from e
-        name = database.query("SELECT ticker, name FROM companies WHERE cik = ?", [c])[0]
-        fname = (name["ticker"] or str(c)) + "-statements.xlsx"
         return Response(
             data,
             media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -699,6 +770,46 @@ def create_app(
     @app.post("/me/prefs/reset")
     def reset_prefs(user: accounts.User = Depends(current_user)) -> dict[str, Any]:
         return {"removed": users.delete_all_prefs(user.id)}
+
+    # -- UI events, proposals, the option touch report --------------------------------------------
+    @app.post("/me/events")
+    def post_event(payload: dict[str, Any] = Body(...), user: accounts.User = Depends(current_user)) -> dict[str, Any]:
+        """A UI event (export downloaded, card swapped, proposal shown...). Stored with the preference
+        events so the touch report sees both."""
+        problem = accounts.validate_event(payload)
+        if problem:
+            raise HTTPException(422, problem)
+        users.add_event(user.id, accounts.ui_event(str(payload["name"]), payload.get("props") or {}))
+        return {"ok": True}
+
+    @app.get("/me/proposals")
+    def get_proposals(user: accounts.User = Depends(current_user)) -> dict[str, Any]:
+        """Choices made on several companies that could become the default everywhere."""
+        return {"proposals": accounts.proposals(users.list_prefs(user.id))}
+
+    @app.post("/me/proposals")
+    def act_on_proposal(
+        payload: dict[str, Any] = Body(...), user: accounts.User = Depends(current_user)
+    ) -> dict[str, Any]:
+        key, action = str(payload.get("key") or ""), str(payload.get("action") or "")
+        if key not in accounts.PROPOSABLE:
+            raise HTTPException(422, f"key must be one of {', '.join(accounts.PROPOSABLE)}")
+        if action == "accept":
+            pref = accounts.accept_proposal(users, user.id, key, payload.get("value"))
+            return {"accepted": True, "pref": pref.to_dict()}
+        if action == "dismiss":
+            return {"dismissed": accounts.dismiss_proposal(users, user.id, key, payload.get("value"))}
+        raise HTTPException(422, "action must be accept or dismiss")
+
+    @app.get("/metrics/prefs")
+    def metrics_prefs(days: int = Query(30, le=365), _: str = Depends(auth)) -> dict[str, Any]:
+        """Which options people touch: preference writes by key, scope and value; UI events by name."""
+        try:
+            events = users.recent_events(days)
+        except Exception as e:  # a read-only lake, or no events folder yet
+            log.warning("events unavailable: %s", e)
+            events = []
+        return accounts.touch_report(events, days)
 
     @app.get("/metrics")
     def metrics(days: int = Query(30, le=365), _: str = Depends(auth)) -> dict[str, Any]:
