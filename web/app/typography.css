@@ -1,11 +1,11 @@
-/* Type roles shared by the public site and the research workspace. */
-html, body { font: 400 var(--text-body)/1.5 var(--sans); }
+/* Agreed identity kit: shared type roles, surfaces and interaction states. */
+html, body { font: 400 var(--text-body)/1.5 var(--sans); font-synthesis: none; }
 button, input, select, textarea { font-family: var(--sans); }
 h1, h2, h3 { letter-spacing: normal; }
 h1, .workspace-shell h1 { font: 400 var(--text-section)/1.12 var(--serif); }
 h2 { font: 400 var(--text-section)/1.12 var(--serif); margin: 80px 0 28px; }
 h3 { font: 500 var(--text-card)/1.25 var(--sans); }
-strong, b { font-weight: 600; }
+strong, b { font-weight: 500; }
 .lead, .landing-lead, .research-heading .lead {
   font: 400 var(--text-intro)/1.5 var(--sans);
   max-width: 55ch;
@@ -13,7 +13,9 @@ strong, b { font-weight: 600; }
   color: var(--ink-2);
 }
 .eyebrow { line-height: 1.4; letter-spacing: .1em; }
-header.top .brand, .footer-brand, .preview-brand { letter-spacing: normal; }
+header.top .brand, .footer-brand, .preview-brand { letter-spacing: normal; font-weight: 400; }
+header.top .brand { font-size: 32px; line-height: 1.12; }
+.public-shell .main-nav { margin-left: 0; }
 header.top nav a, .account-nav .user a, .account-nav button,
 .company-nav a, .btn, .search button, .tabs button, .tabs.small button,
 .text-link, .example-link, .linkbtn, .preview-tabs button, .preview-open {
@@ -54,20 +56,46 @@ td { font-variant-numeric: tabular-nums lining-nums; }
 .note-editor input[aria-label="Note title"] { font: 500 var(--text-card)/1.25 var(--sans); }
 .project-list p, .note-editor textarea[aria-label="Your analysis"] { font: 400 var(--text-body)/1.5 var(--sans); }
 
+/* Quiet surfaces; blue denotes actions and periwinkle denotes selection. */
+.btn, .search button, .account-nav .cta { border-radius: var(--radius-control); }
+.btn:not(.secondary):hover, .search button:hover { background: var(--accent-hover); border-color: var(--accent-hover); }
+.account-nav .cta, .preview-open { background: var(--blue); border-color: var(--blue); color: white; }
+.account-nav .cta:hover, .preview-open:hover, .preview-open:focus-visible { background: var(--accent-hover); border-color: var(--accent-hover); color: white; }
+.search input { border-radius: var(--radius-control) 0 0 var(--radius-control); }
+.search button { border-radius: 0 var(--radius-control) var(--radius-control) 0; }
+.search input:focus { box-shadow: 0 0 0 3px var(--periwinkle); }
+.card, .summary .block, .research-form, .project-create, .note-references,
+.feature-docs, .feature-evidence, .feature-sheet, .empty, .subscribe,
+.session-actions, .evidence-panel, .research-evidence, .indexed-provenance,
+.indexed-text, .preview-workspace, .statement-options, .stmt, .toolbar { border-radius: var(--radius-card); }
+.feature-docs, .feature-evidence, .feature-sheet { box-shadow: none; }
+.preview-workspace { border-color: var(--line); }
+.preview-evidence, .evidence-panel, .research-evidence { background: var(--periwinkle); }
+.cell-value.selected, .preview-table td button.selected { color: var(--ink); background: var(--periwinkle); }
+.company-nav a[aria-current="page"], .preview-tabs button[aria-selected="true"], .tabs button.active { border-bottom-color: var(--blue); color: var(--ink); }
+.suggest-panel, .save-source-panel, .exportdlg { box-shadow: var(--shadow-overlay); }
+.exportdlg { border-radius: var(--radius-panel); }
+.feature-evidence:hover, .feature-evidence:focus-visible { box-shadow: var(--shadow-card); }
+.research-section .eyebrow { color: var(--periwinkle); }
+.research-section .text-link { border-color: var(--periwinkle); }
+.research-section::before { content: ""; display: block; width: 64px; height: 4px; background: var(--blue); border-radius: 8px; margin-bottom: 32px; }
+:focus-visible { outline: 2px solid var(--blue); outline-offset: 3px; }
+::selection { background: var(--periwinkle); color: var(--ink); }
+
 /* Three deliberate headline lines; the product example stays usable at 14px. */
 .landing-hero {
-  grid-template-columns: minmax(440px, .92fr) minmax(0, 1.08fr);
-  gap: 48px;
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  gap: 24px;
   padding: 80px 0 var(--section-space);
   align-items: center;
 }
-.landing-copy { min-width: 0; }
+.landing-copy { grid-column: span 5; min-width: 0; padding: 0 24px 0 0; }
 .landing-copy h1 { font: 400 var(--text-hero)/1.08 var(--serif); letter-spacing: normal; }
 .landing-copy h1 > span { display: block; }
 .landing-lead { margin: 28px 0 32px; }
-.ink-accent { color: var(--plum); }
+.ink-accent { color: var(--blue); }
 .example-link { margin-top: 24px; }
-.preview-frame { padding: 10px; background: linear-gradient(145deg, var(--paper-3), var(--plum-soft)); box-shadow: 0 18px 54px #37334012; }
+.preview-frame { grid-column: span 7; padding: 8px; background: var(--paper-3); border-radius: var(--radius-panel); box-shadow: var(--shadow-card); }
 .preview-workspace { grid-template-columns: 1fr; min-height: 0; }
 .preview-sidebar { display: none; }
 .preview-main { padding: 24px; }
@@ -110,22 +138,23 @@ td { font-variant-numeric: tabular-nums lining-nums; }
 .feature-evidence small { line-height: 1.4; }
 .feature-sheet > div { flex-wrap: wrap; overflow-wrap: anywhere; line-height: 1.4; padding: 10px; }
 .feature-sheet th, .feature-sheet td { white-space: normal; font-size: var(--text-ui); line-height: 1.4; padding: 8px 6px; }
-.research-section { margin: var(--section-space) 0; padding: 48px; background: radial-gradient(ellipse at 100% 0%, var(--plum) 0%, transparent 70%), var(--ink); border-color: var(--plum); }
+.research-section { margin: var(--section-space) 0; padding: 48px; background: var(--ink); border-color: var(--ink); border-radius: var(--radius-panel); }
 .research-section > h2, .coverage-callout h2 { font: 400 var(--text-section)/1.12 var(--serif); letter-spacing: normal; }
 .research-section > h2 { margin: 0 0 32px; max-width: 24ch; }
 .research-grid { gap: 64px; }
 .research-grid > p { font: 400 var(--text-intro)/1.5 var(--sans); max-width: 55ch; }
 .research-grid h3 { font: 500 var(--text-card)/1.25 var(--sans); margin-bottom: 24px; }
 .research-grid div p, .coverage-callout p:not(.eyebrow) { font: 400 var(--text-body)/1.5 var(--sans); max-width: 55ch; }
-.research-grid div p { color: var(--blush); }
+.research-grid div p { color: var(--line); }
 .coverage-callout { padding-top: 48px; gap: 64px; }
 .coverage-callout .text-link { margin-top: 12px; }
 
 @media (max-width: 1180px) {
+  main, .public-shell main, header.top .inner { padding-left: 48px; padding-right: 48px; }
   .landing-hero { grid-template-columns: 1fr; gap: 48px; }
-  .landing-copy { max-width: 720px; }
+  .landing-copy { grid-column: auto; max-width: 720px; padding: 0; }
   .landing-copy .search { max-width: 55ch; }
-  .preview-frame { max-width: 900px; width: 100%; }
+  .preview-frame { grid-column: auto; max-width: 900px; width: 100%; }
   .preview-workspace { grid-template-columns: 180px minmax(0,1fr); }
   .preview-sidebar { display: flex; }
   .preview-brand { font-size: 20px; gap: 8px; }
@@ -140,6 +169,8 @@ td { font-variant-numeric: tabular-nums lining-nums; }
 }
 @media (max-width: 640px) {
   :root { --text-hero: 44px; --text-section: 34px; --text-card: 22px; --text-intro: 18px; --section-space: 64px; }
+  main, .public-shell main, header.top .inner { padding-left: 20px; padding-right: 20px; }
+  header.top .brand { font-size: 28px; }
   .landing-hero { padding-top: 40px; gap: 40px; }
   .landing-lead { margin: 24px 0 28px; }
   .preview-workspace { grid-template-columns: minmax(0,1fr); }
@@ -161,7 +192,4 @@ td { font-variant-numeric: tabular-nums lining-nums; }
   .coverage-callout { padding-top: 32px; }
   .section-heading { margin-top: 56px; }
   header.top .main-nav { column-gap: 20px; }
-}
-@media (max-width: 360px) {
-  .public-shell main { padding-left: 12px; padding-right: 12px; }
 }

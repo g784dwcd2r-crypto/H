@@ -20,6 +20,20 @@ await check('Ambiguous company search supports keyboard selection and exact tick
 await signIn(page,`usability-owner-${Date.now()}@example.com`);
 const project=(await(await context.request.post(base+'/api/projects',{data:{name:'Usability source research'}})).json()).project;projectId=project.id;
 const note=(await(await context.request.post(base+`/api/projects/${projectId}/notes`,{data:{title:'Working view',body:'Original saved text',kind:'thesis'}})).json()).note;noteId=note.id;
+await check('The editor waits for hydration and draft recovery before accepting writing',async()=>{
+ let release;const gate=new Promise(resolve=>release=resolve);
+ const delayScripts=async route=>{if(route.request().resourceType()==='script')await gate;await route.continue();};
+ await page.route('**/_next/static/**',delayScripts);
+ try {
+  await page.goto(base+`/projects/${projectId}`,{waitUntil:'commit'});
+  const editor=page.getByLabel('Your analysis',{exact:true});await editor.waitFor();
+  assert.equal(await editor.isDisabled(),true,'Server-rendered editor must not accept input before draft recovery');
+  assert.equal(await page.getByLabel('Note title',{exact:true}).isDisabled(),true);
+  assert.equal(await page.getByLabel('Note type',{exact:true}).isDisabled(),true);
+  release();await editor.fill('Writing immediately after the editor is ready');await bodyIs('Writing immediately after the editor is ready');
+  await page.locator('.draft-recovery-notice').waitFor();await page.reload();await bodyIs('Writing immediately after the editor is ready');
+ } finally {release();await page.unroute('**/_next/static/**',delayScripts);}
+});
 await check('Unsaved analysis survives navigation, browser Back and reload while exports stay saved-only',async()=>{
  await page.goto(base+`/projects/${projectId}`);await page.getByLabel('Your analysis',{exact:true}).fill('Critical unsaved observation');await page.locator('.draft-recovery-notice').waitFor();
  await page.getByRole('navigation',{name:'Main navigation'}).getByRole('link',{name:'Research',exact:true}).click();await page.waitForURL(base+'/research');await page.goBack();await bodyIs('Critical unsaved observation');await page.reload();await bodyIs('Critical unsaved observation');
