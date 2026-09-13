@@ -250,6 +250,72 @@ def test_remote_empty_views_discover_backfill_without_restarting(s3_env):
         db.close()
 
 
+def test_serving_api_binds_filings_in_the_background_over_a_remote_lake(s3_env):
+    """The API's mode: start-up binds neither the year-partitioned filings table (a footer read per
+    file) nor the raw FSDS tables; `warm()` binds filings on its own connection while the serving
+    connection stays free, and the table reads as empty until then."""
+    from filings_hub.db.database import MISSING_VIEW_TTL, Database
+    from filings_hub.lake.storage import Storage
+    from tests.test_database_recovery import populate_missing
+
+    storage = Storage("s3://filings-test/lazy-serving")
+    db = Database("", storage, lazy_remote_views=True)
+    try:
+        assert db.filings_ready is False
+        assert db.query("SELECT count(*) AS n FROM filings") == [{"n": 0}]
+        assert "filings" not in db._missing_views
+        db.warm()  # nothing to bind yet: stays lazy and empty rather than failing
+        assert db.filings_ready is False
+        populate_missing(Storage(storage.root), db)
+        db._missing_checked -= MISSING_VIEW_TTL + 1
+        db.maybe_resync()  # the periodic probe leaves filings to warm()
+        assert db.query("SELECT count(*) AS n FROM filings") == [{"n": 0}]
+        assert db.filings_ready is False
+        db.warm()
+        assert db.filings_ready is True
+        assert db.query("SELECT count(*) AS n FROM filings") == [{"n": 1}]
+        assert db.query_if_idle("SELECT count(*) AS n FROM filings") == [{"n": 1}]
+        names = {r["view_name"] for r in db.duck.fetch_dicts("SELECT view_name FROM duckdb_views()")}
+        assert not {n for n in names if n.startswith("fsds_")}
+        # ingestion's mode still binds everything up front
+        eager = Database("", Storage(storage.root))
+        try:
+            assert eager.filings_ready is True
+            assert eager.query("SELECT count(*) AS n FROM filings") == [{"n": 1}]
+        finally:
+            eager.close()
+    finally:
+        db.close()
+
+
+def test_duckdb_reads_see_what_this_process_writes_despite_the_listing_cache(s3_env):
+    """DuckDB's filesystem keeps a directory listing for a minute (it answers DuckDB's repeated
+    per-file size lookups); a write or delete through Storage drops that listing at once."""
+    import pyarrow as pa
+
+    from filings_hub.lake.storage import Storage
+
+    storage = Storage("s3://filings-test/listing-cache")
+    assert storage.duck_fs is not storage.fs
+    table = pa.table({"cik": [1], "n": [1]})
+    storage.write_parquet("statements/cik=1/a.parquet", table)
+
+    def listed() -> list[str]:
+        return sorted(p.rsplit("/", 1)[1] for p in storage.duck_fs.glob(storage.full("statements/cik=1/*.parquet")))
+
+    assert listed() == ["a.parquet"]
+    storage.write_parquet("statements/cik=1/b.parquet", table)
+    assert listed() == ["a.parquet", "b.parquet"]
+    storage.write_bytes("statements/cik=1/c.parquet", storage.read_bytes("statements/cik=1/a.parquet"))
+    assert listed() == ["a.parquet", "b.parquet", "c.parquet"]
+    storage.delete("statements/cik=1/b.parquet")
+    assert listed() == ["a.parquet", "c.parquet"]
+    storage.replace_dir_with_parquet("statements/cik=1", table, name="only.parquet")
+    assert listed() == ["only.parquet"]
+    # the same listing does answer DuckDB's per-file lookups without a request each
+    assert storage.duck_fs.info(storage.full("statements/cik=1/only.parquet"))["size"] > 0
+
+
 @pytest.mark.parametrize("local_cache", [True, False])
 def test_remote_lake_reads_company_partitions_written_by_an_external_writer(s3_env, local_cache):
     """A remote lake never binds a whole-table view over a per-company table (that lists every object

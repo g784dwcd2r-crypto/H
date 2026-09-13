@@ -122,32 +122,41 @@ class Duck:
         self.sql(f"CREATE OR REPLACE VIEW {name} AS SELECT * FROM {self.scan(rel_glob, hive)}")
         return True
 
-    def create_views(self, partitioned: bool = True) -> dict[str, bool]:
+    FILINGS_GLOB = f"{layout.FILINGS}/*/*.parquet"
+
+    def create_views(self, partitioned: bool = True, filings: bool = True, fsds: bool = True) -> dict[str, bool]:
         """Create standard views. Missing datasets are skipped (returned as False).
 
         `partitioned=False` leaves the per-company tables (documents, facts, statements, checks)
         without a whole-table view: DuckDB binds a view at creation by listing every file the pattern
         matches, which on a full remote lake is millions of objects. Those tables are then read one
         company partition at a time through `Database.table()`.
+
+        `filings=False` and `fsds=False` skip the two multi-file tables whose binding reads the footer
+        of every file (about a second each over object storage): the serving API binds filings in the
+        background (`Database.warm`) and never reads the raw FSDS tables at all.
         """
 
         def per_company(name: str, rel: str) -> bool:
             return self.view(name, f"{rel}/*/*.parquet") if partitioned else False
 
+        def fsds_table(name: str) -> bool:
+            return self.view(f"fsds_{name}", f"{layout.FSDS}/{name}/*/*.parquet") if fsds else False
+
         return {
             "companies": self.view("companies", layout.COMPANIES, hive=False),
             "tickers": self.view("tickers", layout.TICKERS, hive=False),
-            "filings": self.view("filings", f"{layout.FILINGS}/*/*.parquet"),
+            "filings": self.view("filings", self.FILINGS_GLOB) if filings else False,
             "periods": self.view("periods", layout.PERIODS, hive=False),
             "company_metrics": self.view("company_metrics", layout.COMPANY_METRICS, hive=False),
             "documents": per_company("documents", layout.DOCUMENTS),
             "facts": per_company("facts", layout.FACTS),
             "statements": per_company("statements", layout.STATEMENTS),
             "statement_checks": per_company("statement_checks", layout.STATEMENT_CHECKS),
-            "fsds_sub": self.view("fsds_sub", f"{layout.FSDS}/sub/*/*.parquet"),
-            "fsds_num": self.view("fsds_num", f"{layout.FSDS}/num/*/*.parquet"),
-            "fsds_pre": self.view("fsds_pre", f"{layout.FSDS}/pre/*/*.parquet"),
-            "fsds_tag": self.view("fsds_tag", f"{layout.FSDS}/tag/*/*.parquet"),
+            "fsds_sub": fsds_table("sub"),
+            "fsds_num": fsds_table("num"),
+            "fsds_pre": fsds_table("pre"),
+            "fsds_tag": fsds_table("tag"),
             "run_log": self.view("run_log", f"{layout.RUN_LOG}/*.parquet", hive=False),
         }
 

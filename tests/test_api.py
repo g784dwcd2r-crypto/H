@@ -368,3 +368,39 @@ def test_alerts_cannot_be_enabled_without_a_delivery_service(lake_copy):
             assert client.delete("/subscriptions", headers=headers).status_code == 200
     finally:
         app.state.db.close()
+
+
+def test_health_answers_while_the_lake_connection_is_busy(client):
+    """The platform health check must not wait on a warm-up or a slow lake read on another thread."""
+    import threading
+    import time
+
+    db = client.app.state.db
+    held = threading.Event()
+    release = threading.Event()
+
+    def hold():
+        with db.duck._lock:
+            held.set()
+            release.wait(10)
+
+    worker = threading.Thread(target=hold, daemon=True)
+    worker.start()
+    assert held.wait(5)
+    try:
+        started = time.monotonic()
+        response = client.get("/health")
+        assert time.monotonic() - started < 5
+        assert response.status_code == 200
+        body = response.json()
+        assert body["status"] == "ok"
+        assert body["busy"] is True
+        assert body["last_run"] is None
+        assert db.query_if_idle("SELECT 1 AS one", timeout=0.05) is None
+    finally:
+        release.set()
+        worker.join(5)
+    idle = client.get("/health").json()
+    assert idle["busy"] is False
+    assert idle["last_run"] is not None
+    assert db.query_if_idle("SELECT 1 AS one") == [{"one": 1}]

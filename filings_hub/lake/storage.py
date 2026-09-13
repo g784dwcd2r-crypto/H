@@ -17,15 +17,21 @@ import pyarrow.parquet as pq
 log = logging.getLogger(__name__)
 
 
+DUCK_LISTING_TTL = 60.0  # seconds a directory listing answers DuckDB's per-file metadata lookups
+
+
 def filesystem_for(root: str, for_duckdb: bool = False) -> fsspec.AbstractFileSystem:
     """The fsspec filesystem for a remote lake root, configured from settings (credentials, region,
     and an optional S3-compatible endpoint). Worker processes rebuild it the same way from the env.
 
     `for_duckdb`: the instance DuckDB reads through. DuckDB issues its own ranged reads, so the
     per-file read-ahead cache s3fs keeps by default (megabytes per open file, over the hundred-odd
-    files of a year-partitioned table) only costs memory on a small serving instance. It also keeps
-    no directory-listing cache: a partition another process (the daily refresh, a backfill) adds must
-    be visible to the next per-company read, and each such listing is one small request.
+    files of a year-partitioned table) only costs memory on a small serving instance. Its listing
+    cache is kept but short-lived: DuckDB asks fsspec for a file's size and modification time
+    several times per file it reads (measured: seven HEAD requests per file, over a second on a
+    company's seventy statement files), and a listing answers all of them for the files it named.
+    A minute later the partition is listed again, so a file another process (the daily refresh,
+    a backfill) adds is seen within a minute; `Storage` writes invalidate the listing at once.
     """
     protocol = root.split("://", 1)[0]
     if protocol in ("s3", "s3a"):
@@ -35,7 +41,12 @@ def filesystem_for(root: str, for_duckdb: bool = False) -> fsspec.AbstractFileSy
         if for_duckdb:
             # reads only: the block size stays at the S3 multipart minimum because DuckDB COPY writes
             # through the same filesystem during ingestion
-            options = {**options, "default_cache_type": "none", "use_listings_cache": False}
+            options = {
+                **options,
+                "default_cache_type": "none",
+                "use_listings_cache": True,
+                "listings_expiry_time": DUCK_LISTING_TTL,
+            }
         return fsspec.filesystem("s3", **options)
     fs, _ = fsspec.core.url_to_fs(root)
     return fs
@@ -130,6 +141,8 @@ class Storage:
         full = self.full(rel)
         if self.fs.exists(full):
             self.fs.rm(full, recursive=True)
+            self.forget_listing(rel)
+            self.forget_listing(os.path.dirname(rel))
 
     def read_bytes(self, rel: str) -> bytes:
         with self.fs.open(self.full(rel), "rb") as f:
@@ -142,6 +155,7 @@ class Storage:
         self.mkdirs(os.path.dirname(rel))
         with self.fs.open(self.full(rel), "wb") as f:
             f.write(data)
+        self.forget_listing(os.path.dirname(rel))
 
     def write_text(self, rel: str, text: str) -> None:
         self.write_bytes(rel, text.encode("utf-8"))
@@ -152,6 +166,14 @@ class Storage:
             self.mkdirs(os.path.dirname(rel))
         with self.fs.open(self.full(rel), mode) as f:
             yield f
+        if "w" in mode:
+            self.forget_listing(os.path.dirname(rel))
+
+    def forget_listing(self, rel_dir: str) -> None:
+        """Drop DuckDB's cached listing of `rel_dir` after this process wrote or deleted under it, so
+        the next read through DuckDB sees the change rather than a listing up to a minute old."""
+        if self.duck_fs is not self.fs:
+            self.duck_fs.invalidate_cache(self.full(rel_dir))
 
     @contextmanager
     def local_copy(self, rel: str) -> Iterator[Path]:
@@ -177,6 +199,7 @@ class Storage:
                 pq.write_table(table, f, compression="zstd", row_group_size=row_group_size)
             else:
                 pq.write_table(table, f, compression="zstd")
+        self.forget_listing(os.path.dirname(rel))
 
     def read_parquet(self, rel: str) -> pa.Table:
         with self.fs.open(self.full(rel), "rb") as f:
