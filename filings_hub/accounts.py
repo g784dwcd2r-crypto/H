@@ -51,6 +51,46 @@ def _iso(d: datetime) -> str:
     return d.isoformat()
 
 
+PROFILE_FIELDS = ("first_name", "last_name", "company", "phone", "role", "specialty", "title", "country")
+FREE_MAIL_DOMAINS = frozenset(
+    [
+        "gmail.com",
+        "googlemail.com",
+        "yahoo.com",
+        "yahoo.co.uk",
+        "ymail.com",
+        "hotmail.com",
+        "hotmail.co.uk",
+        "outlook.com",
+        "live.com",
+        "msn.com",
+        "aol.com",
+        "icloud.com",
+        "me.com",
+        "mac.com",
+        "proton.me",
+        "protonmail.com",
+        "pm.me",
+        "gmx.com",
+        "gmx.de",
+        "mail.com",
+        "zoho.com",
+        "yandex.com",
+        "yandex.ru",
+        "qq.com",
+        "163.com",
+        "126.com",
+        "fastmail.com",
+        "hey.com",
+    ]
+)
+
+
+def is_business_email(email: str) -> bool:
+    domain = email.rsplit("@", 1)[-1].lower().strip()
+    return bool(domain) and domain not in FREE_MAIL_DOMAINS
+
+
 @dataclass
 class User:
     id: str
@@ -59,9 +99,29 @@ class User:
     locale: str = ""
     timezone: str = ""
     created_at: str = field(default_factory=lambda: _iso(_now()))
+    first_name: str = ""
+    last_name: str = ""
+    company: str = ""
+    phone: str = ""
+    role: str = ""
+    specialty: str = ""
+    title: str = ""
+    country: str = ""
+    marketing_opt_in: bool = False
+    terms_accepted_at: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
+
+    def with_profile(self, profile: dict[str, Any]) -> User:
+        for k in PROFILE_FIELDS:
+            if profile.get(k):
+                setattr(self, k, str(profile[k])[:200])
+        if "marketing_opt_in" in profile:
+            self.marketing_opt_in = bool(profile["marketing_opt_in"])
+        if profile.get("terms_accepted_at"):
+            self.terms_accepted_at = str(profile["terms_accepted_at"])
+        return self
 
 
 @dataclass
@@ -126,7 +186,8 @@ def resolve(
 class UserStore(Protocol):
     def get_user(self, user_id: str) -> User | None: ...
     def get_user_by_email(self, email: str) -> User | None: ...
-    def create_user(self, email: str) -> User: ...
+    def create_user(self, email: str, profile: dict[str, Any] | None = None) -> User: ...
+    def update_user(self, user: User) -> None: ...
     def put_token(self, token_hash: str, record: dict[str, Any]) -> None: ...
     def pop_token(self, token_hash: str) -> dict[str, Any] | None: ...
     def list_prefs(self, user_id: str) -> list[Pref]: ...
@@ -156,17 +217,20 @@ class LakeUserStore:
 
     def get_user(self, user_id: str) -> User | None:
         d = self._read(f"{USERS}/{user_id}.json")
-        return User(**d) if d else None
+        return User(**{k: v for k, v in d.items() if k in User.__dataclass_fields__}) if d else None
 
     def get_user_by_email(self, email: str) -> User | None:
         d = self._read(f"{USERS}/by_email/{_email_key(email)}.json")
         return self.get_user(d["id"]) if d else None
 
-    def create_user(self, email: str) -> User:
-        user = User(id=uuid.uuid4().hex, email=email.strip().lower())
+    def create_user(self, email: str, profile: dict[str, Any] | None = None) -> User:
+        user = User(id=uuid.uuid4().hex, email=email.strip().lower()).with_profile(profile or {})
         self._write(f"{USERS}/{user.id}.json", user.to_dict())
         self._write(f"{USERS}/by_email/{_email_key(email)}.json", {"id": user.id})
         return user
+
+    def update_user(self, user: User) -> None:
+        self._write(f"{USERS}/{user.id}.json", user.to_dict())
 
     def put_token(self, token_hash: str, record: dict[str, Any]) -> None:
         self._write(f"{TOKENS}/{token_hash}.json", record)
@@ -234,6 +298,7 @@ class PostgresUserStore:
     def _user(row: dict[str, Any] | None) -> User | None:
         if not row:
             return None
+        ts = row.get("terms_accepted_at")
         return User(
             id=row["id"],
             email=row["email"],
@@ -241,6 +306,16 @@ class PostgresUserStore:
             locale=row["locale"] or "",
             timezone=row["timezone"] or "",
             created_at=_iso(row["created_at"]) if isinstance(row["created_at"], datetime) else str(row["created_at"]),
+            first_name=row.get("first_name") or "",
+            last_name=row.get("last_name") or "",
+            company=row.get("company") or "",
+            phone=row.get("phone") or "",
+            role=row.get("role") or "",
+            specialty=row.get("specialty") or "",
+            title=row.get("title") or "",
+            country=row.get("country") or "",
+            marketing_opt_in=bool(row.get("marketing_opt_in")),
+            terms_accepted_at=_iso(ts) if isinstance(ts, datetime) else (str(ts) if ts else ""),
         )
 
     def get_user(self, user_id: str) -> User | None:
@@ -249,14 +324,39 @@ class PostgresUserStore:
     def get_user_by_email(self, email: str) -> User | None:
         return self._user(self._one("SELECT * FROM users WHERE email = %s", (email.strip().lower(),)))
 
-    def create_user(self, email: str) -> User:
-        user = User(id=uuid.uuid4().hex, email=email.strip().lower())
+    def create_user(self, email: str, profile: dict[str, Any] | None = None) -> User:
+        user = User(id=uuid.uuid4().hex, email=email.strip().lower()).with_profile(profile or {})
         with self.conn.cursor() as cur:
             cur.execute(
                 "INSERT INTO users (id, email, plan, locale, timezone, created_at) VALUES (%s, %s, %s, %s, %s, %s)",
                 (user.id, user.email, user.plan, user.locale, user.timezone, datetime.fromisoformat(user.created_at)),
             )
+        self.update_user(user)
         return user
+
+    def update_user(self, user: User) -> None:
+        with self.conn.cursor() as cur:
+            cur.execute(
+                "UPDATE users SET first_name = %s, last_name = %s, company = %s, phone = %s, role = %s, "
+                "specialty = %s, title = %s, country = %s, marketing_opt_in = %s, terms_accepted_at = %s, "
+                "locale = %s, timezone = %s, plan = %s WHERE id = %s",
+                (
+                    user.first_name,
+                    user.last_name,
+                    user.company,
+                    user.phone,
+                    user.role,
+                    user.specialty,
+                    user.title,
+                    user.country,
+                    user.marketing_opt_in,
+                    datetime.fromisoformat(user.terms_accepted_at) if user.terms_accepted_at else None,
+                    user.locale,
+                    user.timezone,
+                    user.plan,
+                    user.id,
+                ),
+            )
 
     def put_token(self, token_hash: str, record: dict[str, Any]) -> None:
         with self.conn.cursor() as cur:
@@ -386,8 +486,11 @@ def token_hash(token: str) -> str:
     return hashlib.sha256(token.encode()).hexdigest()
 
 
-def issue_magic_link(store: UserStore, email: str, site_url: str) -> tuple[str, str]:
-    """(token, link). The store keeps only the hash; the link carries the token once."""
+def issue_magic_link(
+    store: UserStore, email: str, site_url: str, profile: dict[str, Any] | None = None
+) -> tuple[str, str]:
+    """(token, link). The store keeps only the hash; the link carries the token once. A sign-up's
+    profile rides along and is applied when the link is redeemed."""
     token = secrets.token_urlsafe(32)
     store.put_token(
         token_hash(token),
@@ -395,6 +498,7 @@ def issue_magic_link(store: UserStore, email: str, site_url: str) -> tuple[str, 
             "purpose": "magic",
             "email": email.strip().lower(),
             "expires_at": _iso(_now() + timedelta(minutes=MAGIC_LINK_MINUTES)),
+            **({"profile": profile} if profile else {}),
         },
     )
     base = site_url.rstrip("/") if site_url else ""
@@ -407,7 +511,18 @@ def redeem_magic_link(store: UserStore, token: str) -> User | None:
         return None
     if datetime.fromisoformat(rec["expires_at"]) < _now():
         return None
-    return get_or_create_user(store, rec["email"])
+    profile = rec.get("profile")
+    user = store.get_user_by_email(rec["email"])
+    if user is None:
+        return store.create_user(rec["email"], profile)
+    if profile:  # an existing account signing up again: fill what is empty, never overwrite
+        missing = {k: v for k, v in profile.items() if k in PROFILE_FIELDS and not getattr(user, k, "")}
+        if missing or ("marketing_opt_in" in profile) or profile.get("terms_accepted_at"):
+            user.with_profile(
+                {**missing, **{k: profile[k] for k in ("marketing_opt_in", "terms_accepted_at") if k in profile}}
+            )
+            store.update_user(user)
+    return user
 
 
 def get_or_create_user(store: UserStore, email: str) -> User:
@@ -448,6 +563,24 @@ def google_email_for_code(code: str, redirect_uri: str, client_id: str, client_s
             client.close()
 
 
+SIGNUP_REQUIRED = ("first_name", "last_name", "company", "phone", "title")
+
+
+def validate_signup(payload: dict[str, Any], business_only: bool) -> str | None:
+    """A human-readable problem with a sign-up, or None."""
+    email = str(payload.get("email") or "").strip().lower()
+    if "@" not in email or "." not in email.rsplit("@", 1)[-1]:
+        return "a valid email is required"
+    if business_only and not is_business_email(email):
+        return "please enter a valid business email address"
+    for k in SIGNUP_REQUIRED:
+        if not str(payload.get(k) or "").strip():
+            return f"{k.replace('_', ' ')} is required"
+    if not payload.get("accept_terms"):
+        return "you need to accept the terms of use and privacy policy"
+    return None
+
+
 def validate_pref(scope: str, scope_key: str, key: str, value: Any, source: str) -> str | None:
     """A human-readable problem, or None when the preference is well-formed."""
     if scope not in SCOPES:
@@ -476,10 +609,12 @@ __all__ = [
     "User",
     "get_or_create_user",
     "google_email_for_code",
+    "is_business_email",
     "issue_magic_link",
     "redeem_magic_link",
     "resolve",
     "scope_key_for",
     "store_from_settings",
     "validate_pref",
+    "validate_signup",
 ]

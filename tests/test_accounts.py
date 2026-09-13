@@ -265,3 +265,92 @@ def test_google_signin_endpoint(lake_copy):
         assert r.status_code == 200 and r.json()["user"]["email"] == "g@gmail.com"
         assert c.get("/me", headers={**H, "X-Session": r.json()["session"]}).json()["user"]["email"] == "g@gmail.com"
     app.state.db.close()
+
+
+def test_signup_profile_lands_on_the_account(api):
+    c, _app = api
+    form = {
+        "email": "Julia@Fund.com",
+        "first_name": "Julia",
+        "last_name": "Q",
+        "company": "Fund",
+        "phone": "07345",
+        "role": "Hedge fund",
+        "specialty": "Long/short equity",
+        "title": "Analyst",
+        "country": "United Kingdom",
+        "marketing_opt_in": True,
+        "accept_terms": True,
+    }
+    r = c.post("/auth/signup", json=form, headers=H)
+    assert r.status_code == 200, r.text
+    token = r.json()["dev_link"].split("token=")[1]
+    v = c.post("/auth/verify", json={"token": token}, headers=H).json()
+    u = v["user"]
+    assert u["email"] == "julia@fund.com" and u["first_name"] == "Julia" and u["company"] == "Fund"
+    assert u["role"] == "Hedge fund" and u["country"] == "United Kingdom" and u["marketing_opt_in"] is True
+    assert u["terms_accepted_at"]
+    me = c.get("/me", headers={**H, "X-Session": v["session"]}).json()["user"]
+    assert me["title"] == "Analyst"
+    # signing up again with the same email keeps the account and fills only what was empty
+    r2 = c.post("/auth/signup", json={**form, "company": "Other Fund", "specialty": ""}, headers=H)
+    token2 = r2.json()["dev_link"].split("token=")[1]
+    u2 = c.post("/auth/verify", json={"token": token2}, headers=H).json()["user"]
+    assert u2["id"] == u["id"] and u2["company"] == "Fund"
+    # validation
+    assert c.post("/auth/signup", json={**form, "email": "nope"}, headers=H).status_code == 422
+    assert c.post("/auth/signup", json={**form, "company": ""}, headers=H).status_code == 422
+    assert c.post("/auth/signup", json={**form, "accept_terms": False}, headers=H).status_code == 422
+
+
+def test_business_email_gate(lake_copy):
+    settings = Settings(
+        lake_root=lake_copy.root,
+        database_url="",
+        api_key="k",
+        api_rate_limit_per_minute=1000,
+        sec_user_agent="",
+        session_secret="s",
+        auth_dev_links=True,
+        signup_business_email_only=True,
+        _env_file=None,
+    )
+    app = create_app(
+        settings, edgar_client=EdgarClient("T t@e.com", transport=httpx.MockTransport(fx.edgar_document_handler))
+    )
+    form = {
+        "email": "x@gmail.com",
+        "first_name": "A",
+        "last_name": "B",
+        "company": "C",
+        "phone": "1",
+        "title": "T",
+        "accept_terms": True,
+    }
+    with TestClient(app) as c:
+        assert c.get("/auth/config", headers=H).json()["business_email_only"] is True
+        r = c.post("/auth/signup", json=form, headers=H)
+        assert r.status_code == 422 and "business email" in r.json()["detail"]
+        assert c.post("/auth/signup", json={**form, "email": "x@fund.com"}, headers=H).status_code == 200
+    app.state.db.close()
+    assert (
+        A.is_business_email("a@fund.com") and not A.is_business_email("a@GMAIL.com") and not A.is_business_email("a@")
+    )
+
+
+def test_postgres_store_profile(pg_url):
+    st = A.PostgresUserStore(pg_url)
+    u = st.create_user(
+        f"pg-{time.time_ns()}@example.com",
+        {"first_name": "P", "company": "Co", "marketing_opt_in": True, "terms_accepted_at": "2026-09-13"},
+    )
+    got = st.get_user(u.id)
+    assert (
+        got.first_name == "P"
+        and got.company == "Co"
+        and got.marketing_opt_in is True
+        and got.terms_accepted_at.startswith("2026-09-13")
+    )
+    got.title = "VP"
+    st.update_user(got)
+    assert st.get_user(u.id).title == "VP"

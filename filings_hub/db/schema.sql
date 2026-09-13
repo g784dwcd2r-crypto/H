@@ -244,3 +244,16 @@ CREATE TABLE IF NOT EXISTS pref_events (
     at          TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS pref_events_user_idx ON pref_events (user_id, at DESC);
+
+-- ==== 0007_user_profile.sql ====
+-- 0007: the sign-up profile (who the analyst is) on users.
+ALTER TABLE users ADD COLUMN IF NOT EXISTS first_name TEXT;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS last_name TEXT;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS company TEXT;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS phone TEXT;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS role TEXT;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS specialty TEXT;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS title TEXT;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS country TEXT;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS marketing_opt_in BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS terms_accepted_at TIMESTAMPTZ;

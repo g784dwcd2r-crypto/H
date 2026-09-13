@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { redirect } from "next/navigation";
 import SignInForm from "@/components/SignInForm";
 import { api } from "@/lib/api";
@@ -16,6 +17,9 @@ export default async function SignInPage({ searchParams }: { searchParams: Promi
       <h1>Sign in</h1>
       <p className="lead">Your scale, your statement, your period count, remembered per company and everywhere else. Set once, then invisible.</p>
       <SignInForm emailLink={cfg.email_link} google={!!cfg.google_client_id} error={error} />
+      <p className="muted" style={{ marginTop: 24 }}>
+        New here? <Link href="/signup">Get started for free</Link>.
+      </p>
     </>
   );
 }

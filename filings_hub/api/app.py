@@ -528,6 +528,7 @@ def create_app(
             "email_link": bool(s.smtp_host) or s.auth_dev_links,
             "google_client_id": s.google_client_id or None,
             "site_url": s.site_url,
+            "business_email_only": s.signup_business_email_only,
         }
 
     @app.post("/auth/magic-link")
@@ -555,6 +556,42 @@ def create_app(
                 out["sent"] = send_email(email, "Your Filings Hub sign-in link", body, s)
             except Exception as e:
                 log.error("magic link email failed: %s", e)
+        if s.auth_dev_links:
+            out["dev_link"] = link
+        if not out["sent"] and not s.auth_dev_links:
+            raise HTTPException(503, "email sign-in is not configured (SMTP_HOST)")
+        return out
+
+    @app.post("/auth/signup")
+    def signup(payload: dict[str, Any] = Body(...), _: str = Depends(auth)) -> dict[str, Any]:
+        """New account: the profile rides with the sign-in link and lands on the user when it is redeemed."""
+        problem = accounts.validate_signup(payload, s.signup_business_email_only)
+        if problem:
+            raise HTTPException(422, problem)
+        email = str(payload["email"]).strip().lower()
+        ok, retry = magic_limiter.check(email)
+        if not ok:
+            raise HTTPException(429, f"too many links requested; try again in {retry}s")
+        profile = {k: str(payload.get(k) or "").strip()[:200] for k in accounts.PROFILE_FIELDS}
+        profile["marketing_opt_in"] = bool(payload.get("marketing_opt_in"))
+        profile["terms_accepted_at"] = date.today().isoformat()
+        try:
+            _token, link = accounts.issue_magic_link(users, email, s.site_url, profile)
+        except Exception as e:
+            log.warning("could not store sign-up token: %s", e)
+            raise HTTPException(503, "sign-up is not enabled on this deployment (read-only lake)") from e
+        out: dict[str, Any] = {"sent": False}
+        if s.smtp_host:
+            from filings_hub.ingest.alerts import send_email
+
+            body = (
+                f"Welcome to Filings Hub, {profile['first_name']}.\n\nFinish creating your account with this link "
+                f"(valid for 15 minutes):\n\n{link}\n\nIf you did not sign up, ignore this email."
+            )
+            try:
+                out["sent"] = send_email(email, "Finish creating your Filings Hub account", body, s)
+            except Exception as e:
+                log.error("sign-up email failed: %s", e)
         if s.auth_dev_links:
             out["dev_link"] = link
         if not out["sent"] and not s.auth_dev_links:
