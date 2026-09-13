@@ -40,6 +40,10 @@ services:
       - fromGroup: filings-hub-lake
       - key: API_KEY
         generateValue: true               # the web service reads it back via envVarKey below
+      - key: SESSION_SECRET
+        generateValue: true               # signs sign-in sessions; keep it stable across deploys
+      - key: SITE_URL
+        value: https://filings-hub-web.onrender.com   # where sign-in links and alert emails point
       - key: API_RATE_LIMIT_PER_MINUTE
         value: "600"
 

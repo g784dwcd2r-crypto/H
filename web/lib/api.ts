@@ -146,17 +146,31 @@ export type NextExpected = {
   expected_earnings_release_date: string | null;
 } | null;
 
-async function get<T>(path: string, revalidate = 300): Promise<T> {
+function headers(session?: string | null): Record<string, string> {
+  const h: Record<string, string> = {};
+  if (KEY) h["X-API-Key"] = KEY;
+  if (session) h["X-Session"] = session;
+  return h;
+}
+
+async function get<T>(path: string, revalidate = 300, session?: string | null): Promise<T> {
   const res = await fetch(`${BASE}${path}`, {
-    headers: KEY ? { "X-API-Key": KEY } : {},
-    next: { revalidate },
+    headers: headers(session),
+    ...(session ? { cache: "no-store" as const } : { next: { revalidate } }),
   });
   if (res.status === 404) throw new NotFound(path);
+  if (res.status === 401) throw new Unauthorized(path);
   if (!res.ok) throw new Error(`API ${res.status} for ${path}`);
   return (await res.json()) as T;
 }
 
 export class NotFound extends Error {}
+export class Unauthorized extends Error {}
+
+export type User = { id: string; email: string; plan: string; locale: string; timezone: string; created_at: string };
+export type Pref = { scope: string; scope_key: string; key: string; value: unknown; source: string; updated_at: string };
+export type Resolved = Record<string, { value: unknown; scope: string; scope_key: string; source: string }>;
+export type AuthConfig = { email_link: boolean; google_client_id: string | null; site_url: string };
 
 export const api = {
   search: (q: string) => get<{ results: Company[] }>(`/search?q=${encodeURIComponent(q)}`, 60),
@@ -177,15 +191,25 @@ export const api = {
   searchFilings: (cik: string, q: string, filings = 20) =>
     get<FilingSearch>(`/companies/${encodeURIComponent(cik)}/search?q=${encodeURIComponent(q)}&filings=${filings}`, 300),
   recent: (ciks: number[], days = 14) => get<{ filings: RecentFiling[] }>(`/filings/recent?ciks=${ciks.join(",")}&days=${days}`, 60),
-  post: async (path: string, body: unknown) => {
+  post: async (path: string, body: unknown, session?: string | null, method: "POST" | "PUT" | "DELETE" = "POST") => {
     const res = await fetch(`${BASE}${path}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", ...(KEY ? { "X-API-Key": KEY } : {}) },
-      body: JSON.stringify(body),
+      method,
+      headers: { "Content-Type": "application/json", ...headers(session) },
+      body: method === "DELETE" ? undefined : JSON.stringify(body ?? {}),
       cache: "no-store",
     });
     const data = await res.json().catch(() => ({}));
     return { ok: res.ok, status: res.status, data } as { ok: boolean; status: number; data: Record<string, unknown> };
+  },
+  authConfig: () => get<AuthConfig>("/auth/config", 300),
+  me: (session: string) => get<{ user: User }>("/me", 0, session),
+  listPrefs: (session: string) => get<{ prefs: Pref[]; defaults: Record<string, unknown> }>("/me/prefs", 0, session),
+  resolvePrefs: (session: string, ctx: { cik?: string | number; sic?: string; statement?: string }) => {
+    const q = new URLSearchParams();
+    if (ctx.cik !== undefined) q.set("cik", String(ctx.cik));
+    if (ctx.sic) q.set("sic", ctx.sic);
+    if (ctx.statement) q.set("statement", ctx.statement);
+    return get<{ prefs: Resolved }>(`/me/prefs/resolve?${q.toString()}`, 0, session);
   },
   exportUrl: (cik: string, periods?: string, limit = 8) =>
     `${BASE}/companies/${encodeURIComponent(cik)}/export.xlsx?limit=${limit}` + (periods ? `&periods=${encodeURIComponent(periods)}` : ""),
