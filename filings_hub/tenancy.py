@@ -31,6 +31,12 @@ TABLES = {
     "audit": ("account_security_audit", ("organization_id", "actor_id")),
     "projects": ("research_projects", ("owner_id", "organization_id")),
     "notes": ("research_notes", ("project_id",)),
+    "platform_admins": ("platform_admins", ()),
+    "platform_admin_sessions": ("platform_admin_sessions", ("admin_id",)),
+    "platform_admin_audit": ("platform_admin_audit", ("actor_id", "action", "target_id")),
+    "platform_controls": ("platform_account_controls", ()),
+    "platform_settings": ("platform_admin_settings", ()),
+    "platform_job_commands": ("platform_admin_job_commands", ("job_id", "status")),
 }
 ROLES = frozenset({"owner", "admin", "member"})
 
@@ -162,6 +168,8 @@ class SecurityStore:
         if self.users.get_user(record["user_id"]) is None:
             raise SecurityError(401, "sign in required")
         with self.transaction("user:" + record["user_id"]) as tx:
+            if (tx.get("platform_controls", record["user_id"]) or {}).get("status") == "suspended":
+                raise SecurityError(403, "this account is suspended; contact support")
             tx.put("sessions", record)
             self.audit(tx, record["user_id"], "session.created", record["id"])
 
@@ -173,6 +181,8 @@ class SecurityStore:
 
     def session(self, ident: str, user_id: str, now: float) -> dict[str, Any] | None:
         with self.transaction("user:" + user_id) as tx:
+            if (tx.get("platform_controls", user_id) or {}).get("status") == "suspended":
+                return None
             record = tx.get("sessions", ident)
             if not self.active(record, now) or record["user_id"] != user_id:
                 return None

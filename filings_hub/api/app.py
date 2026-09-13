@@ -147,6 +147,12 @@ def create_app(
     app.state.users = users
     app.state.signer = signer
     app.state.account_security = account_security
+    from filings_hub.api.admin import attach_admin
+    from filings_hub.platform_admin import AdminStore
+
+    platform_admin = AdminStore(account_security, s)
+    users.registration_policy = platform_admin.registration_policy
+    attach_admin(app, platform_admin, database)
 
     def current_user(
         _: str = Depends(auth), x_session: str | None = Header(default=None, alias="X-Session")
@@ -638,7 +644,8 @@ def create_app(
             "email_link": bool(s.smtp_host) or s.auth_dev_links,
             "google_client_id": s.google_client_id or None,
             "site_url": s.site_url,
-            "business_email_only": s.signup_business_email_only,
+            "business_email_only": platform_admin.configuration()["business_email_only"],
+            "new_registration_enabled": platform_admin.configuration()["new_registration_enabled"],
         }
 
     @app.post("/auth/magic-link")
@@ -646,6 +653,7 @@ def create_app(
         email = str(payload.get("email") or "").strip().lower()
         if not EMAIL_RE.match(email):
             raise HTTPException(422, "a valid email is required")
+        platform_admin.registration_policy(email)
         ok, retry = magic_limiter.check(email)
         if not ok:
             raise HTTPException(429, f"too many links requested; try again in {retry}s")
@@ -675,10 +683,11 @@ def create_app(
     @app.post("/auth/signup")
     def signup(payload: dict[str, Any] = Body(...), _: str = Depends(auth)) -> dict[str, Any]:
         """New account: the profile rides with the sign-in link and lands on the user when it is redeemed."""
-        problem = accounts.validate_signup(payload, s.signup_business_email_only)
+        problem = accounts.validate_signup(payload, platform_admin.configuration()["business_email_only"])
         if problem:
             raise HTTPException(422, problem)
         email = str(payload["email"]).strip().lower()
+        platform_admin.registration_policy(email)
         ok, retry = magic_limiter.check(email)
         if not ok:
             raise HTTPException(429, f"too many links requested; try again in {retry}s")

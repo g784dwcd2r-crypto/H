@@ -8,6 +8,7 @@ import { SearchIcon, StarIcon } from "@/components/Icons";
 
 export default function AppShell({ children, userMenu }: { children: ReactNode; userMenu: ReactNode }) {
   const path = usePathname();
+  if (path === "/admin" || path.startsWith("/admin/")) return <main id="main-content">{children}</main>;
   const home = path === "/";
   return (
     <div className={home ? "app-shell public-shell" : "app-shell workspace-shell"}>
