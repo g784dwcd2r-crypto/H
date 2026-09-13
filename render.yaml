@@ -55,10 +55,8 @@ services:
     autoDeploy: true
     envVars:
       - key: FILINGS_API_URL
-        fromService:
-          type: web
-          name: filings-hub-api
-          property: hostport              # host:port on the private network; the web client adds http://
+        value: https://filings-hub-api.onrender.com   # public URL: free services have no private network.
+                                                      # If Render gave the API a suffixed name, use that URL.
       - key: FILINGS_API_KEY
         fromService:
           type: web
