@@ -156,6 +156,10 @@ Measured against the acceptance targets (fixture lake, DuckDB backend): statemen
 
 Company search is a `UNION` of one branch per identifier (name, ticker, CIK) rather than a single `OR`, because an `OR` across three columns cannot use an index: benchmarked against a 900k-company table, that is **207 ms → 0.6 ms**. The name branch uses a `pg_trgm` GIN index (migration `0002`, which degrades to a sequential scan if the extension is not permitted) and is capped at 5,000 candidates so a bare industry word cannot make ranking cost more than the scan it replaced.
 
+## Serving from object storage (the free layout)
+
+The whole universe is millions of parquet objects on R2/S3, and listing them is what makes object storage slow: about a second per thousand keys. The API therefore never lists a per-company table (`statements`, `statement_checks`, `facts`, `documents`) as a whole. It checks that a folder has data with one request, reads one company's partition at a time (`Database.table("statements", cik)`, `periods_table_for(cik)`), copies the small whole-universe tables (companies, tickers, periods, company metrics) to local disk once, and keeps DuckDB's parquet metadata cache warm. `filings` is partitioned by year and read through row-group statistics, which needs the files sorted by company: the loaders write them that way, and `filings-hub compact` rewrites a lake built before that (then re-upload `data/filings`). Whole-lake summaries (`/coverage`, the admin dashboard, the failed-checks queue) report only what the local tables can answer on this layout. `DUCKDB_MEMORY_LIMIT` and `DUCKDB_THREADS` cap DuckDB on a small instance (the free blueprint sets 128MB and 2).
+
 ## Deploy
 
 Two layouts, same code. Both keep the lake in S3-compatible object storage (Cloudflare R2 is the cheap default: 10 GB free, no egress fees).
@@ -167,7 +171,7 @@ Two layouts, same code. Both keep the lake in S3-compatible object storage (Clou
 Order of operations for the free layout:
 
 1. **Object storage.** In Cloudflare: R2 → create a bucket → *Manage R2 API Tokens* → token with *Object Read & Write* on that bucket. It shows the access key pair and the endpoint `https://<account-id>.r2.cloudflarestorage.com`. (Plain AWS S3 works the same with an IAM key and the endpoint left empty.)
-2. **Push the lake.** After a local backfill, copy it up once with the AWS CLI (`brew install awscli`, `aws configure` with that key pair, region `auto`): `aws s3 sync ./data s3://BUCKET/filings-hub --exclude "raw/*" --endpoint-url https://<account-id>.r2.cloudflarestorage.com`. `raw/` can stay local; nothing downstream needs it once the lake is built.
+2. **Push the lake.** After a local backfill, run `filings-hub compact` once (sorts the filings table by company), then copy it up with the AWS CLI (`brew install awscli`, `aws configure` with that key pair, region `auto`): `aws s3 sync ./data s3://BUCKET/filings-hub --exclude "raw/*" --endpoint-url https://<account-id>.r2.cloudflarestorage.com`. `raw/` can stay local; nothing downstream needs it once the lake is built.
 3. **GitHub secrets** (repository → Settings → Secrets and variables → Actions): `SEC_USER_AGENT`, `LAKE_ROOT` (`s3://BUCKET/filings-hub`), `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_REGION` (`auto` for R2), `AWS_ENDPOINT_URL`, optionally `SLACK_WEBHOOK_URL`. The `daily-refresh` workflow then runs every weekday at 06:00 New York; *Run workflow* on the Actions tab runs it on demand.
 4. **Blueprint.** Render dashboard → *New* → *Blueprint* → this repository. It asks for the same lake values; `API_KEY` and the site's link to the API are generated.
 5. **Check.** `https://filings-hub-api.onrender.com/health` reports `backend: duckdb` and the last run. Open the web service URL, search a ticker, download a workbook.

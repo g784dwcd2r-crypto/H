@@ -39,6 +39,11 @@ class Settings(BaseSettings):
     auth_dev_links: bool = Field(default=False, description="Return magic links in the API response (dev only).")
     signup_business_email_only: bool = Field(default=False, description="Reject free-mail domains at sign-up.")
     api_rate_limit_per_minute: int = 60
+    duckdb_memory_limit: str = Field(
+        default="",
+        description='DuckDB memory cap for the API, e.g. "256MB" on a 512MB instance; empty = DuckDB default.',
+    )
+    duckdb_threads: int = Field(default=0, description="DuckDB threads for the API; 0 = DuckDB default.")
     platform_admin_enabled: bool = False
     platform_admin_environment: Literal["development", "production"] = "production"
     platform_admin_origin: str = ""

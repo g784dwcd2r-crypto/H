@@ -108,8 +108,10 @@ def test_full_backfill_and_serving_from_empty_s3(s3_env):
     # and it serves: the same queries and the same workbook as a local lake
     db = Database("", storage)
     try:
+        # the periods of one company carry their statements source from that company's partition only;
+        # the whole-table `periods_serving` view cannot say (it never scans the remote statements table)
         rows = db.query(
-            "SELECT period_label, statements_source, checks_passed FROM periods_serving "
+            f"SELECT period_label, statements_source, checks_passed FROM {db.periods_table_for(fx.APPLE)} "
             "WHERE cik = ? ORDER BY period_end DESC LIMIT 3",
             [fx.APPLE],
         )
@@ -117,8 +119,44 @@ def test_full_backfill_and_serving_from_empty_s3(s3_env):
         assert rows[1]["statements_source"] == "facts_fallback" and rows[2]["statements_source"] == "fsds"
         data = export_excel(db, fx.APPLE, ["FY2025", "Q1 2026"])
         assert len(data) > 5000
+        # a remote lake is read one company partition at a time, never by listing the whole table
+        assert db.is_remote_lake
+        assert storage.any_parquet_under(f"{layout.STATEMENTS}/cik={fx.APPLE}")
+        assert not storage.any_parquet_under(f"{layout.STATEMENTS}/cik=424242")
+        scoped = db.table("statements", fx.APPLE)
+        assert scoped.startswith("read_parquet([") and f"cik={fx.APPLE}/*.parquet" in scoped
+        assert db.table("statements", 424242) == "(SELECT * FROM _empty_statements)"
+        assert db.table("filings", fx.APPLE) == "filings"  # partitioned by year: stays a view
+        n = db.query(f"SELECT count(DISTINCT accession) AS n FROM {scoped}")[0]["n"]
+        assert n >= 3
+        assert db.query(f"SELECT count(*) AS n FROM {db.table('statements', 424242)}")[0]["n"] == 0
+        unscoped = db.query(
+            "SELECT statements_source FROM periods_serving WHERE cik = ? ORDER BY period_end DESC LIMIT 1", [fx.APPLE]
+        )
+        assert unscoped == [{"statements_source": None}]
     finally:
         db.close()
+
+    # the API over the same bucket: company, periods with metrics, statements, cheap coverage
+    from fastapi.testclient import TestClient
+
+    from filings_hub.api.app import create_app
+    from filings_hub.config import Settings
+
+    settings = Settings(lake_root=storage.root, database_url="", api_key="k", sec_user_agent="", _env_file=None)
+    app = create_app(settings)
+    with TestClient(app) as c:
+        h = {"X-API-Key": "k"}
+        assert c.get("/companies/AAPL", headers=h).json()["latest_period"]["period_label"] == "Q3 2026"
+        periods = c.get("/companies/AAPL/periods", headers=h).json()["periods"]
+        assert any(p["metrics"]["revenue"] for p in periods)
+        grid = c.get("/companies/AAPL/statements?periods=FY2025,Q1%202026", headers=h).json()
+        assert [p["period_label"] for p in grid["periods"]] == ["FY2025", "Q1 2026"] and grid["statements"]
+        cov = c.get("/coverage", headers=h).json()
+        assert cov["totals"]["directory_companies"] >= 1 and cov["totals"]["filings_with_statements"] is None
+        assert cov["forms"] == [] and "remote-lake" in cov["limitations"][0]
+        assert c.get("/quality/failed", headers=h).status_code in (401, 403)  # administrator only
+    app.state.db.close()
 
     # a second backfill over the same bucket is a no-op for the data, exactly as on local disk
     duck_count = lambda: Database("", storage).query("SELECT count(*) AS n FROM statements")[0]["n"]  # noqa: E731
@@ -200,7 +238,8 @@ def test_remote_empty_views_discover_backfill_without_restarting(s3_env):
         populate_missing(Storage(storage.root), db)
         db._missing_checked -= MISSING_VIEW_TTL + 1
         assert db.query("SELECT count(*) AS n FROM filings") == [{"n": 1}]
-        assert db.query("SELECT count(*) AS n FROM statements") == [{"n": 1}]
+        # per-company tables are read per partition on a remote lake, never as a whole view
+        assert db.query("SELECT count(*) AS n FROM statements") == [{"n": 0}]
         assert db.query("SELECT count(*) AS n FROM periods_serving") == [{"n": 1}]
         assert db._local_dir and not db._missing_views
         db.refresh_views()
@@ -212,12 +251,15 @@ def test_remote_empty_views_discover_backfill_without_restarting(s3_env):
 
 
 @pytest.mark.parametrize("local_cache", [True, False])
-def test_remote_live_views_discover_partitions_from_an_external_writer(s3_env, local_cache):
+def test_remote_lake_reads_company_partitions_written_by_an_external_writer(s3_env, local_cache):
+    """A remote lake never binds a whole-table view over a per-company table (that lists every object
+    in the table); it reads one company's partition through `Database.table()`, and a partition another
+    process writes later becomes visible once the bounded partition check expires."""
     import boto3
     import pyarrow as pa
     import pyarrow.parquet as pq
 
-    from filings_hub.db.database import Database
+    from filings_hub.db.database import MISSING_VIEW_TTL, Database
     from filings_hub.lake.storage import Storage
     from tests.test_database_recovery import populate_missing
 
@@ -227,11 +269,12 @@ def test_remote_live_views_discover_partitions_from_an_external_writer(s3_env, l
     try:
         populate_missing(storage, db)
         assert db.maybe_resync(ttl=0)
-        assert not db._missing_views
-        assert db.query("SELECT count(*) AS n FROM statements") == [{"n": 1}]
-        # A distinct writer does not invalidate the serving process's fsspec directory cache.
+        assert "statements" not in db._missing_views and "filings" not in db._missing_views
+        assert db.query("SELECT count(*) AS n FROM filings") == [{"n": 1}]  # year-partitioned: a whole view
+        assert db.query("SELECT count(*) AS n FROM statements") == [{"n": 0}]  # per company only
+        assert db.query(f"SELECT count(*) AS n FROM {db.table('statements', 7)}") == [{"n": 0}]
         buf = pa.BufferOutputStream()
-        pq.write_table(pa.Table.from_pylist([{}], schema=db._empty_table_schemas()["statements"]), buf)
+        pq.write_table(pa.Table.from_pylist([{"cik": 7}], schema=db._empty_table_schemas()["statements"]), buf)
         boto3.client(
             "s3",
             endpoint_url=s3_env,
@@ -239,9 +282,12 @@ def test_remote_live_views_discover_partitions_from_an_external_writer(s3_env, l
             aws_access_key_id="test",
             aws_secret_access_key="test",
         ).put_object(
-            Bucket="filings-test", Key=f"{prefix}/statements/part=2/two.parquet", Body=buf.getvalue().to_pybytes()
+            Bucket="filings-test", Key=f"{prefix}/statements/cik=7/one.parquet", Body=buf.getvalue().to_pybytes()
         )
+        assert db.query(f"SELECT count(*) AS n FROM {db.table('statements', 7)}") == [{"n": 0}]  # probe is bounded
+        db._partitions[("statements", 7)] = (db._partitions[("statements", 7)][0] - MISSING_VIEW_TTL - 1, False)
         db._remote_checked -= 601
-        assert db.query("SELECT count(*) AS n FROM statements") == [{"n": 2}]
+        assert db.query(f"SELECT count(*) AS n FROM {db.table('statements', 7)}") == [{"n": 1}]
+        assert db.query(f"SELECT count(*) AS n FROM {db.periods_table_for(7)}") == [{"n": 0}]
     finally:
         db.close()

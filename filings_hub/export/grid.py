@@ -153,7 +153,8 @@ def _all_periods(db: Database, cik: int) -> list[PeriodColumn]:
     """Every period the lake knows for the company, oldest first."""
     rows = db.query(
         f"SELECT p.*, f.filing_index_url, f.primary_doc_url, e.primary_doc_url AS er_url "
-        f"FROM {db.periods_table} p LEFT JOIN filings f ON f.accession = p.results_accession AND f.cik = p.cik "
+        f"FROM {db.periods_table_for(cik)} p "
+        f"LEFT JOIN filings f ON f.accession = p.results_accession AND f.cik = p.cik "
         f"LEFT JOIN filings e ON e.accession = p.earnings_release_accession AND e.cik = p.cik "
         f"WHERE p.cik = ? ORDER BY p.period_end, p.results_filed_date",
         [cik],
@@ -192,7 +193,7 @@ def _statement_rows(
         f"SELECT accession, statement, line_order, concept, label, is_abstract, is_subtotal, parent_concept, unit, "
         f"value_presented, value, period_start, period_end, period_end_rounded, qtrs, is_primary_period, "
         f"taxonomy, is_custom, datatype, source, filed_date, negating "
-        f"FROM statements WHERE accession IN ({ph_acc}) AND statement IN ({ph_stmt}) "
+        f"FROM {db.table('statements', cik)} WHERE accession IN ({ph_acc}) AND statement IN ({ph_stmt}) "
         f"{'AND cik = ?' if cik is not None else ''} "
         f"AND NOT is_parenthetical {'AND is_primary_period' if primary_only else ''} "
         f"ORDER BY accession, statement, line_order",

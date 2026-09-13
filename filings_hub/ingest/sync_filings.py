@@ -26,6 +26,8 @@ from filings_hub.lake.storage import Storage
 log = logging.getLogger(__name__)
 
 FLUSH_ROWS = 250_000
+FILINGS_ORDER = [("cik", "ascending"), ("filed_date", "ascending"), ("accession", "ascending")]
+FILINGS_ROW_GROUP = 50_000
 
 DAILY_INDEX_LINE_RE = re.compile(r"^(\d+)\|(.*)\|(.+?)\|(\d{8})\|(edgar/data/\d+/(\S+)\.txt)\s*$")
 
@@ -57,7 +59,12 @@ class _YearBuffers:
         if not rows:
             return
         n = self.parts.get(year, 0)
-        self.storage.write_parquet(f"{layout.filings_year_dir(year)}/part-{n:04d}.parquet", filings_table(rows))
+        # sorted by company and in small row groups: a per-company read of a year then touches one
+        # or two row groups per file instead of every row of every file (see compact_filings)
+        table = filings_table(rows).sort_by(FILINGS_ORDER)
+        self.storage.write_parquet(
+            f"{layout.filings_year_dir(year)}/part-{n:04d}.parquet", table, row_group_size=FILINGS_ROW_GROUP
+        )
         self.parts[year] = n + 1
 
     def flush_all(self) -> None:
@@ -172,10 +179,32 @@ def upsert_filings(storage: Storage, rows: list[dict[str, Any]], replace_ciks: I
             keep_mask.append(True)
         kept = existing.filter(pa.array(keep_mask, type=pa.bool_())) if len(keep_mask) else existing
         merged = pa.concat_tables([kept, filings_table(list(new_by_key.values()))])
-        merged = merged.sort_by([("cik", "ascending"), ("filed_date", "ascending"), ("accession", "ascending")])
-        storage.replace_dir_with_parquet(layout.filings_year_dir(year), merged)
+        merged = merged.sort_by(FILINGS_ORDER)
+        storage.replace_dir_with_parquet(layout.filings_year_dir(year), merged, row_group_size=FILINGS_ROW_GROUP)
         written += len(new_by_key)
     return written
+
+
+def compact_filings(storage: Storage, years: Iterable[int] | None = None) -> dict[int, int]:
+    """Rewrite each year of filings as one file sorted by company in small row groups.
+
+    The bulk loader writes filings in arrival order, so a company's rows are scattered over every file
+    of every year and a per-company read over object storage has to scan the whole table (27 million
+    rows). Sorted files with 50k-row groups let the reader skip everything but the one or two groups
+    holding the company, by the column statistics parquet keeps per group. Returns {year: rows}.
+    """
+    out: dict[int, int] = {}
+    dirs = storage.ls(layout.FILINGS)
+    found = sorted(int(d.rstrip("/").rsplit("=", 1)[-1]) for d in dirs if "year=" in d)
+    for year in years or found:
+        table = _read_year(storage, year)
+        if table.num_rows == 0:
+            continue
+        merged = table.sort_by(FILINGS_ORDER)
+        storage.replace_dir_with_parquet(layout.filings_year_dir(year), merged, row_group_size=FILINGS_ROW_GROUP)
+        out[year] = merged.num_rows
+        log.info("filings %d: %d rows compacted into one sorted file", year, merged.num_rows)
+    return out
 
 
 def filings_for_cik(storage: Storage, cik: int) -> pa.Table:

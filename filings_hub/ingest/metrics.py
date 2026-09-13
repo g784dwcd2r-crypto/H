@@ -160,12 +160,12 @@ def _values_clause() -> str:
 
 
 # Portable (DuckDB and Postgres): the priority pick is a row_number in a subquery, not QUALIFY.
-METRIC_LINES_SQL = f"""
+METRIC_LINES_SQL = """
 SELECT accession, metric, value FROM (
     SELECT s.accession, m.metric, s.value,
            row_number() OVER (PARTITION BY s.accession, m.metric ORDER BY m.priority, s.line_order) AS rn
-    FROM statements s
-    JOIN (VALUES {_values_clause()}) AS m(metric, statement, concept, priority)
+    FROM {table} s
+    JOIN (VALUES {values}) AS m(metric, statement, concept, priority)
       ON m.concept = s.concept AND m.statement = s.statement
     WHERE s.cik = ? AND s.is_primary_period AND NOT s.is_abstract AND s.value IS NOT NULL
       AND NOT s.is_parenthetical
@@ -173,10 +173,16 @@ SELECT accession, metric, value FROM (
 """
 
 
-def period_metrics(query, cik: int) -> dict[str, dict[str, float | None]]:
-    """{results_accession: {metric: value}} for one company. `query(sql, params)` is Database.query."""
+def metric_lines_sql(table: str = "statements") -> str:
+    """The per-company metric query over `table` (a table name or a scoped read_parquet fragment)."""
+    return METRIC_LINES_SQL.replace("{values}", _values_clause()).replace("{table}", table)
+
+
+def period_metrics(query, cik: int, table: str = "statements") -> dict[str, dict[str, float | None]]:
+    """{results_accession: {metric: value}} for one company. `query(sql, params)` is Database.query;
+    `table` is `Database.table("statements", cik)` so a remote lake reads one partition."""
     out: dict[str, dict[str, float | None]] = {}
-    for r in query(METRIC_LINES_SQL, [cik]):
+    for r in query(metric_lines_sql(table), [cik]):
         out.setdefault(r["accession"], dict.fromkeys(METRIC_NAMES))[r["metric"]] = r["value"]
     return out
 
