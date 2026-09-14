@@ -183,3 +183,30 @@ several lines that share one tag and differ only by dimension, `pre` alone may n
 lines there were or which value belongs to which. Whether it does is an open question being
 measured; if it does not, faithful reproduction requires reading the original filing rather than
 the summary files.
+
+## Segments: the company's words on the page, a type tag underneath (2026-09-14)
+
+Hicham settled the segment-naming question, and not the way it was framed. The page keeps the
+company's own wording, because an analyst takes those words into a call with management and a
+made-up division name is useless there. What gets standardised is not the name but the **kind** of
+segmentation, held internally per company per axis. Four kinds cover roughly 90 % of cases:
+
+1. geography
+2. product
+3. sub-company
+4. customer
+
+So a company carries tags like `Apple: geography` and `Apple: product`, because Apple reports revenue
+by region and separately discloses unit sales by product. The platform can then offer segmentation
+views without ever renaming what the company said.
+
+Why this is much cheaper than the alternative: mapping member names would have meant reviewing
+roughly 14,000 invented names (5,373 on the business-segments axis, 8,790 on product/service).
+Classifying the kind of segmentation is per company per axis, and the SEC's axis names already give
+three of the four almost free: `Geographical` is geography, `ProductOrService` is product,
+`LegalEntity` and `ConsolidatedEntities` are sub-company. The work is the `BusinessSegments` axis
+(158,080 facts, 5,373 members in one quarter), whose meaning varies by company: for Apple it is
+geography, for others it is product or division.
+
+Edge cases outside the four kinds are deferred. Hicham's instruction: we will meet them, there are
+not many, do not design for them now.
