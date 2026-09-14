@@ -462,6 +462,17 @@ is not actually hurting.
 **Done when.** The coverage report runs in a sensible time, and the file count stops climbing every
 quarter.
 
+```mermaid
+flowchart LR
+    NOW["Today<br/>one small file per company,<br/>per quarter, about 500,000 of them"] --> ONE["Reading one company<br/>FAST"]
+    NOW --> ALL["Reading everything<br/>SLOW, and getting slower"]
+    ALL --> MERGE["Merge each company's files into one"]
+    MERGE --> BOTH["Both fast.<br/>The data says exactly the same thing"]
+    style ONE fill:#e8f5e9,stroke:#2e7d32
+    style ALL fill:#fff4e5,stroke:#e65100
+    style BOTH fill:#e8f5e9,stroke:#2e7d32
+```
+
 **Size.** Small.
 
 ---
@@ -528,7 +539,7 @@ becomes a fact rather than a guess.
 ```mermaid
 flowchart TD
     G["A gap in the filings"] --> W{"Which kind of gap?"}
-    W -->|"The SEC lists a filing<br/>we do not hold"| US["Our bug.<br/>Go and collect it"]
+    W -->|"The SEC lists a filing we do not hold"| US["Our bug.<br/>Go and collect it"]
     W -->|"The company never filed"| THEM["News about the company.<br/>Show it as a notice"]
     THEM --> CATCH["Unless they filed two years<br/>at once to catch up,<br/>which we recognise"]
     style US fill:#ffe6e6,stroke:#cc0000
@@ -755,6 +766,17 @@ some of the same tables, and a second opinion on them. The filing stays the sour
 **Done when.** The notes data sets load with the same counts and rejections reporting as everything
 else, and the disclosures below can draw on them.
 
+```mermaid
+flowchart TD
+    A["Files we use today<br/>the statements"] --> LAKE["Our data"]
+    B["Files we do NOT use yet<br/>the notes as well"] --> LAKE
+    C["The original filings<br/>part 2"] --> LAKE
+    LAKE --> OUT["Segment tables, debt schedules,<br/>the detail behind the lines"]
+    B -.->|"cheaper, already structured"| NOTE["But the filing<br/>stays the source of truth"]
+    style B fill:#e3f2fd,stroke:#1565c0
+    style C fill:#e8f5e9,stroke:#2e7d32
+```
+
 **Size.** Medium.
 
 ## Step 19. Segmentation
@@ -772,6 +794,20 @@ takes those words into a meeting with management. Underneath, we tag what *kind*
 geography, product, division, customer — so that a question can be asked across companies that use
 different words for the same idea.
 
+```mermaid
+flowchart TD
+    F["Apple, one quarter"] --> A1["Americas 45.09 bn"]
+    F --> A2["Europe 28.06 bn"]
+    F --> A3["Greater China 20.50 bn"]
+    A1 --> PAGE["The page shows<br/>the company's own words"]
+    A2 --> PAGE
+    A3 --> PAGE
+    A1 -.-> TAG["Underneath, we tag the KIND of split:<br/>geography, product, division, customer"]
+    TAG --> ASK["So a question can be asked<br/>across companies that use<br/>different words"]
+    style PAGE fill:#e8f5e9,stroke:#2e7d32
+    style TAG fill:#e3f2fd,stroke:#1565c0
+```
+
 ## Step 20. The debt schedule
 
 **What it is.** When a company's borrowings fall due, year by year.
@@ -787,6 +823,18 @@ years, and a chart only works with real ones. So we convert. But the conversion 
 company's own financial year end, so a company whose year ends in June has a "year two" that is not
 the same as a December company's. We say which we mean.
 
+```mermaid
+flowchart TD
+    N["The filing says<br/>year one, year two, year three"] --> FYE{"When does this company's<br/>financial year end?"}
+    FYE -->|"December 2025"| DEC["Year two means 2027"]
+    FYE -->|"June 2025"| JUN["Year two means<br/>financial 2027,<br/>which is not the same thing"]
+    DEC --> SAY["We convert to real years,<br/>and we say which we mean"]
+    JUN --> SAY
+    TAG["Only 2 of 4,802 annual filings<br/>tag this properly"] -.-> NOTES["For everyone else it is<br/>a table in the notes"]
+    style SAY fill:#e8f5e9,stroke:#2e7d32
+    style NOTES fill:#fff4e5,stroke:#e65100
+```
+
 ## Step 21. Preferred shares and hybrids
 
 **What it is.** Funding that is not quite debt and not quite ordinary shares.
@@ -795,6 +843,18 @@ the same as a December company's. We say which we mean.
 Ignoring it makes a company look better funded than it is, and it distorts earnings per share,
 because preferred dividends come out before ordinary shareholders see anything.
 
+```mermaid
+flowchart TD
+    C["What funds the company"] --> D["Lenders<br/>paid first"]
+    C --> P["Preferred shares and hybrids<br/>paid next"]
+    C --> E["Ordinary shareholders<br/>paid last"]
+    P -.->|"if we ignore it"| W1["The company looks<br/>better funded than it is"]
+    P -.->|"if we ignore it"| W2["Earnings per share is wrong,<br/>because preferred dividends<br/>come out first"]
+    style P fill:#e3f2fd,stroke:#1565c0
+    style W1 fill:#ffe6e6,stroke:#cc0000
+    style W2 fill:#ffe6e6,stroke:#cc0000
+```
+
 ## Step 22. Acquisitions
 
 **What it is.** What a company bought, when, for how much, and what it recorded as a result.
@@ -802,6 +862,17 @@ because preferred dividends come out before ordinary shareholders see anything.
 **Why it matters.** Without it, growth is ambiguous. A company that grew 20 % by buying a competitor
 is a different business from one that grew 20 % by selling more, and the statements alone do not
 always separate the two.
+
+```mermaid
+flowchart LR
+    G["Revenue grew 20 percent"] --> Q{"How?"}
+    Q --> A["Sold more<br/>to the same market"]
+    Q --> B["Bought a competitor"]
+    A --> DIFF["Two completely<br/>different businesses"]
+    B --> DIFF
+    DIFF --> NEED["The statements alone<br/>do not always separate them.<br/>The acquisition detail does"]
+    style NEED fill:#e8f5e9,stroke:#2e7d32
+```
 
 ## Step 23. KPIs
 
@@ -817,6 +888,17 @@ measures, and two companies using the same word can mean different things. That 
 This becomes urgent when we go beyond the US, because that is when the same idea starts appearing
 under different words from country to country.
 
+```mermaid
+flowchart TD
+    K["59,755 company-invented labels<br/>in a single quarter"] --> EASY["Matching up names<br/>the easy part"]
+    K --> HARD["Understanding what each one<br/>actually measures<br/>THE HARD PART"]
+    HARD --> WHY["Two companies can use the same word<br/>and mean different things"]
+    WHY --> LEAVE["So for now we leave them<br/>exactly as each company states them"]
+    LEAVE -.->|"becomes urgent"| INTL["When we go beyond the US,<br/>where the same idea appears<br/>under different words"]
+    style HARD fill:#fff4e5,stroke:#e65100
+    style LEAVE fill:#e8f5e9,stroke:#2e7d32
+```
+
 ## Step 24. The statement of changes in equity
 
 **What it is.** The fourth statement, showing how shareholders' stake moved over the year.
@@ -826,6 +908,16 @@ is worth less than any of them.
 
 It also becomes easier once step 12 is done, because the retained earnings check is really a test of
 the same movements this statement describes.
+
+```mermaid
+flowchart LR
+    S1["Income statement"] --> P["The four statements"]
+    S2["Balance sheet"] --> P
+    S3["Cash flow"] --> P
+    S4["Changes in equity<br/>the one we do not have yet"] --> P
+    S4 -.->|"same movements"| RE["Step 12's retained earnings check<br/>already tests most of this"]
+    style S4 fill:#e3f2fd,stroke:#1565c0
+```
 
 ## Step 25. The story in the notes
 
@@ -838,6 +930,16 @@ difference between knowing what happened and knowing why.
 **Why it is last.** It exists only as text in the document, so it needs the filings from part 2, and
 pulling meaning out of written English is a different kind of problem from everything above it. It is
 a separate project, listed here so it is not forgotten rather than because it is next.
+
+```mermaid
+flowchart LR
+    NUM["Revenue grew 10 percent<br/>a number, already have it"] --> BOTH["What an analyst wants"]
+    TXT["4 percent was volume,<br/>6 percent was price<br/>a sentence, only in the document"] --> BOTH
+    BOTH --> W["Knowing what happened<br/>AND why"]
+    TXT -.-> HARD["Written English.<br/>A different kind of problem<br/>from everything above"]
+    style TXT fill:#fff4e5,stroke:#e65100
+    style W fill:#e8f5e9,stroke:#2e7d32
+```
 
 **Size.** Large, and least defined.
 
@@ -861,6 +963,23 @@ obvious first choice, because step 20 needs them.
 
 **Size.** Depends entirely on that decision.
 
+```mermaid
+flowchart TD
+    F["One filing<br/>a bundle, not a single file"] --> M["The main document<br/>step 6 stores this"]
+    F --> E1["Press release"]
+    F --> E2["Presentation"]
+    F --> E3["Debt agreements"]
+    F --> E4["Other contracts"]
+    E1 --> Q{"Store them all?<br/>Which forms?<br/>How far back?"}
+    E2 --> Q
+    E3 --> Q
+    E4 --> Q
+    Q --> DEC["An open decision.<br/>Cost and scope, not technical"]
+    E3 ==>|"the obvious first one, step 20 needs it"| FIRST["Start here"]
+    style M fill:#e8f5e9,stroke:#2e7d32
+    style DEC fill:#fff4e5,stroke:#e65100
+```
+
 ## Step 27. A document someone can actually save
 
 **What it is.** A version of a filing a person can download, print and read on a plane.
@@ -870,6 +989,14 @@ passing on a file. We have to produce it.
 
 **Why it matters.** It is what an analyst does with a filing: save it, mark it up, read the parts
 that matter. Storing the document, in step 6, is what makes it possible.
+
+```mermaid
+flowchart LR
+    SEC["The SEC publishes<br/>web pages, not PDFs"] --> US["So we have to make one"]
+    STORE["Our stored copy<br/>from step 6"] --> US
+    US --> OUT["Something an analyst can save,<br/>print, mark up and read on a plane"]
+    style OUT fill:#e8f5e9,stroke:#2e7d32
+```
 
 **Size.** Medium, and mostly a presentation problem rather than a data one.
 
@@ -958,6 +1085,16 @@ moment. Today that is fine.
 **How we will know it is time.** Pages get slower as more people use them at once, rather than
 because a query is slow.
 
+```mermaid
+flowchart TD
+    NOW["One question at a time"] --> SAFE["Safe: two at once could mix<br/>one question's columns<br/>with another's answers"]
+    SAFE --> RISK["Which would show someone<br/>numbers from the wrong company"]
+    NOW --> CAP["But it caps how many people<br/>can use the site at once"]
+    CAP --> FIX["Fix when needed:<br/>several connections, not one.<br/>Not a redesign"]
+    style RISK fill:#ffe6e6,stroke:#cc0000
+    style SAFE fill:#e8f5e9,stroke:#2e7d32
+```
+
 ## Step 31. Publishing without a half-finished moment
 
 **What it is.** When we publish fresh data, tables are replaced one after another rather than all at
@@ -973,6 +1110,16 @@ to publish at all. So this is a narrow window, not an open hole.
 
 **How we will know it is time.** Someone reports a page that did not add up, at a time that matches a
 publish.
+
+```mermaid
+flowchart LR
+    P["Publishing fresh data"] --> T1["Table 1 replaced"]
+    T1 --> T2["Table 2 replaced"]
+    T2 --> T3["Table 3 replaced"]
+    T1 -.->|"a reader arriving here"| MIX["Sees one table new,<br/>another still old.<br/>Not wrong, but inconsistent"]
+    T3 --> FIX["Fix if it bites:<br/>load a fresh set,<br/>switch in one movement"]
+    style MIX fill:#fff4e5,stroke:#e65100
+```
 
 ---
 
