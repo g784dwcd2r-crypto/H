@@ -288,3 +288,24 @@ tagged underneath) and the concept dictionary (tag plus dimension as the key). T
 filing. The work is not mapping names, it is understanding definitions, and that is its own data
 engineering task. Deferred deliberately, not forgotten. It becomes load-bearing when we expand
 beyond the US, because that is when the same concept starts carrying different words by country.
+
+## Debt: its own page, and maturities resolved to real years (2026-09-14)
+
+**Its own page.** Hicham wants debt structure as a page in its own right, not a line on a statement.
+
+**Buckets become years.** Filings express maturities two ways: relative ("due within one year",
+"year two") or absolute ("2027"). Both mean the same thing and we resolve both to the actual year.
+For a filing with period end 2025-12-31, "within 12 months" is 2026, "year two" is 2027, "year
+three" is 2028.
+
+Two reasons, both his: an analyst thinks in years, not offsets; and a time series only works on
+absolute years. Debt due in 2028, tracked across successive filings, rising is bad and falling is
+good. That comparison is impossible if each filing's "year three" means a different year.
+
+Consistent with the two layers: the company's own wording stays on the page, the resolved year is
+the layer-2 value that makes query and time series work.
+
+**The trap to get right.** The resolution is relative to the filing's own fiscal year end, not the
+calendar. A June year end means "year two" is fiscal 2027, spanning mid-2026 to mid-2027, and
+labelling it 2027 without saying "fiscal" would be wrong. Same class of mistake as reading a table
+as thousands when it is millions: silent, and it makes the number useless.
