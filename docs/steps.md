@@ -4,6 +4,17 @@ Everything still to do on the data side, in order, in plain words. Written for s
 work on the code. Each step says what it is, why it matters, how it works, and how we will know it is
 finished.
 
+## What this covers, and what it does not
+
+This is the plan for **the data**: the numbers on a company page, where they come from, and how we
+prove they are exactly what the company filed. That is the foundation the whole product sits on, and
+it is what this document tracks from start to finish.
+
+It is **not** the whole-company plan. The wider product — search, screening, the Excel connection,
+the public API, collaboration features, reliability and going to market — is real work, but it lives
+in the platform backlog, not here. When this document says "everything left", it means everything
+left on the data. Follow this for the data workstream; look elsewhere for the rest.
+
 ## First, the one idea everything else depends on
 
 A company sends its accounts to the SEC. That is **the filing**. It is the original, and it is the
