@@ -641,3 +641,78 @@ def test_dimensional_num_rows_never_become_statement_lines(lake_copy: Storage):
         "AND concept = 'RevenueFromContractWithCustomerExcludingAssessedTax' AND is_primary_period",
     )
     assert [r["value"] for r in rows] == [140000000000.0]
+
+
+def test_a_tag_reported_only_broken_out_still_becomes_statement_lines(lake_copy: Storage):
+    """Triumph Financial's fee income is three product lines sharing one tag, with no total. Taking
+    only undimensioned values made all three vanish, so the statement showed a subtotal its own lines
+    did not reach. Each breakdown becomes its own line, carrying the axis=member that identifies it."""
+    quarter = "2026q1"
+    tables = {t: text.encode("utf-8") for t, text in fx.fsds_quarters()[quarter].items()}
+    acc = "0000320193-26-000007"
+    num = tables["num"].decode().splitlines()
+    for member, value in (("DepositAccount", 1_212_000), ("CreditAndDebitCard", 1_960_000)):
+        num.append(
+            f"{acc}\tFeeIncomeOnlyBrokenOut\tus-gaap/2025\t20251231\t1\tUSD\tProductOrService={member};\t\t{value}\t"
+        )
+    tables["num"] = ("\n".join(num) + "\n").encode()
+    pre = tables["pre"].decode().splitlines()
+    pre.append(f"{acc}\t2\t99\tIS\t0\tH\tFeeIncomeOnlyBrokenOut\tus-gaap/2025\tFee income\t0")
+    tables["pre"] = ("\n".join(pre) + "\n").encode()
+
+    import io
+    import zipfile
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as zf:
+        for name, data in tables.items():
+            zf.writestr(f"{name}.txt", data)
+    lake_copy.write_bytes(layout.raw_fsds_zip(quarter), buf.getvalue())
+    load_all_fsds(lake_copy, [quarter], force=True)
+    S.build_all_fsds(lake_copy, [quarter], force=True)
+
+    rows = _rows(
+        lake_copy,
+        "SELECT segments, value, label, line_order FROM statements "
+        f"WHERE accession = '{acc}' AND concept = 'FeeIncomeOnlyBrokenOut' AND is_primary_period "
+        "ORDER BY segments",
+    )
+    assert [r["segments"] for r in rows] == [
+        "ProductOrService=CreditAndDebitCard;",
+        "ProductOrService=DepositAccount;",
+    ]
+    assert [r["value"] for r in rows] == [1_960_000.0, 1_212_000.0]
+    # the company's own presentation label is kept as it is; the member is a separate column
+    assert {r["label"] for r in rows} == {"Fee income"}
+    # two members presented under one tag are two ordered lines, not one
+    assert len({r["line_order"] for r in rows}) == 2
+
+
+def test_a_tag_reported_with_a_total_keeps_only_the_total(lake_copy: Storage):
+    """Where the filing reports both, the statement line is the total. The breakdown is detail, and
+    showing it as extra lines would double-count against the subtotal below."""
+    quarter = "2026q1"
+    tables = {t: text.encode("utf-8") for t, text in fx.fsds_quarters()[quarter].items()}
+    acc = "0000320193-26-000007"
+    tag = "RevenueFromContractWithCustomerExcludingAssessedTax"
+    num = tables["num"].decode().splitlines()
+    num.append(f"{acc}\t{tag}\tus-gaap/2025\t20251231\t1\tUSD\tProductOrService=IPhone;\t\t60000000000\t")
+    tables["num"] = ("\n".join(num) + "\n").encode()
+
+    import io
+    import zipfile
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as zf:
+        for name, data in tables.items():
+            zf.writestr(f"{name}.txt", data)
+    lake_copy.write_bytes(layout.raw_fsds_zip(quarter), buf.getvalue())
+    load_all_fsds(lake_copy, [quarter], force=True)
+    S.build_all_fsds(lake_copy, [quarter], force=True)
+
+    rows = _rows(
+        lake_copy,
+        f"SELECT segments, value FROM statements WHERE accession = '{acc}' AND statement = 'IS' "
+        f"AND concept = '{tag}' AND is_primary_period",
+    )
+    assert [(r["segments"], r["value"]) for r in rows] == [(None, 140000000000.0)]

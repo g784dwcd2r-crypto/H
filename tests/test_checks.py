@@ -5,6 +5,10 @@ def names(results):
     return {r.check_name: r.passed for r in results}
 
 
+def one(results, check_name):
+    return next(r for r in results if r.check_name == check_name)
+
+
 def test_balance_sheet_identity():
     assert names(C.check_balance_sheet({"Assets": 100, "LiabilitiesAndStockholdersEquity": 100})) == {
         "assets_eq_liabilities_and_equity": True
@@ -128,3 +132,118 @@ def test_is_subtotal_and_parents():
     ]
     C.assign_parents(lines)
     assert [ln["parent_concept"] for ln in lines] == ["AssetsCurrent", "Assets", "Assets", None]
+
+
+def test_income_after_tax_bridges_discontinued_operations():
+    """Pretax minus tax is income from CONTINUING operations. A company selling a business reports
+    discontinued operations after tax, below the tax line, so comparing straight to the bottom line
+    fails a filing that is perfectly correct (Citigroup and Morgan Stanley do this most years)."""
+    v = {
+        "IncomeLossFromContinuingOperationsBeforeIncomeTaxesExtraordinaryItemsNoncontrollingInterest": 100,
+        "IncomeTaxExpenseBenefit": 30,
+        "ProfitLoss": 65,  # 70 from continuing, minus a 5 loss on the business being sold
+    }
+    assert names(C.check_income_statement(v))["income_after_tax"] is False  # nothing to bridge with
+    v["IncomeLossFromDiscontinuedOperationsNetOfTax"] = -5
+    r = one(C.check_income_statement(v), "income_after_tax")
+    assert r.passed and "IncomeLossFromDiscontinuedOperationsNetOfTax" in r.detail
+
+
+def test_income_after_tax_bridges_equity_method_when_the_subtotal_excludes_it():
+    """The concept's own name says whether the share of associates' profit is inside the subtotal."""
+    v = {
+        "IncomeLossFromContinuingOperationsBeforeIncomeTaxesMinorityInterestAndIncomeLossFromEquityMethodInvestments": 4789,
+        "IncomeTaxExpenseBenefit": 1000,
+        "IncomeLossFromEquityMethodInvestments": 221,
+        "ProfitLoss": 4010,
+    }
+    r = one(C.check_income_statement(v), "income_after_tax")
+    assert r.passed and "+ IncomeLossFromEquityMethodInvestments" in r.detail
+    # a subtotal that already includes it must not be bridged
+    v2 = {
+        "IncomeLossFromContinuingOperationsBeforeIncomeTaxesExtraordinaryItemsNoncontrollingInterest": 4789,
+        "IncomeTaxExpenseBenefit": 1000,
+        "IncomeLossFromEquityMethodInvestments": 221,
+        "ProfitLoss": 3789,
+    }
+    assert names(C.check_income_statement(v2))["income_after_tax"] is True
+
+
+def test_income_after_tax_prefers_the_reported_continuing_operations_line():
+    v = {
+        "IncomeLossFromContinuingOperationsBeforeIncomeTaxesExtraordinaryItemsNoncontrollingInterest": 100,
+        "IncomeTaxExpenseBenefit": 30,
+        "IncomeLossFromContinuingOperations": 70,
+        "IncomeLossFromDiscontinuedOperationsNetOfTax": -5,
+        "NetIncomeLoss": 65,
+    }
+    r = one(C.check_income_statement(v), "income_after_tax")
+    assert r.passed and r.detail.endswith("= IncomeLossFromContinuingOperations")
+
+
+def test_eps_recomputes_from_the_company_s_own_share_count():
+    v = {
+        "NetIncomeLossAvailableToCommonStockholdersBasic": 9_373_600_000,
+        "WeightedAverageNumberOfSharesOutstandingBasic": 1_000_000_000,
+        "WeightedAverageNumberOfDilutedSharesOutstanding": 1_010_000_000,
+        "EarningsPerShareBasic": 9.37,
+        "EarningsPerShareDiluted": 9.28,
+    }
+    assert names(C.check_income_statement(v)) == {"eps_basic": True, "eps_diluted": True}
+    v["EarningsPerShareBasic"] = 9.80  # beyond a cent of rounding
+    assert names(C.check_income_statement(v))["eps_basic"] is False
+
+
+def test_eps_is_skipped_when_preferred_dividends_hide_the_numerator():
+    """Preferred dividends come out of net income before the common shareholders are credited, so
+    without the available-to-common line the numerator is unknown. No check beats a wrong check."""
+    v = {
+        "NetIncomeLoss": 1_000,
+        "PreferredStockDividendsAndOtherAdjustments": 100,
+        "WeightedAverageNumberOfSharesOutstandingBasic": 100,
+        "EarningsPerShareBasic": 9.0,
+    }
+    assert "eps_basic" not in names(C.check_income_statement(v))
+    v["NetIncomeLossAvailableToCommonStockholdersBasic"] = 900
+    assert names(C.check_income_statement(v))["eps_basic"] is True
+    # zero shares never divides
+    assert C._check_eps({"NetIncomeLoss": 1, "WeightedAverageNumberOfSharesOutstandingBasic": 0}) == []
+
+
+def test_net_income_and_cash_must_agree_across_statements():
+    by = {
+        "IS": {"NetIncomeLoss": 93_736},
+        "CF": {"NetIncomeLoss": 93_736, "CashAndCashEquivalentsAtCarryingValue": 29_943},
+        "BS": {"CashAndCashEquivalentsAtCarryingValue": 29_943},
+    }
+    r = C.check_across_statements(by)
+    assert names(r) == {"net_income_is_equals_cf": True, "ending_cash_cf_equals_bs": True}
+    assert all(x.statement == C.CROSS_STATEMENT for x in r)
+    by["CF"]["NetIncomeLoss"] = 90_000
+    assert names(C.check_across_statements(by))["net_income_is_equals_cf"] is False
+
+
+def test_cross_statement_checks_compare_like_with_like():
+    """Cash including restricted cash is a different concept from cash without it, and a filing may
+    legitimately carry one on each statement. Two different concepts are never compared."""
+    by = {
+        "CF": {"CashCashEquivalentsRestrictedCashAndRestrictedCashEquivalents": 30_000},
+        "BS": {"CashAndCashEquivalentsAtCarryingValue": 28_000},
+    }
+    assert C.check_across_statements(by) == []
+    assert C.check_across_statements({}) == []
+
+
+def test_run_filing_checks_covers_every_statement_and_the_cross_checks():
+    by = {
+        "BS": {"Assets": 100, "LiabilitiesAndStockholdersEquity": 100, "CashAndCashEquivalentsAtCarryingValue": 10},
+        "IS": {"Revenues": 100, "CostOfRevenue": 60, "GrossProfit": 40, "NetIncomeLoss": 11},
+        "CF": {"NetIncomeLoss": 11, "CashAndCashEquivalentsAtCarryingValue": 10},
+    }
+    got = names(C.run_filing_checks(by))
+    assert got == {
+        "assets_eq_liabilities_and_equity": True,
+        "gross_profit": True,
+        "net_income_is_equals_cf": True,
+        "ending_cash_cf_equals_bs": True,
+    }

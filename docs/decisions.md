@@ -144,3 +144,210 @@ amendments). Per-filing keys the loader does not store are logged once per proce
 stored: the filings table is 27M rows, and a new per-filing field is a schema decision. Existing
 lake rows read back with the new columns null until the next refresh (headers) or backfill
 (filings history).
+
+## A wrong check is worse than no check (2026-09-14)
+
+`income_after_tax` compared pretax income minus tax against whatever bottom-line concept came
+first, which fell through to `ProfitLoss`. Citigroup passed 64 % and Morgan Stanley 64 %, not
+because their filings are wrong but because the check was: pretax minus tax is income from
+CONTINUING operations, and both report discontinued operations after tax below that line, while
+their pretax concept's own name (`...MinorityInterestAndIncomeLossFromEquityMethodInvestments`)
+says the share of associates' profit is excluded from the subtotal. The check now bridges both
+before comparing, and prefers a reported continuing-operations line when the filing has one.
+
+Two checks added on the same principle. `eps_basic` / `eps_diluted` recompute earnings per share
+from the company's own weighted-average share count, and refuse to run when preferred dividends
+are present without an available-to-common numerator, because the numerator would be a guess.
+`net_income_is_equals_cf` and `ending_cash_cf_equals_bs` compare the SAME concept on two
+statements, never two concepts that sound alike, so a filing carrying cash-with-restricted-cash on
+one statement and cash-without on the other is not reported as a break. Cross-statement results are
+stored with `statement = 'XS'`.
+
+## Unless the user says otherwise, keep to the company's presentation (2026-09-14)
+
+Hicham's rule, and it governs every display decision below it: **a statement page reproduces what
+the company printed.** If a line was presented as one line, it is one line. If it was presented as
+three, it is three. We never merge, never split, never invent a total the company did not report.
+
+The corollary: anything we compute is a separate view, visibly ours. Our own table may show total
+revenue with a control that opens the parts underneath; that is analysis, not reproduction, and the
+reader can tell which is which. Breakdowns open in a side panel rather than being folded into the
+statement.
+
+Why this is the right rule for an integrity product: it makes every disagreement checkable. If our
+page and the filing differ, we are wrong. There is no judgement call to defend.
+
+What it demands of the pipeline: to reproduce a presentation we must know it. The data sets' `pre`
+table names a tag once per statement line with no dimension attached, so where a company printed
+several lines that share one tag and differ only by dimension, `pre` alone may not tell us how many
+lines there were or which value belongs to which. Whether it does is an open question being
+measured; if it does not, faithful reproduction requires reading the original filing rather than
+the summary files.
+
+## Segments: the company's words on the page, a type tag underneath (2026-09-14)
+
+Hicham settled the segment-naming question, and not the way it was framed. The page keeps the
+company's own wording, because an analyst takes those words into a call with management and a
+made-up division name is useless there. What gets standardised is not the name but the **kind** of
+segmentation, held internally per company per axis. Four kinds cover roughly 90 % of cases:
+
+1. geography
+2. product
+3. sub-company
+4. customer
+
+So a company carries tags like `Apple: geography` and `Apple: product`, because Apple reports revenue
+by region and separately discloses unit sales by product. The platform can then offer segmentation
+views without ever renaming what the company said.
+
+Why this is much cheaper than the alternative: mapping member names would have meant reviewing
+roughly 14,000 invented names (5,373 on the business-segments axis, 8,790 on product/service).
+Classifying the kind of segmentation is per company per axis, and the SEC's axis names already give
+three of the four almost free: `Geographical` is geography, `ProductOrService` is product,
+`LegalEntity` and `ConsolidatedEntities` are sub-company. The work is the `BusinessSegments` axis
+(158,080 facts, 5,373 members in one quarter), whose meaning varies by company: for Apple it is
+geography, for others it is product or division.
+
+Edge cases outside the four kinds are deferred. Hicham's instruction: we will meet them, there are
+not many, do not design for them now.
+
+## The equity statement waits; five disclosures come first (2026-09-14)
+
+Hicham: the statement of changes in equity is a real statement but "nowhere close to importance" as
+the balance sheet, income statement and cash flow. It should exist eventually. Ahead of it, in his
+order, the disclosures analysts actually reach for:
+
+1. Segmentation
+2. Debt schedule
+3. Preferred equity and other hybrids
+4. Acquisitions
+5. KPIs
+
+This reorders the plan after the three core statements are correct: the next work is these five, not
+the fourth statement.
+
+## Pre-2009 history: map a company's own dictionary backwards (2026-09-14)
+
+No XBRL tags exist before about 2009, only HTML tables with English labels. Generic parsing means
+guessing across thousands of label variations, which is the thing we spent 2026-09-14 removing.
+
+The approach instead: a company's statement barely changes year to year, so for any company that
+filed with tags in 2009 or later we already know its own wording. Apply that company's dictionary
+backwards to its own older filings. No cross-company guessing; a company is matched only to itself.
+`_template_for` in `sync_statements.py` already does this for filings the data sets do not cover, so
+this extends existing machinery rather than inventing new.
+
+It only works for companies still filing after 2009. Hicham: fine, nobody analyses Blockbuster or
+Toys R Us. Dead filers become a separate later project, a "companies no longer with us" explorer.
+
+Scope: listed companies, annual reports, 2001 onwards (pre-2001 is plain text rather than tables,
+and stops being worth it). Roughly 75,000 documents, under a day to fetch, and a few weeks of work
+overall, most of it verification rather than parsing. Remaining hard parts: reading the "in
+thousands / in millions" header correctly, bracketed negatives, and companies that changed layout
+mid-period.
+
+Values derived this way are read from a table, not filed as tags. They must be labelled as derived
+wherever they appear, so a reader always knows which numbers are reproductions and which are
+readings. Sequenced last, after the three core statements and the five disclosures.
+
+## Data quality is an internal check, not a user-facing feature (2026-09-14)
+
+Hicham: the arithmetic checks are ours, not the reader's. What matters to a user is that the filings
+are there and that everything is easy to understand. So `statement_checks` stays an engineering and
+operations signal: it gates what we publish and tells us where to look, and it does not appear on the
+page as badges, scores or warnings.
+
+Related, same conversation: foreign-domiciled filers (20-F, 40-F) are not "international filers" and
+are not a scope question. They file under US regulation, they are listed in the US, an investor can
+buy them, so they are in. The lake already holds 2,020 such companies, 1,363 listed, 1,208 on
+NYSE/Nasdaq, from 2009 onward. Whether their statements build as cleanly as domestic ones is an
+internal coverage measurement, not a question for him.
+
+## Two layers: the display layer and the Disclosure Unifying Layer (2026-09-14)
+
+Hicham's framing, and it generalises every naming decision made today into one architecture.
+
+**Layer 1, display.** Never touch or tamper with how a company presents its financials or its KPIs.
+This is the principle already recorded above, now stated as a layer rather than a rule about
+statements: it governs line items, segment names and KPI names alike.
+
+**Layer 2, the Disclosure Unifying Layer.** A mapping held underneath, never shown in place of the
+company's words, that says which different names mean the same thing. It exists for compute and
+query, not for display.
+
+The worked example: a restaurant grows two ways, more revenue per existing restaurant and more
+restaurants. The first is called Comps or Same Store Sales in the US, and Like for Like in the UK and
+Europe. A user asking "what are the like-for-likes of restaurants in the UK versus the US" is asking
+one question across three words. Layer 2 is what makes that answerable; layer 1 is what keeps each
+company's page honest.
+
+This is the same shape as the segmentation decision (company wording on the page, segmentation kind
+tagged underneath) and the concept dictionary (tag plus dimension as the key). They are all layer 2.
+
+**KPIs: leave as they are for now.** 59,755 company-invented tags in one quarter, in nearly every
+filing. The work is not mapping names, it is understanding definitions, and that is its own data
+engineering task. Deferred deliberately, not forgotten. It becomes load-bearing when we expand
+beyond the US, because that is when the same concept starts carrying different words by country.
+
+## Debt: its own page, and maturities resolved to real years (2026-09-14)
+
+**Its own page.** Hicham wants debt structure as a page in its own right, not a line on a statement.
+
+**Buckets become years.** Filings express maturities two ways: relative ("due within one year",
+"year two") or absolute ("2027"). Both mean the same thing and we resolve both to the actual year.
+For a filing with period end 2025-12-31, "within 12 months" is 2026, "year two" is 2027, "year
+three" is 2028.
+
+Two reasons, both his: an analyst thinks in years, not offsets; and a time series only works on
+absolute years. Debt due in 2028, tracked across successive filings, rising is bad and falling is
+good. That comparison is impossible if each filing's "year three" means a different year.
+
+Consistent with the two layers: the company's own wording stays on the page, the resolved year is
+the layer-2 value that makes query and time series work.
+
+**The trap to get right.** The resolution is relative to the filing's own fiscal year end, not the
+calendar. A June year end means "year two" is fiscal 2027, spanning mid-2026 to mid-2027, and
+labelling it 2027 without saying "fiscal" would be wrong. Same class of mistake as reading a table
+as thousands when it is millions: silent, and it makes the number useless.
+
+## Store the filing documents; index the attachments, store them later (2026-09-14)
+
+Hicham settled the exhibit question on trust rather than cost. The primary documents get stored now,
+for all 433,717 filings we take numbers from, because the whole product rests on being able to show
+the source of a number. A link to sec.gov is not evidence we control: links rot, the SEC
+restructures, filings are occasionally withdrawn, and their availability is not ours to guarantee. If
+we claim a number is what the company filed, we must hold the thing the company filed.
+
+It is also the cheap half: roughly 1.3 TB, about 20 dollars a month, and about twelve hours of
+fetching at the SEC's rate limit.
+
+Attachments are deferred but indexed. Links to a filing's primary document are free today, because
+the submissions data carries the filename and we already store the URL on every filing row. Knowing
+what attachments exist requires one small request per filing, no download; doing that for the 433,717
+gives a complete inventory in a few hours and stores nothing. The content follows when the compute
+layer needs it, starting with the debt agreements.
+
+Deferring costs no rework: the reader already looks in our storage first and falls back to fetching
+live from the SEC, so filling the store later changes no code, it only makes pages faster. Filings
+are immutable, so there is no window to miss.
+
+## A statement line is a concept plus its dimension (2026-09-14)
+
+The builder took undimensioned values only, so a tag a company reported *only* broken out vanished
+from the statement entirely. Measured on the reloaded lake: 46,672 presented lines in one quarter,
+6.5 % of all lines, across 91 % of filings. On NYSE and Nasdaq, 32 % of filings lost income-statement
+or cash-flow lines, Berkshire Hathaway among them.
+
+The rule now: a line takes the **total** where the filing reports one; where it reports only the
+breakdown, each member becomes its own line. `statements` gains a `segments` column carrying the
+axis=member text, and a line's identity is concept plus segments. Two members under one presented tag
+are two ordered lines, not one.
+
+The company's own presentation label is left exactly as it is. The member sits in its own column, so
+the display decision (how to render "Fee income" broken into three products) stays with the page and
+nothing is renamed in the data. Faithful labels for those lines need the original filing, because the
+data sets' `pre` table names the tag once, with one label, and never mentions the members.
+
+Checks compare totals only (`segments = ''`). Without that guard, Erie Indemnity's Class A earnings
+per share of 3.23 could be divided by Class B's 2,542 shares. Same failure as the Citigroup one fixed
+this morning: a check that does not know what it is comparing.

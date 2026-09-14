@@ -148,6 +148,7 @@ TABLE_COLUMNS: dict[str, list[str]] = {
         "is_parenthetical",
         "concept",
         "taxonomy",
+        "segments",
         "label",
         "standard_label",
         "negating",
