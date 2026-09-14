@@ -1303,15 +1303,15 @@ Not steps, and not bugs. Two places where the obvious way to do something is the
 in real use. Written down so the next person does not lose an evening to them.
 
 **Uploading to R2: do not use `aws s3 sync` for the statements.** It moves one file at a time, and
-there are ~394,000 of them (see step 11), so a publish runs for hours. `rclone` or `s5cmd`, told to
-move many files at once, do the same job far faster. The real fix is step 11, which cuts the file
-count; until then, use the faster tool.
+there are ~394,000 of them (see step 11), so a publish runs for hours — over two and a half on 14
+September. `rclone` or `s5cmd`, told to move many files at once, do the same job far faster. The real
+fix is step 11, which cuts the file count; until then, use the faster tool.
 
 **Ad-hoc queries against the remote lake: pass the read-only flag.** Opening the data for a quick
-question the plain way makes the query engine scan the entire lake before it answers anything, which
-can take hours. The serving site avoids this with a setting that reads each company on demand
-instead. Anyone poking at the lake by hand should use the same setting, or point at a local copy.
-This one has cost time already.
+question the plain way makes the query engine open the entire lake before it answers anything, which
+can take hours over the network. The serving site avoids this with a setting that reads each company
+on demand instead. Anyone poking at the lake by hand should use the same setting, or point at a local
+copy. Not known to have bitten yet, but the default is a trap waiting to happen.
 
 ---
 
