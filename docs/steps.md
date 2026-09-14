@@ -693,8 +693,9 @@ copes.
 **Done when.** Transportation works, and the awkward cases either fit or have told us what is
 missing.
 
-**What it needs.** The company list, being gathered now. And human judgement — we can suggest
-placements, but the groups and the difficult calls are not something to automate.
+**Who is doing it.** Hicham is defining the groups and the placements now. We can suggest placements
+from the filings, but the boundaries and the difficult calls are his, so this waits on his work
+rather than on ours.
 
 ## Step 17. The dictionary
 
@@ -968,11 +969,17 @@ releases, contracts, presentations, debt agreements.
 **Where we are.** We hold a demo set: 229 documents across 20 filings, for one company. That is not
 coverage. Step 6 records what exists for everything without downloading it.
 
-**The decision needed first.** Do we store every exhibit, or only some? Which forms? How far back?
-This is a cost and scope question, not a technical one, and it is open. Debt agreements are the
-obvious first choice, because step 20 needs them.
+**Decided (2026-09-14): store everything.** Every exhibit, every form, all the way back. Same reason
+as the primary documents — if we point at a filing as evidence, we hold the whole filing, not the
+part we happened to want. Debt agreements come first because step 20 needs them, but that is
+sequencing, not scope.
 
-**Size.** Depends entirely on that decision.
+**The one thing to size before running it.** "Everything" is a lot more than the primary documents.
+Those were about 1.3 TB. Every exhibit across 433,717 filings — contracts, presentations, graphics —
+is several times that. It is still cheap storage, but it should be measured and budgeted before the
+download starts, not discovered halfway through. That is a number to produce, not a decision to make.
+
+**Size.** Large to fetch, mostly waiting. Storage is the thing to size first.
 
 ```mermaid
 flowchart TD
@@ -981,14 +988,15 @@ flowchart TD
     F --> E2["Presentation"]
     F --> E3["Debt agreements"]
     F --> E4["Other contracts"]
-    E1 --> Q{"Store them all?<br/>Which forms?<br/>How far back?"}
-    E2 --> Q
-    E3 --> Q
-    E4 --> Q
-    Q --> DEC["An open decision.<br/>Cost and scope, not technical"]
-    E3 ==>|"the obvious first one, step 20 needs it"| FIRST["Start here"]
+    E1 --> ALL["Store everything<br/>every exhibit, every form,<br/>all the way back"]
+    E2 --> ALL
+    E3 --> ALL
+    E4 --> ALL
+    ALL --> SIZE["Measure the storage first:<br/>several times the 1.3 TB<br/>the primary documents took"]
+    E3 ==>|"first, step 20 needs it"| FIRST["Debt agreements<br/>start here"]
     style M fill:#e8f5e9,stroke:#2e7d32
-    style DEC fill:#fff4e5,stroke:#e65100
+    style ALL fill:#e8f5e9,stroke:#2e7d32
+    style SIZE fill:#fff4e5,stroke:#e65100
 ```
 
 ## Step 27. A document someone can actually save
@@ -1084,22 +1092,23 @@ has sold every quarter for three years". The second is worth far more, and only 
 **How it works.** The same collector, pointed at older dates, with its own separate place-marker so a
 catch-up run never disturbs the daily one.
 
-**The decision needed first.** How far back. Every year costs collection time and storage, and the
-value drops off the further back you go. This is worth deciding deliberately rather than by default.
+**Decided (2026-09-14): collect all of it.** The full history for all three flows, not a chosen
+number of years. A director's or a fund's behaviour over many years is exactly what makes ownership
+worth having, so we take the lot rather than draw a line and regret it.
 
 ```mermaid
 flowchart LR
     T["Today<br/>collection starts from yesterday"] --> ONE["This director sold last week"]
-    H["With history"] --> MANY["This director has sold<br/>every quarter for three years"]
-    MANY --> W["Worth far more.<br/>Only history gives it"]
-    DEC{"How far back?"} -.->|"costs time and storage"| H
+    H["Collect all of it"] --> MANY["This director has sold<br/>every quarter for a decade"]
+    MANY --> W["The whole point of ownership.<br/>Only full history gives it"]
     style ONE fill:#fff4e5,stroke:#e65100
     style W fill:#e8f5e9,stroke:#2e7d32
 ```
 
-**Done when.** We hold a stated number of years for all three flows, and the pages say which.
+**Done when.** The full history is collected for all three flows, and the pages show how far back
+each reaches.
 
-**Size.** Medium, mostly waiting.
+**Size.** Medium. Mostly the collector running for a while against older dates.
 
 ## Step 30. The older filings we cannot read yet
 

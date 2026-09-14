@@ -485,3 +485,30 @@ Each needs confirming before we promise dates, but the order is unlikely to chan
 
 One thing to do now: the list should carry an ID that works across countries, such as ISIN or LEI.
 A ticker does not. We already store LEI where the SEC gives it.
+
+## Three scope calls settled (2026-09-14, evening)
+
+Three questions the step plan had left open were answered directly.
+
+**Exhibits: store everything.** Not only the primary document and not only debt agreements — every
+exhibit, every form, all the way back. Same principle as the primary documents, extended: if we
+point at a filing as evidence, we hold the whole filing rather than the part we happened to want.
+Debt agreements are still fetched first because the debt page needs them, but that is sequencing, not
+scope. This supersedes the "attachments deferred, stored later" half of the 2026-09-14 documents
+decision; the deferral was a scope question, and the scope is now "all of it".
+
+One thing to size before running it, not a decision but a number: every exhibit across 433,717
+filings is several times the ~1.3 TB the primary documents take. Storage is cheap, but the figure
+should be produced and budgeted before the download starts rather than found halfway through.
+
+**Ownership history: collect all of it.** The full history for all three flows (insiders,
+institutions, beneficial ownership), not a chosen number of years. A person's or a fund's behaviour
+over many years is what makes ownership worth having, so we take the lot rather than draw a line and
+regret it. The collector already supports this through its separate catch-up cursor; it is a matter
+of letting it run against older dates.
+
+**Classification: Hicham is doing the groups.** The method was settled earlier (buckets from how
+analysts cover a name, a tree with variable depth, a primary home plus memberships, a definition
+sentence per node, Transportation as the pilot). The groups themselves and the hard placements are
+Hicham's, and he is working on them now. We can suggest placements from the filings; the boundaries
+and the difficult calls wait on him, not on us.
