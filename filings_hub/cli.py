@@ -79,6 +79,32 @@ def finish(verbose: bool = False) -> None:
     typer.echo(f"metrics: {n} companies ({time.monotonic() - step:.0f}s)")
 
 
+@app.command(name="fsds")
+def fsds_load(
+    quarters: list[str] = typer.Argument(..., help="FSDS quarters to (re)load from the raw zips, e.g. 2022q4"),
+    verbose: bool = False,
+) -> None:
+    """Reload chosen Financial Statement Data Set quarters from the raw zips already in the lake, for
+    example after a loader fix. Replaces those quarters' fsds tables and load-log rows; statements are
+    not rebuilt."""
+    _setup_logging(verbose)
+    from filings_hub.ingest import fsds
+
+    storage = _storage()
+    have = set(fsds.raw_quarters(storage))
+    missing = [q for q in quarters if q not in have]
+    if missing:
+        typer.echo(f"no raw zip in the lake for: {', '.join(missing)}", err=True)
+        raise typer.Exit(2)
+    done = fsds.load_all_fsds(storage, quarters, force=True)
+    for row in fsds.load_log(storage):
+        if row["quarter"] in done:
+            typer.echo(
+                f"{row['quarter']} {row['table']}: raw {row['raw_rows']} loaded {row['loaded_rows']} "
+                f"rejected {row['rejected_rows']} repaired {row['repaired_rows']}"
+            )
+
+
 @app.command()
 def compact(
     years: str = typer.Option("", help="comma-separated years; empty = every year"),

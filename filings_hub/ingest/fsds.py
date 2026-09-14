@@ -64,6 +64,7 @@ LOAD_LOG_SCHEMA = pa.schema(
         ("reject_examples", pa.list_(pa.string())),
         ("unparsed_values", pa.int64()),
         ("loaded_at", pa.timestamp("s")),
+        ("repaired_rows", pa.int64()),  # lines the SEC quoted around an embedded tab, re-joined before loading
     ]
 )
 
@@ -81,6 +82,55 @@ def _raw_rows(path: Path) -> int:
     """Data lines in the file (the SEC never quotes, so a newline is a row)."""
     with path.open("rb") as f:
         return max(sum(1 for _ in f) - 1, 0)
+
+
+def _rejoin_quoted_fields(fields: list[bytes], width: int) -> list[bytes] | None:
+    """A line with too many fields where the SEC's writer wrapped a value holding a tab in double
+    quotes (the only case its files quote: an investment name in `segments`, a footnote). Re-join the
+    quoted run into one field, tabs as spaces, quotes stripped. None when the line does not fit that
+    shape, so the reader still rejects it rather than guessing."""
+    out: list[bytes] = []
+    i = 0
+    while i < len(fields):
+        f = fields[i]
+        if f.startswith(b'"') and not (len(f) > 1 and f.endswith(b'"')):
+            j = i + 1
+            while j < len(fields) and not fields[j].endswith(b'"'):
+                j += 1
+            if j == len(fields):
+                return None
+            joined = b" ".join(fields[i : j + 1])
+            out.append(joined[1:-1])
+            i = j + 1
+        else:
+            out.append(f)
+            i += 1
+    return out if len(out) == width else None
+
+
+def _repair_overflow_lines(src: Path) -> tuple[Path, int]:
+    """Rewrite the file when any data line carries more tab-separated fields than the header and can be
+    repaired with `_rejoin_quoted_fields`. Returns (file to read, lines repaired); the original file when
+    nothing needed repair. Byte-level, so it runs before any encoding decision (tab and quote are
+    ASCII in both UTF-8 and Windows-1252)."""
+    with src.open("rb") as f:
+        header = f.readline()
+        width = header.rstrip(b"\r\n").count(b"\t") + 1
+        repaired: dict[int, bytes] = {}
+        for n, raw in enumerate(f, start=2):
+            line = raw.rstrip(b"\r\n")
+            if line.count(b"\t") + 1 <= width:
+                continue
+            fixed = _rejoin_quoted_fields(line.split(b"\t"), width)
+            if fixed is not None:
+                repaired[n] = b"\t".join(fixed) + b"\n"
+    if not repaired:
+        return src, 0
+    out = src.with_suffix(".repaired.txt")
+    with src.open("rb") as fin, out.open("wb") as fout:
+        for n, raw in enumerate(fin, start=1):
+            fout.write(repaired.get(n, raw))
+    return out, len(repaired)
 
 
 def _transcode_to_utf8(src: Path) -> Path:
@@ -135,6 +185,9 @@ def load_fsds_quarter(storage: Storage, quarter: str, duck: Duck | None = None) 
             for t in TABLES:
                 src = Path(tmp) / f"{t}.txt"
                 raw_rows = _raw_rows(src)
+                src, repaired = _repair_overflow_lines(src)
+                if repaired:
+                    log.info("FSDS %s %s: %d line(s) with a quoted tab re-joined", quarter, t, repaired)
                 # The SEC's files are UTF-8 from about 2013; earlier quarters carry Windows-1252 bytes.
                 # Read as UTF-8 first; only when the rejects say the bytes were the problem, transcode
                 # and read again, so the second pass can only reject a row for its structure.
@@ -178,6 +231,7 @@ def load_fsds_quarter(storage: Storage, quarter: str, duck: Duck | None = None) 
                         "reject_examples": examples,
                         "unparsed_values": unparsed,
                         "loaded_at": datetime.now(UTC).replace(tzinfo=None, microsecond=0),
+                        "repaired_rows": repaired,
                     }
                 )
                 if raw_rows and rejected / raw_rows > REJECT_WARN_RATIO:
@@ -224,7 +278,9 @@ def load_log(storage: Storage) -> list[dict]:
     """Every FSDS table load with its row reconciliation, newest first."""
     rows: list[dict] = []
     for p in storage.glob(f"{layout.FSDS_LOAD_LOG}/*.parquet"):
-        rows.extend(storage.read_parquet(p).to_pylist())
+        for r in storage.read_parquet(p).to_pylist():
+            r.setdefault("repaired_rows", 0)  # logs written before the column existed
+            rows.append(r)
     return sorted(rows, key=lambda r: (r["quarter"], r["table"]), reverse=True)
 
 

@@ -101,3 +101,17 @@ warm, and the 126-file filings table binds and counts in 18s. `Storage` writes a
 the listing they touch, so a process still sees its own writes at once; another process's new
 partition is seen within a minute. Per-company statement compaction (one file per company
 instead of one per filing) remains the next step for the company page.
+
+## FSDS lines the SEC quotes around a tab are re-joined, not rejected (2026-09-14)
+
+The SEC's data-set files are tab-separated and unquoted, so the loader reads them with quoting
+off and records any line it cannot place as a reject rather than guess. Four quarters carried
+152 such lines, all schedule-of-investments rows of Business Development Companies whose
+investment name held a tab: the SEC's writer had wrapped that one value in double quotes. Read
+with quoting off, the line had one field too many. The loader now runs a byte-level pass before
+any encoding decision: a data line wider than the header whose extra fields are explained by one
+double-quoted run is re-joined (tabs as spaces, quotes stripped) and counted as `repaired_rows`
+in the load log; anything else still lands in the rejects. `filings-hub fsds <quarter>...` reloads
+chosen quarters from the raw zips, which live only where the backfill ran (the raw prefix is not
+part of the R2 lake), so the reload runs on the Mac and the four quarters' `fsds/num` partitions
+and `fsds/load_log` are synced up afterwards.

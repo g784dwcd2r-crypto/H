@@ -114,3 +114,44 @@ def test_raw_row_counter():
     p.write_bytes(b"h1\th2\n")
     assert fsds._raw_rows(p) == 0
     assert date.today()  # keep the import honest for the fixtures module
+
+
+def test_quoted_tab_lines_are_rejoined_not_rejected(tmp_path):
+    """The SEC's writer wraps a value holding a tab in double quotes (an investment name in `segments`,
+    a footnote). Read with quotes off, that line has one field too many and DuckDB rejects it. The
+    loader must re-join the quoted run so the row loads, and count what it repaired."""
+    tables = _base_tables()
+    num = tables["num"].decode().splitlines()
+    # a dimensional row (schedule of investments) with a tab inside the quoted segments value
+    num.append(
+        "0000019617-26-000001\tInvestmentOwnedBalancePrincipalAmount\tus-gaap/2025\t20251231\t0\tUSD"
+        '\t"InvestmentIdentifier=GC3262\tDili Corp;"\t\t2500000\t'
+    )
+    # a plain statement row with a tab inside a quoted footnote: the number must land intact
+    num.append(
+        '0000019617-26-000001\tOtherAssetsNoncurrent\tus-gaap/2025\t20251231\t0\tUSD\t\t\t4200000\t"see note\t7"'
+    )
+    tables["num"] = ("\n".join(num) + "\n").encode()
+    st, _counts, log = _load(tmp_path, tables)
+    assert log["num"]["repaired_rows"] == 2
+    assert log["num"]["rejected_rows"] == 0
+    duck = Duck(st)
+    try:
+        duck.view("fsds_num", f"{layout.FSDS}/num/*/*.parquet")
+        row = duck.fetch_all("SELECT value, footnote FROM fsds_num WHERE tag = 'OtherAssetsNoncurrent'")
+        assert row == [(4200000.0, "see note 7")]
+        # the dimensional row is repaired but, like every dimensional row, not part of the statements load
+        assert (
+            duck.fetch_value("SELECT count(*) FROM fsds_num WHERE tag = 'InvestmentOwnedBalancePrincipalAmount'") == 0
+        )
+    finally:
+        duck.close()
+
+
+def test_rejoin_quoted_fields_shapes():
+    j = fsds._rejoin_quoted_fields
+    assert j([b"a", b'"x', b'y"', b"c"], 3) == [b"a", b"x y", b"c"]
+    assert j([b"a", b'"x', b"mid", b'y"'], 2) == [b"a", b"x mid y"]
+    assert j([b"a", b'"x', b"y"], 2) is None  # never closed
+    assert j([b"a", b"b", b"c"], 2) is None  # nothing quoted to explain the overflow
+    assert j([b'"whole"', b"b", b"c"], 3) == [b'"whole"', b"b", b"c"]  # a quoted field with no tab is left as is
