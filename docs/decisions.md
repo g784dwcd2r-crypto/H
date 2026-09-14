@@ -615,3 +615,35 @@ Noted, not acted on.
 The signal worth chasing is elsewhere: ~8-9 % of checks *fail* (130,402 standard, 58,838 EPS), and
 most standard fails are more than 10x past the line — genuine non-reconciliation, not tolerance. That
 is coverage-audit (step 4) and calculation-tree (step 8) territory, not step 1's.
+
+## The arithmetic checks compared the raw sign; ~9 % "failures" were mostly false (2026-09-14, evening)
+
+`check-report` said 9.2 % of checks fail (189,240 of 2,047,964), 71.6 % of companies with at least
+one failing check. `check-explain` on the worst offenders (Texas Pacific Land Trust, Entergy, Hecla)
+showed every one was an exact sign inversion — `lhs = -rhs`, 200 % off, the maximum a relative gap
+can be. The data was fine; the checks were wrong.
+
+Two causes, both in how the checks picked their inputs, not in the stored numbers:
+
+- **Sign.** Filers record some lines (cost of sales, a liability, occasionally assets) with either
+  sign; XBRL carries a `negating` flag for the ones shown flipped, and the company *page* already uses
+  the flipped-back value (`value_presented`). The checks read the raw `value` and ignored the flag,
+  so `revenue - cost` on a filer who stores cost negative became `revenue - (-cost)` — a sign flip.
+  Texas Pacific: Assets filed as -24,284,031, presented as +24,284,031, and 6,623,235 + 17,660,796 =
+  24,284,031 exactly. The page balanced; only the check failed.
+- **Period.** `ending_cash_cf_equals_bs` (47 % fail, the biggest category) compared the cash-flow
+  statement's cash to the balance sheet's, but cash appears twice on the cash-flow statement
+  (beginning and ending). The check grabbed an arbitrary one via `any_value`, often comparing the
+  beginning balance to the ending.
+
+Fix, in both check paths (`_checks_from_staged` and the fallback in `sync_statements.py`): use
+`value_presented` (the sign the filer presents, the same number the page shows) and pick the
+period-END value (`arg_max(value_presented, period_end_rounded)`; in the fallback, the last of the
+ascending-by-period rows). Rejected `abs()`: it would hide real errors and break legitimately
+negative figures (a loss, a decrease in cash, negative equity from an accumulated deficit — where
+`Assets = Liabilities + (negative equity)` is correct and `abs()` would falsely flag it).
+
+For a normal filing nothing changes (`value_presented == value`, one value per period), so passing
+checks stay passing; only the negated lines and the double-reported instants are corrected. Locked in
+by tests: a negated-but-balanced sheet now passes, cash uses the ending figure, and a real imbalance
+still fails. The true failure rate will be visible after a statements rebuild re-runs the checks.
