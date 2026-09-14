@@ -88,11 +88,51 @@ PRETAX_CONCEPTS = (
     "IncomeLossFromContinuingOperationsBeforeIncomeTaxesDomestic",
 )
 TAX_CONCEPTS = ("IncomeTaxExpenseBenefit", "IncomeTaxExpenseContinuingOperations")
-CONTINUING_CONCEPTS = (
+# Income from continuing operations as its own line. Preferred right-hand side for the tax identity.
+CONTINUING_ONLY_CONCEPTS = (
     "IncomeLossFromContinuingOperations",
+    "IncomeLossFromContinuingOperationsIncludingPortionAttributableToNoncontrollingInterest",
     "ProfitLossFromContinuingOperations",  # ifrs-full
-    "ProfitLoss",
-    "NetIncomeLoss",
+)
+# Bottom-line income: continuing plus discontinued operations.
+TOTAL_INCOME_CONCEPTS = ("ProfitLoss", "NetIncomeLoss")
+CONTINUING_CONCEPTS = CONTINUING_ONLY_CONCEPTS + TOTAL_INCOME_CONCEPTS
+# Results of businesses being sold or closed, reported after tax and below the tax line.
+DISCONTINUED_CONCEPTS = (
+    "IncomeLossFromDiscontinuedOperationsNetOfTax",
+    "IncomeLossFromDiscontinuedOperationsNetOfTaxAttributableToReportingEntity",
+    "IncomeLossFromDiscontinuedOperationsNetOfTaxIncludingPortionAttributableToNoncontrollingInterest",
+    "ProfitLossFromDiscontinuedOperations",  # ifrs-full
+)
+# Share of an associate's profit. Some pretax concepts exclude it by definition (their name says so),
+# in which case it has to be added back before comparing with income after tax.
+EQUITY_METHOD_CONCEPTS = (
+    "IncomeLossFromEquityMethodInvestments",
+    "ShareOfProfitLossOfAssociatesAndJointVenturesAccountedForUsingEquityMethod",  # ifrs-full
+)
+# Preferred dividends sit between net income and the earnings the common shareholders are credited
+# with, so EPS cannot be recomputed from total net income when any of these is present.
+PREFERRED_DIVIDEND_CONCEPTS = (
+    "PreferredStockDividendsAndOtherAdjustments",
+    "PreferredStockDividendsIncomeStatementImpact",
+    "DividendsPreferred",
+    "PreferredStockDividendsShares",
+)
+EPS_NUMERATOR_CONCEPTS = (
+    "NetIncomeLossAvailableToCommonStockholdersBasic",
+    "NetIncomeLossAvailableToCommonStockholdersDiluted",
+)
+# (EPS concept, share-count concept) for the basic and diluted columns.
+EPS_PAIRS = (
+    ("basic", "EarningsPerShareBasic", "WeightedAverageNumberOfSharesOutstandingBasic"),
+    ("diluted", "EarningsPerShareDiluted", "WeightedAverageNumberOfDilutedSharesOutstanding"),
+)
+# Concepts that must carry the same value wherever they appear in one filing. Compared like with
+# like: the same concept on two statements, never two concepts that merely sound alike.
+CROSS_STATEMENT_NET_INCOME = ("ProfitLoss", "NetIncomeLoss")
+CROSS_STATEMENT_CASH = (
+    "CashCashEquivalentsRestrictedCashAndRestrictedCashEquivalents",
+    "CashAndCashEquivalentsAtCarryingValue",
 )
 EQUITY_TOTAL_CONCEPTS = (
     "StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest",
@@ -148,6 +188,13 @@ CHECK_CONCEPTS = frozenset(
         *PRETAX_CONCEPTS,
         *TAX_CONCEPTS,
         *CONTINUING_CONCEPTS,
+        *DISCONTINUED_CONCEPTS,
+        *EQUITY_METHOD_CONCEPTS,
+        *PREFERRED_DIVIDEND_CONCEPTS,
+        *EPS_NUMERATOR_CONCEPTS,
+        *CROSS_STATEMENT_CASH,
+        *[c for _, c, _ in EPS_PAIRS],
+        *[c for _, _, c in EPS_PAIRS],
         *EQUITY_TOTAL_CONCEPTS,
         *NET_CHANGE_IN_CASH_INCL_FX,
         *NET_CHANGE_IN_CASH_EXCL_FX,
@@ -157,6 +204,9 @@ CHECK_CONCEPTS = frozenset(
 
 RELATIVE_TOLERANCE = 0.005  # statements "may not sum due to rounding"; 0.5 % catches real breaks
 ABSOLUTE_TOLERANCE = 1.0
+CROSS_STATEMENT = "XS"  # `statement` value for a check that spans statements rather than sitting on one
+EPS_ABSOLUTE_TOLERANCE = 0.01  # EPS is printed to the cent, so a cent of rounding is not a break
+EPS_RELATIVE_TOLERANCE = 0.01
 
 
 @dataclass(frozen=True)
@@ -241,19 +291,68 @@ def check_income_statement(v: dict[str, float]) -> list[CheckResult]:
                 "GrossProfit - OperatingExpenses = OperatingIncomeLoss",
             )
         )
+    out.extend(_check_income_after_tax(v))
+    out.extend(_check_eps(v))
+    return out
+
+
+def _check_income_after_tax(v: dict[str, float]) -> list[CheckResult]:
+    """Pretax income minus tax is income from CONTINUING operations, not the bottom line.
+
+    Getting this wrong is how a correct filing fails a check: a company selling a business reports
+    discontinued operations after tax, below the tax line, and a company using a pretax concept whose
+    name says "...AndIncomeLossFromEquityMethodInvestments" has excluded its share of associates'
+    profit from that subtotal. Both have to be bridged before the two sides can be compared.
+    """
     pretax, tax = _first(v, PRETAX_CONCEPTS), _first(v, TAX_CONCEPTS)
-    if pretax and tax:
-        cont = _first(v, CONTINUING_CONCEPTS)
-        if cont:
-            out.append(
-                _result(
-                    "IS",
-                    "income_after_tax",
-                    pretax[1] - tax[1],
-                    cont[1],
-                    f"{pretax[0]} - {tax[0]} = {cont[0]}",
-                )
+    if not (pretax and tax):
+        return []
+    lhs, parts = pretax[1] - tax[1], [pretax[0], f"- {tax[0]}"]
+    if "IncomeLossFromEquityMethodInvestments" in pretax[0] and (eq := _first(v, EQUITY_METHOD_CONCEPTS)):
+        lhs += eq[1]  # the subtotal's own name says it is excluded
+        parts.append(f"+ {eq[0]}")
+    if cont := _first(v, CONTINUING_ONLY_CONCEPTS):
+        return [_result("IS", "income_after_tax", lhs, cont[1], " ".join(parts) + f" = {cont[0]}")]
+    total = _first(v, TOTAL_INCOME_CONCEPTS)
+    if not total:
+        return []
+    if disc := _first(v, DISCONTINUED_CONCEPTS):
+        lhs += disc[1]  # reported after tax, so it belongs on the same side as the bottom line
+        parts.append(f"+ {disc[0]}")
+    return [_result("IS", "income_after_tax", lhs, total[1], " ".join(parts) + f" = {total[0]}")]
+
+
+def _eps_close(lhs: float, rhs: float) -> bool:
+    return abs(lhs - rhs) <= max(EPS_ABSOLUTE_TOLERANCE, EPS_RELATIVE_TOLERANCE * abs(rhs))
+
+
+def _check_eps(v: dict[str, float]) -> list[CheckResult]:
+    """Earnings per share must be the earnings credited to common shareholders over the share count
+    the company itself reported. Only runs when the numerator is unambiguous: either the company
+    tagged earnings available to common, or it reports no preferred dividends to deduct."""
+    numerator = _first(v, EPS_NUMERATOR_CONCEPTS)
+    if numerator is None:
+        if _first(v, PREFERRED_DIVIDEND_CONCEPTS):
+            return []  # preferred dividends come out first and we cannot see how much
+        numerator = _first(v, TOTAL_INCOME_CONCEPTS)
+    if numerator is None:
+        return []
+    out: list[CheckResult] = []
+    for kind, eps_concept, shares_concept in EPS_PAIRS:
+        eps, shares = v.get(eps_concept), v.get(shares_concept)
+        if eps is None or not shares:
+            continue
+        computed = numerator[1] / shares
+        out.append(
+            CheckResult(
+                "IS",
+                f"eps_{kind}",
+                _eps_close(computed, eps),
+                computed,
+                eps,
+                f"{numerator[0]} / {shares_concept} = {eps_concept}",
             )
+        )
     return out
 
 
@@ -288,12 +387,46 @@ def check_cash_flow(v: dict[str, float]) -> list[CheckResult]:
     return out
 
 
+def check_across_statements(by_statement: dict[str, dict[str, float]]) -> list[CheckResult]:
+    """One number filed twice must agree. Compared like with like: the SAME concept on two
+    statements, never two concepts that merely sound alike, so a definitional difference (cash with
+    restricted cash against cash without it) can never be reported as a break.
+
+    Net income is the bottom of the income statement and the first line of the cash flow statement.
+    Ending cash is the foot of the cash flow statement and a line on the balance sheet.
+    """
+    out: list[CheckResult] = []
+    is_, cf, bs = (by_statement.get(k) or {} for k in ("IS", "CF", "BS"))
+    for concept in CROSS_STATEMENT_NET_INCOME:
+        if is_.get(concept) is not None and cf.get(concept) is not None:
+            out.append(
+                _result(CROSS_STATEMENT, "net_income_is_equals_cf", is_[concept], cf[concept], f"IS = CF ({concept})")
+            )
+            break
+    for concept in CROSS_STATEMENT_CASH:
+        if cf.get(concept) is not None and bs.get(concept) is not None:
+            out.append(
+                _result(CROSS_STATEMENT, "ending_cash_cf_equals_bs", cf[concept], bs[concept], f"CF = BS ({concept})")
+            )
+            break
+    return out
+
+
 CHECKERS = {"BS": check_balance_sheet, "IS": check_income_statement, "CF": check_cash_flow}
 
 
 def run_checks(statement: str, values: dict[str, float]) -> list[CheckResult]:
     fn = CHECKERS.get(statement)
     return fn(values) if fn else []
+
+
+def run_filing_checks(by_statement: dict[str, dict[str, float]]) -> list[CheckResult]:
+    """Every check for one filing: the per-statement ones, then the cross-statement ones."""
+    out: list[CheckResult] = []
+    for statement, values in sorted(by_statement.items()):
+        out.extend(run_checks(statement, values))
+    out.extend(check_across_statements(by_statement))
+    return out
 
 
 def checks_passed(results: list[CheckResult]) -> bool | None:

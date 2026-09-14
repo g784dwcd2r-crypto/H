@@ -144,3 +144,21 @@ amendments). Per-filing keys the loader does not store are logged once per proce
 stored: the filings table is 27M rows, and a new per-filing field is a schema decision. Existing
 lake rows read back with the new columns null until the next refresh (headers) or backfill
 (filings history).
+
+## A wrong check is worse than no check (2026-09-14)
+
+`income_after_tax` compared pretax income minus tax against whatever bottom-line concept came
+first, which fell through to `ProfitLoss`. Citigroup passed 64 % and Morgan Stanley 64 %, not
+because their filings are wrong but because the check was: pretax minus tax is income from
+CONTINUING operations, and both report discontinued operations after tax below that line, while
+their pretax concept's own name (`...MinorityInterestAndIncomeLossFromEquityMethodInvestments`)
+says the share of associates' profit is excluded from the subtotal. The check now bridges both
+before comparing, and prefers a reported continuing-operations line when the filing has one.
+
+Two checks added on the same principle. `eps_basic` / `eps_diluted` recompute earnings per share
+from the company's own weighted-average share count, and refuse to run when preferred dividends
+are present without an available-to-common numerator, because the numerator would be a guess.
+`net_income_is_equals_cf` and `ending_cash_cf_equals_bs` compare the SAME concept on two
+statements, never two concepts that sound alike, so a filing carrying cash-with-restricted-cash on
+one statement and cash-without on the other is not reported as a break. Cross-statement results are
+stored with `statement = 'XS'`.

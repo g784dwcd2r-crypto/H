@@ -319,17 +319,17 @@ def _checks_from_staged(duck: Duck, source: str) -> pa.Table:
         GROUP BY 1, 2, 3, 4
         """
     )
-    groups: dict[tuple[str, int, str], dict[str, float]] = defaultdict(dict)
+    groups: dict[tuple[str, int], dict[str, dict[str, float]]] = defaultdict(lambda: defaultdict(dict))
     for r in pivot.to_pylist():
-        groups[(r["accession"], r["cik"], r["statement"])][r["concept"]] = r["value"]
+        groups[(r["accession"], r["cik"])][r["statement"]][r["concept"]] = r["value"]
     rows = []
-    for (acc, cik, stmt), values in groups.items():
-        for res in chk.run_checks(stmt, values):
+    for (acc, cik), by_statement in groups.items():
+        for res in chk.run_filing_checks(by_statement):
             rows.append(
                 {
                     "accession": acc,
                     "cik": cik,
-                    "statement": stmt,
+                    "statement": res.statement,
                     "check_name": res.check_name,
                     "passed": res.passed,
                     "lhs": res.lhs,
@@ -616,6 +616,7 @@ def build_fallback_rows(
 
     stmt_rows: list[dict[str, Any]] = []
     check_rows: list[dict[str, Any]] = []
+    by_statement: dict[str, dict[str, float]] = {}
     for (statement, parenthetical), items in lines.items():
         # drop trailing/leading abstract headers with nothing under them
         cleaned: list[dict[str, Any]] = []
@@ -712,6 +713,7 @@ def build_fallback_rows(
                     }
                 )
         if not parenthetical:
+            by_statement[statement] = primary_values
             results = chk.run_checks(statement, primary_values)
             passed = chk.checks_passed(results)
             for r in stmt_rows:
@@ -732,6 +734,21 @@ def build_fallback_rows(
                         "source": "facts_fallback",
                     }
                 )
+    for res in chk.check_across_statements(by_statement):
+        check_rows.append(
+            {
+                "accession": accession,
+                "cik": cik,
+                "statement": res.statement,
+                "check_name": res.check_name,
+                "passed": res.passed,
+                "lhs": res.lhs,
+                "rhs": res.rhs,
+                "difference": res.difference,
+                "detail": res.detail,
+                "source": "facts_fallback",
+            }
+        )
     stmt_rows.sort(
         key=lambda r: (
             r["statement"],
