@@ -49,6 +49,9 @@ Held and verified:
   another's share count.
 - Company header fields, filer category (`1-LAF` / `2-ACC` / `4-NON`), and a JSON catch-all for any
   field the SEC adds later.
+- **The filing reader's parsers** (`filings_hub/ingest/xbrl.py`): the four linkbases and the instance
+  document, read as pure functions over bytes and tested against fixtures rather than the network.
+  Phase 1 step 1 is done. The whole suite is green.
 
 Known wrong or absent, in the order it hurts:
 
@@ -76,14 +79,16 @@ Nothing else in this plan is as valuable. It comes first.
 
 ### Phase 1 — The filing reader (now)
 
-1. **Parsers, no network.** The four linkbases a filing ships (`_lab`, `_pre`, `_cal`, `_def`) and the
-   instance document. Out of them: the calculation tree with weights, the presentation order with
-   preferred labels, the company's own label per line, and every fact with its full dimensional
-   context. Pure functions over bytes, tested against fixtures.
-2. **Fetch and store.** The primary document and its linkbases for the filings we take numbers from,
-   into the lake beside the filing. ~1.3 TB, ~20 dollars a month, ~twelve hours at the SEC's rate
-   limit. Attachments are indexed now (one small request per filing, nothing downloaded) and stored
-   later when the compute layer needs them, starting with the debt agreements.
+1. **Parsers, no network — done.** The four linkbases a filing ships (`_lab`, `_pre`, `_cal`, `_def`)
+   and the instance document. Out of them: the calculation tree with weights, the presentation order
+   with preferred labels, the company's own label per line, and every fact with its full dimensional
+   context. Pure functions over bytes, tested against fixtures, so a filing parses the same way in
+   ten years as it does today.
+2. **Fetch and store — next, and the first step that spends money.** The primary document and its
+   linkbases, for the filings we take numbers from, into the lake beside the filing. ~1.3 TB, ~20
+   dollars a month, ~twelve hours at the SEC's rate limit. Attachments are indexed now (one small
+   request per filing, nothing downloaded) and stored later when the compute layer needs them,
+   starting with the debt agreements.
 3. **Statements from the filing.** Where we hold the filing, build the statement from it and keep the
    data sets as the cross-check. Any disagreement between the two is a bug with a name.
 4. **The subtotal check, for real.** With the actual calculation tree, `subtotal_equals_children`
@@ -173,6 +178,43 @@ they appear. 2009 already reaches back to 2008 because the 2009 report carries t
 
 Sector: SIC is not GICS and GICS is licensed. Use Hicham's list where he has one, SIC as fallback.
 
+## Set aside — share price and market capitalisation
+
+**Not in the running order above, and deliberately so.** Hicham asked for an end-of-day price and a
+market capitalisation. It is parked until section 2 of `legal-questions.md` is answered. No vendor is
+engaged, no key is obtained, and no price data enters the lake before then.
+
+What is *not* the reason it is parked: cost and difficulty. A feed is about 20 euros a month with the
+whole world included, roughly 21 API calls a month on a bulk endpoint, and pennies of storage.
+
+The data half is nearly done already, out of the filings we hold:
+
+- Shares outstanding are in the lake, **including the per-class split** that market cap needs for a
+  multi-class company — Alphabet Class A 5,824m, Class B 836m, Class C 5,456m, summing to the
+  reported 12,116m.
+- The count that matters is the **ending period** count, not the weighted average the statements
+  report for EPS; basic and diluted are two different numbers and neither is the one to multiply by
+  a price.
+
+Only the price itself is missing, and the question is not whether we can fetch one. It is whether the
+vendor's agreement lets us show their price to a paying subscriber — "redistribution", "display" and
+"derived data" are three different permissions, and most free tiers are personal-use only. That is a
+question for a solicitor, not for us.
+
+Two things settled on the way, which stand whatever the answer is:
+
+- **We buy prices only, never fundamentals.** Vendors compile statements by scraping announcements,
+  news feeds and investor-relations pages: a copy of a copy. If a vendor's number and the filing
+  disagree, the filing is right, and we would have no way to show a user which is which. Filings we
+  own end to end; a closing price we rent, because we cannot add value to it.
+- **Building the feed ourselves is a licensing project, not an engineering one.** The code is a file
+  a day. The hard parts are the exchange agreements — which are the thing the vendor actually sells —
+  and corporate-action adjustment, which is where the bugs live. At 20 euros a month the arithmetic
+  is not close.
+
+*Unparked when:* the redistribution question comes back answered. Until then this section is the only
+place in the plan where prices appear, and nothing downstream may assume they exist.
+
 ## Standing decisions this plan assumes
 
 - Foreign-domiciled filers (20-F, 40-F) are **in scope**: they file under US regulation and a US
@@ -184,11 +226,13 @@ Sector: SIC is not GICS and GICS is licensed. Use Hicham's list where he has one
 - Provisional periods (built from company facts because the data sets have not published yet) are
   labelled as provisional on the page, in the grid and in the Excel export, and stay labelled until
   filings are read directly.
-- Live share prices add little; the share count that matters is the **ending period** count, not the
-  weighted average the statements report, and basic and diluted are two different numbers.
+- Share price and market capitalisation are **set aside**, blocked on legal advice, not on
+  engineering — see the section above. Nothing in this plan depends on them.
 
 ## What is still with Hicham
 
 - The list of core companies, and the sector for each.
 - Whether attachments beyond the primary document ever get stored, and which.
 - Ten minutes on the Excel export.
+- Out with a solicitor, not with Hicham: the market-data redistribution question that the section
+  above waits on, and the rest of `legal-questions.md`.
