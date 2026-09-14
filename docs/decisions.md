@@ -210,3 +210,18 @@ geography, for others it is product or division.
 
 Edge cases outside the four kinds are deferred. Hicham's instruction: we will meet them, there are
 not many, do not design for them now.
+
+## The equity statement waits; five disclosures come first (2026-09-14)
+
+Hicham: the statement of changes in equity is a real statement but "nowhere close to importance" as
+the balance sheet, income statement and cash flow. It should exist eventually. Ahead of it, in his
+order, the disclosures analysts actually reach for:
+
+1. Segmentation
+2. Debt schedule
+3. Preferred equity and other hybrids
+4. Acquisitions
+5. KPIs
+
+This reorders the plan after the three core statements are correct: the next work is these five, not
+the fourth statement.
