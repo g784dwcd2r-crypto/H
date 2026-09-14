@@ -584,3 +584,23 @@ def check_report_cmd(
         typer.echo(json.dumps(report, indent=2, default=str))
     else:
         typer.echo(cr.format_failure_report(report))
+
+
+@app.command(name="check-explain")
+def check_explain_cmd(
+    cik: int = typer.Argument(..., help="company CIK to explain"),
+    as_json: bool = typer.Option(False, "--json"),
+    verbose: bool = False,
+) -> None:
+    """Show one company's failing checks and the actual statement lines behind them (value,
+    value_presented, negating), to see whether a sign inversion is in the data or the check."""
+    _setup_logging(verbose)
+    from filings_hub import check_report as cr
+
+    report = cr.explain(_storage(), cik)
+    if as_json:
+        import json
+
+        typer.echo(json.dumps(report, indent=2, default=str))
+    else:
+        typer.echo(cr.format_explain(report))

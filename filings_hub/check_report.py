@@ -136,7 +136,61 @@ def format_failure_report(report: dict[str, Any]) -> str:
             tol = EPS_RELATIVE_TOLERANCE if w["check_name"].startswith("eps") else RELATIVE_TOLERANCE
             pct = (w["q"] or 0) * tol
             out.append(
-                f"  {who[:34]:<34} {CHECK_LABELS.get(w['check_name'], w['check_name'])[:34]:<34} "
-                f"{w['lhs']:>18,.0f} vs {w['rhs']:>18,.0f}  ({pct * 100:.1f}% off)"
+                f"  cik {w['cik']:<8} {who[:28]:<28} {CHECK_LABELS.get(w['check_name'], w['check_name'])[:30]:<30} "
+                f"{w['lhs']:>16,.0f} vs {w['rhs']:>16,.0f}  ({pct * 100:.1f}% off)"
             )
+    return "\n".join(out)
+
+
+def explain(storage: Storage, cik: int, accessions: int = 3) -> dict[str, Any]:
+    """The smoking gun for one company: its failing checks, and the actual statement lines behind
+    them (raw `value`, the display-adjusted `value_presented`, and the `negating` flag), so we can
+    see whether a sign inversion is in the stored data or in the check's comparison.
+
+    Scoped to one company, so it is quick even on a remote lake.
+    """
+    from filings_hub.ingest.checks import CHECK_CONCEPTS
+
+    duck = Duck(storage)
+    try:
+        sc = f"{layout.STATEMENT_CHECKS}/cik={int(cik)}"
+        st = f"{layout.STATEMENTS}/cik={int(cik)}"
+        if not duck.view("sc", f"{sc}/*.parquet"):
+            return {"cik": cik, "message": "no statement_checks for this company"}
+        duck.view("st", f"{st}/*.parquet")
+
+        fails = duck.fetch_dicts(
+            "SELECT accession, statement, check_name, lhs, rhs, difference, detail "
+            "FROM sc WHERE NOT passed ORDER BY accession, check_name"
+        )
+        bad_accessions = list(dict.fromkeys(f["accession"] for f in fails))[:accessions]
+        concepts = "', '".join(sorted(CHECK_CONCEPTS))
+        lines = duck.fetch_dicts(
+            f"""
+            SELECT accession, statement, concept, value, value_presented, negating, period_end
+            FROM st
+            WHERE is_primary_period AND coalesce(segments, '') = '' AND concept IN ('{concepts}')
+              AND accession IN ('{"', '".join(bad_accessions)}')
+            ORDER BY accession, statement, concept
+            """
+        ) if bad_accessions else []
+        return {"cik": cik, "fails": fails, "lines": lines, "shown_accessions": bad_accessions}
+    finally:
+        duck.close()
+
+
+def format_explain(report: dict[str, Any]) -> str:
+    if "message" in report:
+        return report["message"]
+    out = [f"CIK {report['cik']}: {len(report['fails'])} failing checks"]
+    for f in report["fails"][:30]:
+        out.append(f"  {f['accession']}  {f['check_name']:<34} lhs {f['lhs']:>18,.0f}  rhs {f['rhs']:>18,.0f}")
+    out.append("")
+    out.append("Statement lines behind the shown filings (value = as filed, presented = display sign):")
+    out.append(f"  {'concept':<48} {'stmt':>4} {'negating':>8} {'value':>18} {'presented':>18}")
+    for ln in report["lines"]:
+        out.append(
+            f"  {ln['concept'][:48]:<48} {ln['statement']:>4} {ln['negating']!s:>8} "
+            f"{(ln['value'] or 0):>18,.0f} {(ln['value_presented'] or 0):>18,.0f}"
+        )
     return "\n".join(out)

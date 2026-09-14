@@ -89,3 +89,38 @@ def test_format_reads(tmp_path):
     assert "By check (worst first)" in text
     assert "Balance sheet balances" in text
     assert "Acme Corp" in text
+
+
+def test_explain_shows_value_vs_presented_for_a_company(tmp_path):
+    """explain() surfaces a company's failing check and the raw vs display-signed values behind it."""
+    st = Storage(str(tmp_path))
+    # a failing balance-sheet check for cik 7: lhs (Assets) came in negative, rhs positive
+    st.write_parquet(
+        f"{layout.statement_checks_cik_dir(7)}/c.parquet",
+        pa.Table.from_pylist(
+            [{
+                "accession": "z1", "cik": 7, "statement": "BS",
+                "check_name": "assets_eq_liabilities_and_equity", "passed": False,
+                "lhs": -100.0, "rhs": 100.0, "difference": -200.0, "detail": "", "source": "fsds",
+            }],
+            schema=CHECKS_SCHEMA,
+        ),
+    )
+    # the statement lines: Assets filed as -100 but presented as +100 (negating); Liabilities +100
+    st.write_parquet(
+        f"{layout.statements_cik_dir(7)}/s.parquet",
+        pa.table({
+            "cik": [7, 7], "accession": ["z1", "z1"], "statement": ["BS", "BS"],
+            "concept": ["Assets", "Liabilities"], "value": [-100.0, 100.0],
+            "value_presented": [100.0, 100.0], "negating": [True, False],
+            "is_primary_period": [True, True], "segments": ["", ""],
+            "period_end": [None, None], "line_order": [1, 2],
+        }),
+    )
+    rep = cr.explain(st, 7)
+    assert len(rep["fails"]) == 1 and rep["fails"][0]["check_name"] == "assets_eq_liabilities_and_equity"
+    by_concept = {ln["concept"]: ln for ln in rep["lines"]}
+    assert by_concept["Assets"]["value"] == -100.0 and by_concept["Assets"]["value_presented"] == 100.0
+    assert by_concept["Assets"]["negating"] is True
+    text = cr.format_explain(rep)
+    assert "Assets" in text and "negating" in text
