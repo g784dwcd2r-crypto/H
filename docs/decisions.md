@@ -412,79 +412,76 @@ That makes the scraping route worse for a UK company, not better.
 
 ## Classify by how analysts cover a name, not by what a company sells (2026-09-14)
 
-Every commercial scheme starts from the company and its revenue: what it sells decides where it
-sits. The proposal turns that over. Start from **how the market actually covers the name**, on both
-the sell side and the buy side, make those the buckets, and fill companies into them afterwards.
+Commercial schemes classify a company by what it sells. We turn that around. We start from how
+analysts actually cover a name, on the sell side and the buy side, make those the groups, and put
+companies into them afterwards.
 
     Industrials > Transportation > Trucking > Brokers
     Industrials > Transportation > Trucking > LTL Carriers
     Industrials > Transportation > Trucking > TL Carriers
     Industrials > Transportation > Trucking > 3PL
 
-Why this is a moat rather than a preference: an LTL carrier and a TL carrier both sell freight
-movement, so a product-led scheme groups them, but they have different cost structures, different
-cycles, different questions and different analysts. That distinction cannot be derived from the
-financials, which is exactly why nobody can regenerate it from public data. It is accumulated
-judgement, and it is ours.
+Why this is worth something. An LTL carrier and a TL carrier both sell freight movement, so a
+scheme based on products puts them together. But they have different cost structures, different
+cycles, different questions and different analysts. You cannot work that out from the financials.
+Nobody can rebuild it from public data. It is judgement, built up over time, and it is ours.
 
-It is also why the licensing position is different from sector. GICS is licensed and we cannot use
-it; SIC is not a research map. A taxonomy we author ourselves we own outright. That makes it a
-sellable asset in its own right, and it belongs in `legal-questions.md` as its own question: what we
-own here and what protects it.
+That also changes the licensing position. GICS is licensed, so we cannot use it. SIC is not a
+research map. A classification we write ourselves, we own. That makes it worth something on its own,
+and it needs a question in `legal-questions.md`: what do we own here, and what protects it.
 
-**Two refinements accepted, both from Mbarek's review.**
+**Two changes from Mbarek, both accepted.**
 
-*Variable depth.* Four levels is the Transportation shape, not a universal one. Some corners need
-two, some need five. So the store is a tree with a parent pointer, never four fixed columns:
-otherwise every awkward case becomes a schema migration.
+*Depth varies.* Four levels fits Transportation. It will not fit everywhere. Some areas need two,
+some need five. So we store a tree with a parent pointer, not four fixed columns. Otherwise every
+awkward case means changing the table.
 
-*A primary home plus explicit additional memberships.* A diversified transport company belongs in TL
-and in brokerage, and an analyst must be able to tell a focused operator from a conglomerate with a
-smaller arm. Membership therefore carries `is_primary` and a materiality of exposure, or "appears in
-brokerage results" tells the reader nothing.
+*One main group, plus other memberships.* A diversified transport company belongs in both TL and
+brokerage. An analyst needs to tell a focused operator apart from a big company with a small arm. So
+a membership records whether it is the main one, and how big the exposure is.
 
-**Shape of the data.**
+**The tables.**
 
 | Table | Holds |
 |---|---|
-| `classification` | node id, parent id, level name, label, the definition sentence, alternative names for search |
-| `company_classification` | cik -> node, `is_primary`, exposure, who assigned it and when |
-| `companies` | unchanged; SIC stays exactly as the SEC gives it |
+| `classification` | node id, parent id, level, name, definition sentence, other names for search |
+| `company_classification` | cik to node, main or not, exposure, who assigned it and when |
+| `companies` | unchanged. SIC stays exactly as the SEC gives it |
 
-The definition sentence per node is not decoration. It is what makes an assignment reviewable later
-and what forces "3PL" to mean something specific rather than to cover brokerage, warehousing and
-anything else logistics-shaped.
+The definition sentence matters. It is how someone reviews an assignment later, and it forces "3PL"
+to mean one thing instead of covering brokerage, warehousing and anything else logistics-shaped.
 
-This is squarely **layer 2, the Disclosure Unifying Layer**: held underneath, never shown in place of
-the company's own words, editable as data rather than code. It supersedes the weakest line in the
-data plan, which read "SIC is not GICS and GICS is licensed; use Hicham's list, SIC as fallback".
+This is layer 2, the Disclosure Unifying Layer: held underneath, never shown instead of the
+company's own words, and editable as data rather than code. It replaces the old line in the data
+plan that said to use SIC as a fallback.
 
-**Transportation is the pilot.** Define the buckets, write each definition sentence, populate a few
-dozen known companies. The obvious test is whether the expected peers come back. The sharper one:
-name the companies that are hard to place *before* placing them, then see whether the structure
-absorbs them. Every scheme handles the clean cases; the awkward ones are where you learn whether you
-need another level or another membership.
+**Transportation first.** Write the groups, write a definition sentence for each, put in a few dozen
+companies we know. The obvious test is whether the expected peers come back. The better test: write
+down the companies that are hard to place *before* placing them, then see if the structure handles
+them. Any scheme handles the easy cases.
 
-**Two cautions recorded with it.** This hierarchy must not merge with the coverage tiers: the tiers
-(NYSE/Nasdaq, other listed, filing but unlisted, everything else) measure whether our data is
-complete, this measures how a person navigates. One field serving both compromises both. And while
-assignment can be assisted from filings, peer sets and segment disclosures, the definitions and the
-awkward calls are human, and review is a standing commitment as companies change model.
+**Two warnings.** Do not merge this with the coverage tiers. Tiers measure whether our data is
+complete. This helps people navigate. One field doing both does neither well. And we can help assign
+companies, but the groups and the hard calls are human, and someone has to keep reviewing them as
+companies change.
 
-## Coverage beyond the US is a source problem, one per region (2026-09-14)
+## Coverage beyond the US is a source problem, one region at a time (2026-09-14)
 
-The company list being gathered covers the US, Canada and Europe, with AUS/NZ noted as a later
-extension. Our lake is SEC-only, so today "Europe" and "Canada" means the 2,020 foreign-domiciled
-filers (20-F, 40-F) that file with the SEC, 1,363 of them listed. Real domestic coverage is a
-different source per region, not a longer list, and the order is not the intuitive one:
+We are gathering a company list for the US, Canada and Europe, with AUS/NZ later.
 
-- **Europe is the easiest.** ESEF requires annual reports as inline XBRL, which is the format the
-  filing reader already parses. Europe is therefore a *source* problem, not a *parsing* problem, and
-  this is a further argument for finishing phase 1.
-- **Canada is harder than it feels.** SEDAR+ is the filing system and Canada never mandated XBRL
-  broadly, so it is likely document and extraction work rather than tagged data.
-- **AUS/NZ has Canada's shape**, not Europe's: a natural commercial extension, not a technical one.
+Our data is SEC only. So today "Europe" and "Canada" means the 2,020 foreign companies that file
+with the SEC (forms 20-F and 40-F), 1,363 of them listed. Real coverage of those countries means a
+new source for each one, not a longer list.
 
-Each needs confirming before dates are committed, but the ordering is unlikely to move. Practical
-consequence now: the list should carry an identifier that survives crossing systems — ISIN or LEI,
-not a ticker. We already store LEI where the SEC gives it.
+The order is not the obvious one:
+
+- **Europe is easiest.** European annual reports are filed as inline XBRL, the same format our
+  filing reader already handles. So Europe is a question of getting the files, not of reading them.
+- **Canada is harder than it looks.** Filings go through SEDAR+, and Canada never required XBRL
+  widely. So it likely means working with documents, not tagged data.
+- **AUS/NZ looks like Canada**, not like Europe.
+
+Each needs confirming before we promise dates, but the order is unlikely to change.
+
+One thing to do now: the list should carry an ID that works across countries, such as ISIN or LEI.
+A ticker does not. We already store LEI where the SEC gives it.

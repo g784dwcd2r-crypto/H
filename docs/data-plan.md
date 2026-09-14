@@ -79,12 +79,12 @@ Nothing else in this plan is as valuable. It comes first.
 
 ### Phase 1 — The filing reader (now)
 
-1. **Parsers, no network — done.** The four linkbases a filing ships (`_lab`, `_pre`, `_cal`, `_def`)
-   and the instance document. Out of them: the calculation tree with weights, the presentation order
-   with preferred labels, the company's own label per line, and every fact with its full dimensional
-   context. Pure functions over bytes, tested against fixtures, so a filing parses the same way in
-   ten years as it does today.
-2. **Fetch and store — next, and the first step that spends money.** The primary document and its
+1. **Read the files, no network — done.** The four linkbase files a filing ships (`_lab`, `_pre`,
+   `_cal`, `_def`) plus the instance document. Out of them: the calculation tree with its signs, the
+   order lines are printed in, the company's own label for each line, and every number with its full
+   dimensional context. No network, tested against fixtures, so a filing reads the same way in ten
+   years as it does today.
+2. **Download and store — next, and the first step that costs money.** The primary document and its
    linkbases, for the filings we take numbers from, into the lake beside the filing. ~1.3 TB, ~20
    dollars a month, ~twelve hours at the SEC's rate limit. Attachments are indexed now (one small
    request per filing, nothing downloaded) and stored later when the compute layer needs them,
@@ -176,47 +176,46 @@ own* older filings. A company is only ever matched to itself. Scope: listed comp
 reports, 2001 onwards, ~75,000 documents. Values derived this way are labelled as derived wherever
 they appear. 2009 already reaches back to 2008 because the 2009 report carries the prior year.
 
-Sector: superseded on 2026-09-14. Rather than pick between SIC and a licensed scheme, we author our
-own hierarchy from how analysts cover a name — see "Classify by how analysts cover a name" in
-`decisions.md`. SIC stays in `companies` exactly as the SEC gives it, as a raw fact, not as a
-fallback classification.
+Sector: replaced on 2026-09-14. Instead of choosing between SIC and a licensed scheme, we write our
+own groups based on how analysts cover a name. See "Classify by how analysts cover a name" in
+`decisions.md`. SIC stays in `companies` exactly as the SEC gives it, as a raw fact.
 
-## Set aside — share price and market capitalisation
+## Set aside: share price and market capitalisation
 
-**Not in the running order above, and deliberately so.** Hicham asked for an end-of-day price and a
-market capitalisation. It is parked until section 2 of `legal-questions.md` is answered. No vendor is
-engaged, no key is obtained, and no price data enters the lake before then.
+**Not in the order of work above, on purpose.** Hicham asked for an end-of-day price and a market
+capitalisation. It is parked until section 2 of `legal-questions.md` is answered. Until then: no
+vendor, no key, no price data in the lake.
 
-What is *not* the reason it is parked: cost and difficulty. A feed is about 20 euros a month with the
-whole world included, roughly 21 API calls a month on a bulk endpoint, and pennies of storage.
+Cost is not the reason. A price feed is about 20 euros a month for the whole world, around 21 API
+calls a month, and pennies of storage.
 
-The data half is nearly done already, out of the filings we hold:
+We already have most of what we need, from the filings:
 
-- Shares outstanding are in the lake, **including the per-class split** that market cap needs for a
-  multi-class company — Alphabet Class A 5,824m, Class B 836m, Class C 5,456m, summing to the
-  reported 12,116m.
-- The count that matters is the **ending period** count, not the weighted average the statements
-  report for EPS; basic and diluted are two different numbers and neither is the one to multiply by
-  a price.
+- Share counts are in the lake, **including the split by class**, which market cap needs for
+  companies with more than one. Alphabet: Class A 5,824m, Class B 836m, Class C 5,456m, which adds
+  up to the reported 12,116m.
+- The right count is the one at the **end of the period**, not the weighted average used for
+  earnings per share. Basic and diluted are two different numbers, and neither is the one to
+  multiply by a price.
 
-Only the price itself is missing, and the question is not whether we can fetch one. It is whether the
-vendor's agreement lets us show their price to a paying subscriber — "redistribution", "display" and
-"derived data" are three different permissions, and most free tiers are personal-use only. That is a
-question for a solicitor, not for us.
+Only the price is missing. The question is not whether we can fetch one. It is whether the vendor's
+contract lets us show their price to a paying subscriber. "Redistribution", "display" and "derived
+data" mean three different things in those contracts, and most cheap tiers are for personal use
+only. That is a question for a solicitor.
 
-Two things settled on the way, which stand whatever the answer is:
+Two things we settled anyway, whatever the answer:
 
-- **We buy prices only, never fundamentals.** Vendors compile statements by scraping announcements,
-  news feeds and investor-relations pages: a copy of a copy. If a vendor's number and the filing
-  disagree, the filing is right, and we would have no way to show a user which is which. Filings we
-  own end to end; a closing price we rent, because we cannot add value to it.
-- **Building the feed ourselves is a licensing project, not an engineering one.** The code is a file
-  a day. The hard parts are the exchange agreements — which are the thing the vendor actually sells —
-  and corporate-action adjustment, which is where the bugs live. At 20 euros a month the arithmetic
-  is not close.
+- **We buy prices only, never financials.** Vendors build financial data by scraping announcements,
+  news and company websites. That is a copy of a copy. If a vendor's number and the filing disagree,
+  the filing is right, and we could not show a user which is which. We own filings end to end. A
+  closing price we rent, because we cannot improve on it.
+- **Building our own price feed is a licensing job, not an engineering one.** The code is a day's
+  work. The hard parts are the exchange agreements, which are the thing the vendor actually sells,
+  and adjusting for splits and dividends, which is where the bugs are. At 20 euros a month it is not
+  worth it.
 
-*Unparked when:* the redistribution question comes back answered. Until then this section is the only
-place in the plan where prices appear, and nothing downstream may assume they exist.
+*Unparked when:* the lawyer answers. Until then this is the only place in the plan where prices
+appear, and nothing else may assume they exist.
 
 ## Standing decisions this plan assumes
 
