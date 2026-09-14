@@ -49,9 +49,10 @@ Two sources built separately that agree is real proof. That is stronger than wha
 ```mermaid
 flowchart TD
     START([Now]) --> P1["Part 1 - Four quick fixes<br/>margin of error, tickers,<br/>the guess, and counting what we miss"]
-    P1 --> P2["Part 2 - Read the filings themselves<br/>test, download, rebuild, prove"]
-    P2 --> P3["Part 3 - Say when a number changes"]
-    P2 --> P5["Part 5 - Older filings,<br/>then other countries"]
+    P1 --> P2["Part 2 - Read the filings themselves<br/>test, download, rebuild, prove,<br/>then keep it running"]
+    P2 --> P3["Part 3 - Finish the checks,<br/>then say when a number changes"]
+    P2 --> P5["Part 5 - The five disclosures<br/>segments, debt, hybrids,<br/>acquisitions, KPIs"]
+    P2 --> P6["Part 6 - Older filings,<br/>then other countries"]
     LIST["The company list<br/>being gathered now"] --> P4["Part 4 - Group the companies,<br/>then the dictionary"]
     PARK["Parked - share prices<br/>waiting on a lawyer"]
     style PARK fill:#eeeeee,stroke:#999999,stroke-dasharray: 5 5
@@ -61,10 +62,11 @@ flowchart TD
 | Part | Steps | Blocked by |
 |---|---|---|
 | 1. Quick fixes | 1 to 4 | Nothing |
-| 2. Read the filings | 5 to 9 | Step 5 must come first |
-| 3. Restatements | 10 | Needs the checks from part 2 |
-| 4. Organise the universe | 11 to 12 | Needs the company list |
-| 5. Go wider | 13 to 14 | Needs part 2 finished |
+| 2. Read the filings | 5 to 10 | Step 5 must come first |
+| 3. Finish the checks, say what changed | 11 to 13 | The real subtotal check, step 8 |
+| 4. Organise the universe | 14 to 15 | The company list |
+| 5. The five disclosures | 16 to 21 | Part 2, for the note tables |
+| 6. Go wider | 22 to 23 | Part 2 finished |
 | Parked | Share prices | A lawyer |
 
 ---
@@ -323,6 +325,11 @@ flowchart TD
 This is why we do not throw the summary files away. Before, they were our only source, so a mistake
 in them was invisible to us. Now they are an independent witness.
 
+**One more thing to settle here.** Some filings are submitted jointly by a parent company and a
+subsidiary. We currently leave the subsidiary's lines out of the statement. Nothing is lost — the rows
+are still in our raw data — but if a company printed those lines, leaving them out breaks our rule
+about reproducing what was published. We count how many filings this affects first, then decide.
+
 **Done when.** The newest filing is as detailed as the older ones, and the provisional label
 disappears from the pages where we now hold the filing.
 
@@ -407,9 +414,112 @@ slow. If the report in step 4 turns out slow, we merge them. If it is fine, we l
 
 ---
 
-# Part 3. Tell users when a number changes
+## Step 10. Rebuild the history, and keep it running
 
-## Step 10. Spot restatements and say so
+**What it is.** Two things that are easy to forget once the exciting part works.
+
+**Rebuild the past.** Steps 7 to 9 change how a statement is built. That has to be applied to every
+filing we already hold, not only to new ones, or the newest filings would be better than the old ones
+and nobody could compare a company with itself over time.
+
+**Then keep it that way.** New filings arrive every day. The daily job that picks them up has to
+fetch each new filing's documents as it goes, or we quietly drift back to the old situation, where
+the newest filing is the weakest one.
+
+**How it works.**
+
+```mermaid
+flowchart TD
+    ONCE["One rebuild<br/>every filing we already hold,<br/>done the new way"] --> SAME["Every year comparable<br/>with every other year"]
+    DAY["Every day<br/>new filings arrive"] --> FETCH["Fetch each new filing's<br/>documents straight away"]
+    FETCH --> SAME
+    NOFETCH["If we skip this"] -.-> DRIFT["We drift back to today:<br/>the newest filing<br/>is the weakest one"]
+    style SAME fill:#e8f5e9,stroke:#2e7d32
+    style DRIFT fill:#ffe6e6,stroke:#cc0000
+```
+
+**Done when.** A company's oldest year and newest year were built the same way, and a filing that
+arrived this morning already has its documents.
+
+**Size.** The rebuild is mostly machine time. The daily part is a small change.
+
+---
+
+# Part 3. Finish the checks, then tell users what changed
+
+## Step 11. The last two arithmetic checks
+
+**What it is.** We planned five checks. Three are done: profit agreeing across statements, cash
+agreeing between the cash flow statement and the balance sheet, and earnings per share recalculated
+from the company's own share count. Two are not built yet.
+
+**The two missing ones.**
+
+*Retained earnings roll forward.* Profits a company keeps should behave like a bank account. Last
+year's closing balance, plus this year's profit, minus dividends paid, minus shares bought back, plus
+or minus anything else, should equal this year's closing balance. If it does not, a line is missing.
+
+*Quarters add to the year.* Q1 plus Q2 plus Q3 plus Q4 should equal the full year, for anything that
+accumulates like revenue or profit. Nine months plus the last quarter should do the same. If they do
+not, we have either misread a period or mixed two up.
+
+**Why it matters.** These two catch different mistakes from the others. The first catches a missing
+movement in equity. The second catches us mislabelling which period a number belongs to, which is one
+of the easiest errors to make and one of the hardest to notice.
+
+```mermaid
+flowchart LR
+    subgraph RE["Retained earnings"]
+        O["Opening balance"] --> ADD["plus profit"] --> SUB["minus dividends<br/>minus buybacks"] --> CL{"equals closing<br/>balance?"}
+    end
+    subgraph QT["Quarters"]
+        Q["Q1 + Q2 + Q3 + Q4"] --> YR{"equals the<br/>full year?"}
+    end
+    style CL fill:#e3f2fd,stroke:#1565c0
+    style YR fill:#e3f2fd,stroke:#1565c0
+```
+
+**Worth remembering.** These are ours, not the reader's. They tell us where to look and they decide
+what we are willing to publish. They never appear on a company page as a score or a badge.
+
+**Done when.** Both run over every company, and we can say for each one how often it passed, failed,
+or did not apply.
+
+**Size.** Medium.
+
+## Step 12. Late filers and companies that went quiet
+
+**What it is.** Spot companies that have stopped filing on time, or stopped filing at all.
+
+**Why it matters.** A gap in our data has two very different explanations. Either we failed to
+collect something, which is our bug, or the company genuinely did not file, which is news about the
+company. Today we cannot always tell those apart, and they need opposite responses.
+
+**How it works.** The rule is simple and comes from dates we already hold: more than fifteen months
+between annual reports, or more than five months between quarterly ones, is a flag. Sometimes a
+company files two years at once to catch up, and we recognise that from the filing dates rather than
+treating it as two anomalies.
+
+We also know each company's official deadline, because the SEC records what size of filer it is.
+Large companies have sixty days after year end, medium seventy-five, smaller ones ninety. So "late"
+becomes a fact rather than a guess.
+
+```mermaid
+flowchart TD
+    G["A gap in the filings"] --> W{"Which kind of gap?"}
+    W -->|"The SEC lists a filing<br/>we do not hold"| US["Our bug.<br/>Go and collect it"]
+    W -->|"The company never filed"| THEM["News about the company.<br/>Show it as a notice"]
+    THEM --> CATCH["Unless they filed two years<br/>at once to catch up,<br/>which we recognise"]
+    style US fill:#ffe6e6,stroke:#cc0000
+    style THEM fill:#fff4e5,stroke:#e65100
+```
+
+**Done when.** The flagged list exists, and a company page can say that a company is behind or has
+gone quiet.
+
+**Size.** Small. It uses data we already hold.
+
+## Step 13. Spot restatements and say so
 
 **What it is.** Sometimes a company revises figures it already published. This year's report shows
 last year's numbers differently from how last year's report showed them. That is a restatement.
@@ -455,7 +565,7 @@ up.
 
 # Part 4. Organise the universe
 
-## Step 11. Group companies the way analysts actually think
+## Step 14. Group companies the way analysts actually think
 
 **What it is.** A new way of grouping companies: not by what they sell, but by how the market
 analyses them.
@@ -513,7 +623,7 @@ missing.
 **What it needs.** The company list, being gathered now. And human judgement — we can suggest
 placements, but the groups and the difficult calls are not something to automate.
 
-## Step 12. The dictionary
+## Step 15. The dictionary
 
 **What it is.** A translation table sitting underneath everything, recording that different companies
 use different words for the same thing.
@@ -554,9 +664,99 @@ human work is really needed. Measure before deciding.
 
 ---
 
-# Part 5. Go wider
+# Part 5. The five disclosures
 
-## Step 13. Filings from before 2009
+The statements on their own are not the product. Once they are right, these five come next, in this
+order, because this is the order an analyst needs them in. The equity statement comes after all five.
+
+Most of this work needs the note tables inside a filing, which is another reason part 2 comes first.
+
+```mermaid
+flowchart LR
+    S["Statements are right<br/>parts 1 to 3 done"] --> D1["1. Segmentation"]
+    D1 --> D2["2. Debt schedule"]
+    D2 --> D3["3. Preferred shares<br/>and hybrids"]
+    D3 --> D4["4. Acquisitions"]
+    D4 --> D5["5. KPIs"]
+    D5 --> EQ["Then the equity statement"]
+    style S fill:#e8f5e9,stroke:#2e7d32
+```
+
+## Step 16. Segmentation
+
+**What it is.** How a company splits itself up: by region, by product, by division, by customer type.
+
+**Why it matters.** It is often the most useful table in a filing. Apple's quarter reads very
+differently once you see the Americas at 45.09 bn, Europe at 28.06 bn and Greater China at 20.50 bn.
+
+**Where we are.** Better than most of this list. These numbers are already tagged and already in our
+data — 158,080 segment figures in a single quarter.
+
+**What is left.** Two things. The page shows the company's own words, always, because an analyst
+takes those words into a meeting with management. Underneath, we tag what *kind* of split it is —
+geography, product, division, customer — so that a question can be asked across companies that use
+different words for the same idea.
+
+## Step 17. The debt schedule
+
+**What it is.** When a company's borrowings fall due, year by year.
+
+**Why it matters.** It is one of the first things anyone checks about a company under pressure, and
+it deserves its own page rather than a line on a statement.
+
+**The problem.** Almost nobody tags it. Two out of 4,802 annual filings. For everyone else it is a
+table sitting in the notes, which is why this needs the filings themselves.
+
+**The trap to avoid.** Filings say "year one, year two, year three". An analyst thinks in actual
+years, and a chart only works with real ones. So we convert. But the conversion is against that
+company's own financial year end, so a company whose year ends in June has a "year two" that is not
+the same as a December company's. We say which we mean.
+
+## Step 18. Preferred shares and hybrids
+
+**What it is.** Funding that is not quite debt and not quite ordinary shares.
+
+**Why it matters.** It sits between lenders and shareholders, and it changes who gets paid what.
+Ignoring it makes a company look better funded than it is, and it distorts earnings per share,
+because preferred dividends come out before ordinary shareholders see anything.
+
+## Step 19. Acquisitions
+
+**What it is.** What a company bought, when, for how much, and what it recorded as a result.
+
+**Why it matters.** Without it, growth is ambiguous. A company that grew 20 % by buying a competitor
+is a different business from one that grew 20 % by selling more, and the statements alone do not
+always separate the two.
+
+## Step 20. KPIs
+
+**What it is.** The measures a company chooses for itself: subscribers, same store sales, occupancy,
+load factor, whatever its industry cares about.
+
+**Where we are.** We leave them exactly as companies state them, on purpose.
+
+**Why we are not rushing.** There were 59,755 company-invented labels in a single quarter, in almost
+every filing. The hard part is not matching up names, it is understanding what each one actually
+measures, and two companies using the same word can mean different things. That is its own project.
+
+This becomes urgent when we go beyond the US, because that is when the same idea starts appearing
+under different words from country to country.
+
+## Step 21. The statement of changes in equity
+
+**What it is.** The fourth statement, showing how shareholders' stake moved over the year.
+
+**Why it is last.** Deliberately placed after the five disclosures above. It is worth having, and it
+is worth less than any of them.
+
+It also becomes easier once step 11 is done, because the retained earnings check is really a test of
+the same movements this statement describes.
+
+---
+
+# Part 6. Go wider
+
+## Step 22. Filings from before 2009
 
 **What it is.** Tagged data only exists from about 2009. Older filings are documents, not data.
 
@@ -582,7 +782,7 @@ compared with itself, which is what makes it trustworthy.
 
 **Scope.** Listed companies, annual reports, 2001 onwards, roughly 75,000 documents.
 
-## Step 14. Canada, Europe, and later Australia and New Zealand
+## Step 23. Canada, Europe, and later Australia and New Zealand
 
 **What it is.** Coverage outside the US.
 
