@@ -23,8 +23,10 @@ log = logging.getLogger(__name__)
 
 TABLES = ("sub", "num", "pre", "tag")
 
-# Typed projections. Files are read with all_varchar and cast here so every quarter (2009 -> now)
-# lands with an identical schema regardless of columns the SEC added later.
+# Typed projections of the columns every vintage carries. Files are read with all_varchar and cast
+# here so every quarter (2009 -> now) lands with an identical core schema. Every other column in the
+# file (addresses in `sub`, `segments`/`dimh`/`iprx`/`dimn` in `num`, anything the SEC adds later)
+# passes through as text: nothing the SEC publishes is dropped.
 SELECTS = {
     "sub": """
         adsh, TRY_CAST(cik AS BIGINT) AS cik, name, sic, countryba, stprba, cityba, countryinc, stprinc,
@@ -47,8 +49,58 @@ SELECTS = {
     """,
 }
 
-# Optional columns that only exist in some vintages; referenced only if present.
-OPTIONAL = {"num": ["dimh", "iprx", "segments", "dimn"]}
+# Source columns consumed by SELECTS (typed or renamed there), so the pass-through excludes them.
+TYPED_SOURCE_COLUMNS = {
+    "sub": [
+        "adsh",
+        "cik",
+        "name",
+        "sic",
+        "countryba",
+        "stprba",
+        "cityba",
+        "countryinc",
+        "stprinc",
+        "ein",
+        "former",
+        "changed",
+        "afs",
+        "wksi",
+        "fye",
+        "form",
+        "period",
+        "fy",
+        "fp",
+        "filed",
+        "prevrpt",
+        "detail",
+        "instance",
+        "nciks",
+        "aciks",
+    ],
+    "num": ["adsh", "tag", "version", "coreg", "ddate", "qtrs", "uom", "value", "footnote"],
+    "pre": ["adsh", "report", "line", "stmt", "inpth", "rfile", "tag", "version", "plabel", "negating"],
+    "tag": ["tag", "version", "custom", "abstract", "datatype", "iord", "crdr", "tlabel", "doc"],
+}
+
+
+def _projection(table: str, cols: list[str]) -> str:
+    """SELECTS[table] plus every other column of the file as text. `num` also gets `dimensional`: a
+    value broken down by an axis (a segment, a geography, one investment of a fund) rather than the
+    line total; the statements builder uses only totals, everything else stays queryable."""
+    typed = [c for c in TYPED_SOURCE_COLUMNS[table] if c in cols]
+    rest = [c for c in cols if c not in typed]
+    parts = [SELECTS[table].strip()]
+    if table == "num":
+        if "segments" in cols:
+            parts.append("coalesce(segments, '') <> '' AS dimensional")
+        elif "dimh" in cols:
+            parts.append("coalesce(dimh, '') NOT IN ('', '0x00000000') AS dimensional")
+        else:
+            parts.append("false AS dimensional")
+    if rest:
+        parts.append(", ".join(f'"{c}"' for c in rest))
+    return ", ".join(parts)
 
 
 REJECT_WARN_RATIO = 0.001  # more than 0.1 % of a table's rows rejected is worth a human look
@@ -64,6 +116,7 @@ LOAD_LOG_SCHEMA = pa.schema(
         ("reject_examples", pa.list_(pa.string())),
         ("unparsed_values", pa.int64()),
         ("loaded_at", pa.timestamp("s")),
+        ("repaired_rows", pa.int64()),  # lines the SEC quoted around an embedded tab, re-joined before loading
     ]
 )
 
@@ -81,6 +134,55 @@ def _raw_rows(path: Path) -> int:
     """Data lines in the file (the SEC never quotes, so a newline is a row)."""
     with path.open("rb") as f:
         return max(sum(1 for _ in f) - 1, 0)
+
+
+def _rejoin_quoted_fields(fields: list[bytes], width: int) -> list[bytes] | None:
+    """A line with too many fields where the SEC's writer wrapped a value holding a tab in double
+    quotes (the only case its files quote: an investment name in `segments`, a footnote). Re-join the
+    quoted run into one field, tabs as spaces, quotes stripped. None when the line does not fit that
+    shape, so the reader still rejects it rather than guessing."""
+    out: list[bytes] = []
+    i = 0
+    while i < len(fields):
+        f = fields[i]
+        if f.startswith(b'"') and not (len(f) > 1 and f.endswith(b'"')):
+            j = i + 1
+            while j < len(fields) and not fields[j].endswith(b'"'):
+                j += 1
+            if j == len(fields):
+                return None
+            joined = b" ".join(fields[i : j + 1])
+            out.append(joined[1:-1])
+            i = j + 1
+        else:
+            out.append(f)
+            i += 1
+    return out if len(out) == width else None
+
+
+def _repair_overflow_lines(src: Path) -> tuple[Path, int]:
+    """Rewrite the file when any data line carries more tab-separated fields than the header and can be
+    repaired with `_rejoin_quoted_fields`. Returns (file to read, lines repaired); the original file when
+    nothing needed repair. Byte-level, so it runs before any encoding decision (tab and quote are
+    ASCII in both UTF-8 and Windows-1252)."""
+    with src.open("rb") as f:
+        header = f.readline()
+        width = header.rstrip(b"\r\n").count(b"\t") + 1
+        repaired: dict[int, bytes] = {}
+        for n, raw in enumerate(f, start=2):
+            line = raw.rstrip(b"\r\n")
+            if line.count(b"\t") + 1 <= width:
+                continue
+            fixed = _rejoin_quoted_fields(line.split(b"\t"), width)
+            if fixed is not None:
+                repaired[n] = b"\t".join(fixed) + b"\n"
+    if not repaired:
+        return src, 0
+    out = src.with_suffix(".repaired.txt")
+    with src.open("rb") as fin, out.open("wb") as fout:
+        for n, raw in enumerate(fin, start=1):
+            fout.write(repaired.get(n, raw))
+    return out, len(repaired)
 
 
 def _transcode_to_utf8(src: Path) -> Path:
@@ -135,6 +237,9 @@ def load_fsds_quarter(storage: Storage, quarter: str, duck: Duck | None = None) 
             for t in TABLES:
                 src = Path(tmp) / f"{t}.txt"
                 raw_rows = _raw_rows(src)
+                src, repaired = _repair_overflow_lines(src)
+                if repaired:
+                    log.info("FSDS %s %s: %d line(s) with a quoted tab re-joined", quarter, t, repaired)
                 # The SEC's files are UTF-8 from about 2013; earlier quarters carry Windows-1252 bytes.
                 # Read as UTF-8 first; only when the rejects say the bytes were the problem, transcode
                 # and read again, so the second pass can only reject a row for its structure.
@@ -145,19 +250,13 @@ def load_fsds_quarter(storage: Storage, quarter: str, duck: Duck | None = None) 
                         encoding = "cp1252"
                     _drain_rejects(duck)
                     cols = duck.fetch_column(f"DESCRIBE SELECT * FROM {_read_csv_sql(src, 'utf-8')}")
-                    extra = ""
-                    if t == "num":
-                        # Some vintages ship dimensional rows; statements only use non-dimensional values.
-                        if "segments" in cols:
-                            extra = " WHERE (segments IS NULL OR segments = '')"
-                        elif "dimh" in cols:
-                            extra = " WHERE (dimh IS NULL OR dimh = '' OR dimh = '0x00000000')"
+                    select = _projection(t, cols)
                     out_dir = layout.fsds_table_dir(t, quarter)
                     storage.delete(out_dir)
                     storage.mkdirs(out_dir)
                     target = duck.path(f"{out_dir}/part-0.parquet")
                     duck.sql(
-                        f"COPY (SELECT {SELECTS[t]} FROM {_read_csv_sql(src, 'utf-8')}{extra}) "
+                        f"COPY (SELECT {select} FROM {_read_csv_sql(src, 'utf-8')}) "
                         f"TO '{target}' (FORMAT PARQUET, COMPRESSION ZSTD)"
                     )
                     rejected, examples, bad_encoding = _drain_rejects(duck)
@@ -165,7 +264,7 @@ def load_fsds_quarter(storage: Storage, quarter: str, duck: Duck | None = None) 
                         break
                     log.info("FSDS %s %s: not valid UTF-8, transcoding from Windows-1252", quarter, t)
                 loaded = duck.fetch_value(f"SELECT count(*) FROM read_parquet('{target}')")
-                unparsed = _unparsed_values(duck, t, target, src, "utf-8", extra)
+                unparsed = _unparsed_values(duck, t, target, src, "utf-8")
                 counts[t] = loaded
                 log_rows.append(
                     {
@@ -178,6 +277,7 @@ def load_fsds_quarter(storage: Storage, quarter: str, duck: Duck | None = None) 
                         "reject_examples": examples,
                         "unparsed_values": unparsed,
                         "loaded_at": datetime.now(UTC).replace(tzinfo=None, microsecond=0),
+                        "repaired_rows": repaired,
                     }
                 )
                 if raw_rows and rejected / raw_rows > REJECT_WARN_RATIO:
@@ -200,7 +300,7 @@ def load_fsds_quarter(storage: Storage, quarter: str, duck: Duck | None = None) 
             duck.close()
 
 
-def _unparsed_values(duck: Duck, table: str, target: str, src: Path, encoding: str, extra: str) -> int:
+def _unparsed_values(duck: Duck, table: str, target: str, src: Path, encoding: str) -> int:
     """Rows whose key numeric/date field was present in the file but did not parse (TRY_CAST -> NULL).
     Not rejected, not silent either: they are counted into the load log."""
     checks = {
@@ -212,9 +312,8 @@ def _unparsed_values(duck: Duck, table: str, target: str, src: Path, encoding: s
     raw_col, typed_col = checks[table]
     if raw_col is None:
         return 0
-    where = f"{extra} AND" if extra else " WHERE"  # `extra` already opens the WHERE clause
     raw_present = duck.fetch_value(
-        f"SELECT count(*) FROM {_read_csv_sql(src, encoding)}{where} {raw_col} IS NOT NULL AND {raw_col} <> ''"
+        f"SELECT count(*) FROM {_read_csv_sql(src, encoding)} WHERE {raw_col} IS NOT NULL AND {raw_col} <> ''"
     )
     typed_present = duck.fetch_value(f"SELECT count(*) FROM read_parquet('{target}') WHERE {typed_col} IS NOT NULL")
     return max(int(raw_present) - int(typed_present), 0)
@@ -224,7 +323,9 @@ def load_log(storage: Storage) -> list[dict]:
     """Every FSDS table load with its row reconciliation, newest first."""
     rows: list[dict] = []
     for p in storage.glob(f"{layout.FSDS_LOAD_LOG}/*.parquet"):
-        rows.extend(storage.read_parquet(p).to_pylist())
+        for r in storage.read_parquet(p).to_pylist():
+            r.setdefault("repaired_rows", 0)  # logs written before the column existed
+            rows.append(r)
     return sorted(rows, key=lambda r: (r["quarter"], r["table"]), reverse=True)
 
 

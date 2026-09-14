@@ -177,7 +177,9 @@ def _stage_fsds_quarter(duck: Duck, quarter: str, enrich: bool, fx_index: bool =
             SELECT * FROM fsds_tag WHERE quarter = ?
             QUALIFY row_number() OVER (PARTITION BY tag, version ORDER BY abstract DESC NULLS LAST, tlabel) = 1
         ),
-        n AS (SELECT * FROM fsds_num WHERE quarter = ? AND coreg IS NULL),
+        -- statement lines are the totals: no co-registrant, no axis breakdown (quarters loaded
+        -- before the column existed hold totals only, hence the coalesce)
+        n AS (SELECT * FROM fsds_num WHERE quarter = ? AND coreg IS NULL AND NOT coalesce(dimensional, false)),
         base AS (
             SELECT p.adsh AS accession, s.cik, p.stmt AS statement, p.report, p.line,
                    coalesce(p.inpth, 0) = 1 AS is_parenthetical,

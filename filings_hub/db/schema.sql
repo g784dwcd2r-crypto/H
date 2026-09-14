@@ -553,3 +553,38 @@ CREATE TABLE IF NOT EXISTS demo_requests (
 CREATE INDEX IF NOT EXISTS demo_requests_status_idx ON demo_requests(status, created_at);
 CREATE INDEX IF NOT EXISTS demo_requests_email_idx ON demo_requests(email, created_at);
 CREATE INDEX IF NOT EXISTS demo_requests_caller_idx ON demo_requests(caller_hash, created_at);
+
+-- ==== 0018_company_header_fields.sql ====
+-- 0018: every field of the SEC submissions header on companies (addresses, LEI, owner org, flags,
+-- insider-transaction markers, the former-names list with dates, and a JSON catch-all for keys the
+-- parser has no column for); core_type on filings (the SEC's grouping of a form with its amendments).
+ALTER TABLE companies
+    ADD COLUMN IF NOT EXISTS owner_org TEXT,
+    ADD COLUMN IF NOT EXISTS lei TEXT,
+    ADD COLUMN IF NOT EXISTS former_names_json TEXT,
+    ADD COLUMN IF NOT EXISTS phone TEXT,
+    ADD COLUMN IF NOT EXISTS investor_website TEXT,
+    ADD COLUMN IF NOT EXISTS description TEXT,
+    ADD COLUMN IF NOT EXISTS flags TEXT,
+    ADD COLUMN IF NOT EXISTS insider_transaction_for_owner_exists BOOLEAN,
+    ADD COLUMN IF NOT EXISTS insider_transaction_for_issuer_exists BOOLEAN,
+    ADD COLUMN IF NOT EXISTS business_street1 TEXT,
+    ADD COLUMN IF NOT EXISTS business_street2 TEXT,
+    ADD COLUMN IF NOT EXISTS business_zip TEXT,
+    ADD COLUMN IF NOT EXISTS business_state_description TEXT,
+    ADD COLUMN IF NOT EXISTS business_country TEXT,
+    ADD COLUMN IF NOT EXISTS business_country_code TEXT,
+    ADD COLUMN IF NOT EXISTS business_is_foreign BOOLEAN,
+    ADD COLUMN IF NOT EXISTS business_foreign_state_territory TEXT,
+    ADD COLUMN IF NOT EXISTS mailing_street1 TEXT,
+    ADD COLUMN IF NOT EXISTS mailing_street2 TEXT,
+    ADD COLUMN IF NOT EXISTS mailing_city TEXT,
+    ADD COLUMN IF NOT EXISTS mailing_state TEXT,
+    ADD COLUMN IF NOT EXISTS mailing_zip TEXT,
+    ADD COLUMN IF NOT EXISTS mailing_state_description TEXT,
+    ADD COLUMN IF NOT EXISTS mailing_country TEXT,
+    ADD COLUMN IF NOT EXISTS mailing_country_code TEXT,
+    ADD COLUMN IF NOT EXISTS mailing_is_foreign BOOLEAN,
+    ADD COLUMN IF NOT EXISTS mailing_foreign_state_territory TEXT,
+    ADD COLUMN IF NOT EXISTS header_extra TEXT;
+ALTER TABLE filings ADD COLUMN IF NOT EXISTS core_type TEXT;

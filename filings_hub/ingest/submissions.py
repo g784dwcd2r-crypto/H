@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import re
 import zipfile
 from collections.abc import Iterator
@@ -13,6 +14,8 @@ import pyarrow as pa
 
 from filings_hub.ingest.edgar_client import EdgarClient
 
+log = logging.getLogger(__name__)
+
 CIK_FILE_RE = re.compile(r"^CIK(\d{10})\.json$")
 PAGE_FILE_RE = re.compile(r"^CIK(\d{10})-submissions-(\d+)\.json$")
 
@@ -21,6 +24,7 @@ FILINGS_SCHEMA = pa.schema(
         ("accession", pa.string()),
         ("cik", pa.int64()),
         ("form", pa.string()),
+        ("core_type", pa.string()),  # the SEC's grouping of a form and its amendments (10-K for 10-K/A)
         ("filed_date", pa.date32()),
         ("report_date", pa.date32()),
         ("acceptance_datetime", pa.timestamp("s")),
@@ -40,6 +44,20 @@ FILINGS_SCHEMA = pa.schema(
     ]
 )
 
+ADDRESS_FIELDS = {
+    # SEC key -> our suffix, for both the business and the mailing address
+    "street1": "street1",
+    "street2": "street2",
+    "city": "city",
+    "stateOrCountry": "state",
+    "zipCode": "zip",
+    "stateOrCountryDescription": "state_description",
+    "country": "country",
+    "countryCode": "country_code",
+    "isForeignLocation": "is_foreign",
+    "foreignStateTerritory": "foreign_state_territory",
+}
+
 COMPANY_HEADER_SCHEMA = pa.schema(
     [
         ("cik", pa.int64()),
@@ -47,20 +65,89 @@ COMPANY_HEADER_SCHEMA = pa.schema(
         ("entity_type", pa.string()),
         ("sic", pa.string()),
         ("sic_description", pa.string()),
+        ("owner_org", pa.string()),
         ("category", pa.string()),
         ("state_of_incorporation", pa.string()),
         ("state_of_incorporation_description", pa.string()),
         ("fiscal_year_end", pa.string()),
         ("ein", pa.string()),
+        ("lei", pa.string()),
         ("tickers", pa.list_(pa.string())),
         ("exchanges", pa.list_(pa.string())),
         ("former_names", pa.list_(pa.string())),
+        ("former_names_json", pa.string()),  # the SEC's list with from/to dates, verbatim
         ("business_state", pa.string()),
         ("business_city", pa.string()),
         ("website", pa.string()),
         ("phone", pa.string()),
+        ("investor_website", pa.string()),
+        ("description", pa.string()),
+        ("flags", pa.string()),
+        ("insider_transaction_for_owner_exists", pa.bool_()),
+        ("insider_transaction_for_issuer_exists", pa.bool_()),
+    ]
+    + [
+        (f"{kind}_{suffix}", pa.bool_() if suffix == "is_foreign" else pa.string())
+        for kind in ("business", "mailing")
+        for suffix in ADDRESS_FIELDS.values()
+        if not (kind == "business" and suffix in ("state", "city"))
+    ]
+    + [
+        ("header_extra", pa.string()),  # JSON of any top-level key this parser does not map (never dropped)
     ]
 )
+
+# Top-level keys of a submissions document this parser maps to columns (or reads elsewhere).
+KNOWN_HEADER_KEYS = frozenset(
+    {
+        "cik",
+        "name",
+        "entityType",
+        "sic",
+        "sicDescription",
+        "ownerOrg",
+        "category",
+        "stateOfIncorporation",
+        "stateOfIncorporationDescription",
+        "fiscalYearEnd",
+        "ein",
+        "lei",
+        "tickers",
+        "exchanges",
+        "formerNames",
+        "addresses",
+        "website",
+        "phone",
+        "investorWebsite",
+        "description",
+        "flags",
+        "insiderTransactionForOwnerExists",
+        "insiderTransactionForIssuerExists",
+        "filings",
+    }
+)
+
+# Per-filing arrays under filings.recent that parse_filings stores.
+KNOWN_RECENT_KEYS = frozenset(
+    {
+        "accessionNumber",
+        "filingDate",
+        "reportDate",
+        "acceptanceDateTime",
+        "act",
+        "form",
+        "core_type",
+        "fileNumber",
+        "filmNumber",
+        "items",
+        "size",
+        "isXBRL",
+        "isInlineXBRL",
+        "primaryDocument",
+        "primaryDocDescription",
+    }
+)
+_warned_recent_keys: set[str] = set()
 
 
 def _date(s: str | None) -> date | None:
@@ -94,28 +181,50 @@ def _str(v: Any) -> str | None:
     return v or None
 
 
+def _flag(v: Any) -> bool | None:
+    if v is None or v == "":
+        return None
+    return bool(int(v)) if isinstance(v, (int, float, str)) and str(v).lstrip("-").isdigit() else bool(v)
+
+
 def parse_company_header(data: dict[str, Any]) -> dict[str, Any]:
+    """Every top-level field of the submissions document. Keys this parser has no column for are
+    kept verbatim in `header_extra` (JSON), so nothing the SEC adds later is lost."""
     cik = int(data["cik"])
-    addr = (data.get("addresses") or {}).get("business") or {}
-    return {
+    addresses = data.get("addresses") or {}
+    row: dict[str, Any] = {
         "cik": cik,
         "name": _str(data.get("name")),
         "entity_type": _str(data.get("entityType")),
         "sic": _str(data.get("sic")),
         "sic_description": _str(data.get("sicDescription")),
+        "owner_org": _str(data.get("ownerOrg")),
         "category": _str(data.get("category")),
         "state_of_incorporation": _str(data.get("stateOfIncorporation")),
         "state_of_incorporation_description": _str(data.get("stateOfIncorporationDescription")),
         "fiscal_year_end": _str(data.get("fiscalYearEnd")),
         "ein": _str(data.get("ein")),
+        "lei": _str(data.get("lei")),
         "tickers": [t for t in (data.get("tickers") or []) if t],
         "exchanges": [e or "" for e in (data.get("exchanges") or [])],
         "former_names": [f.get("name") for f in (data.get("formerNames") or []) if f.get("name")],
-        "business_state": _str(addr.get("stateOrCountry")),
-        "business_city": _str(addr.get("city")),
+        "former_names_json": orjson.dumps(data["formerNames"]).decode() if data.get("formerNames") else None,
         "website": _str(data.get("website")),
         "phone": _str(data.get("phone")),
+        "investor_website": _str(data.get("investorWebsite")),
+        "description": _str(data.get("description")),
+        "flags": _str(data.get("flags")),
+        "insider_transaction_for_owner_exists": _flag(data.get("insiderTransactionForOwnerExists")),
+        "insider_transaction_for_issuer_exists": _flag(data.get("insiderTransactionForIssuerExists")),
     }
+    for kind in ("business", "mailing"):
+        addr = addresses.get(kind) or {}
+        for sec_key, suffix in ADDRESS_FIELDS.items():
+            v = addr.get(sec_key)
+            row[f"{kind}_{suffix}"] = _flag(v) if suffix == "is_foreign" else _str(v)
+    extra = {k: v for k, v in data.items() if k not in KNOWN_HEADER_KEYS}
+    row["header_extra"] = orjson.dumps(extra, option=orjson.OPT_SORT_KEYS).decode() if extra else None
+    return row
 
 
 def parse_filings(data: dict[str, Any], source: str) -> list[dict[str, Any]]:
@@ -124,12 +233,19 @@ def parse_filings(data: dict[str, Any], source: str) -> list[dict[str, Any]]:
     recent = (data.get("filings") or {}).get("recent") or {}
     accs = recent.get("accessionNumber") or []
     n = len(accs)
+    unknown = set(recent) - KNOWN_RECENT_KEYS - _warned_recent_keys
+    if unknown:
+        # Surfaced once per process rather than stored: the filings table is 27M rows, and a new
+        # per-filing field is a schema decision, not something to tuck into a JSON column.
+        _warned_recent_keys.update(unknown)
+        log.warning("submissions filings.recent carries keys this loader does not store: %s", sorted(unknown))
 
     def col(name: str) -> list[Any]:
         v = recent.get(name) or []
         return v if len(v) == n else v + [None] * (n - len(v))
 
     forms = col("form")
+    core = col("core_type")
     filed = col("filingDate")
     report = col("reportDate")
     acc_dt = col("acceptanceDateTime")
@@ -155,6 +271,7 @@ def parse_filings(data: dict[str, Any], source: str) -> list[dict[str, Any]]:
                 "accession": accession,
                 "cik": cik,
                 "form": _str(forms[i]) or "",
+                "core_type": _str(core[i]),
                 "filed_date": fd,
                 "report_date": _date(report[i]),
                 "acceptance_datetime": _dt(acc_dt[i]),
