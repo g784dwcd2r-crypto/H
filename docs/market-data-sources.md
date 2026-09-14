@@ -1,5 +1,9 @@
 # Market data beyond EDGAR: what is free, what is not
 
+> **Parked 2026-09-14 pending legal advice.** No vendor is engaged and no price data enters the
+> lake until section 2 of `legal-questions.md` is answered. The research below stands; the decision
+> does not rest on it.
+
 EDGAR gives us everything a company files. It does not give prices, index membership or GICS.
 This is the search for free and legal routes to the rest, September 2026. Hosts below are blocked
 by the sandbox egress proxy, so every "verify" step runs on the Mac, not in a Claude session.

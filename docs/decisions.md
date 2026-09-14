@@ -378,3 +378,34 @@ agree is real evidence, unlike the company-facts reconciliation that shared our 
 Meanwhile the gap is already disclosed rather than hidden: provisional periods carry a chip on the
 company page and the statements grid, and the Excel export labels them "provisional (built from XBRL
 facts; FSDS not yet published)". That stays until filings are read directly.
+
+## Market data is parked until legal advice (2026-09-14)
+
+Hicham asked for end-of-day price and market capitalisation. The data side is nearly solved: shares
+outstanding are already in the lake from the filings, including the per-class split that market cap
+needs for multi-class companies (Alphabet: Class A 5,824m, Class B 836m, Class C 5,456m, summing to
+the reported 12,116m). Only the price is missing, and a price feed is about 20 euros a month with
+the whole world included, roughly 21 API calls a month using a bulk endpoint, and pennies of
+storage.
+
+None of that is the deciding factor. The deciding factor is whether the vendor's agreement lets us
+show their price to a paying subscriber, and that is a question for a lawyer, not for us.
+
+So the whole market-data workstream is parked. No vendor is engaged, no key is obtained, and no
+price data enters the lake until section 2 of `legal-questions.md` is answered.
+
+Two things settled on the way, which stand whatever the lawyer says:
+
+- **We buy prices only, never fundamentals.** Vendors compile financial statements by scraping
+  announcements, news feeds and investor-relations pages. That is a copy of a copy, and it is the
+  same reason we declined a FactSet login: if a vendor's number and the filing disagree, the filing
+  is right, and we would have no way to show which is which. Filings we own end to end; prices we
+  rent because we cannot add value to a closing price.
+- **Building a price feed ourselves is a licensing project, not an engineering one.** The code is a
+  file a day. The hard parts are the exchange agreements, which are what the vendor actually sells,
+  and corporate-action adjustment, which is where the bugs live. At 20 euros a month the arithmetic
+  is not close.
+
+Also noted for the lawyer: the UK retains the EU database right and the US has no equivalent, so
+extracting data from someone else's compilation is a bigger risk here than it would be in the US.
+That makes the scraping route worse for a UK company, not better.
