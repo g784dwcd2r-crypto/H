@@ -51,6 +51,10 @@ STATEMENTS_SCHEMA = pa.schema(
         ("is_parenthetical", pa.bool_()),
         ("concept", pa.string()),
         ("taxonomy", pa.string()),
+        # axis=member pairs from the data sets, e.g. "ProductOrService=DepositAccount;". Empty for a
+        # line total. A line's identity is the concept PLUS this: the same tag broken out by product
+        # or share class is several lines, not one.
+        ("segments", pa.string()),
         ("label", pa.string()),
         ("standard_label", pa.string()),
         ("negating", pa.bool_()),
@@ -177,16 +181,26 @@ def _stage_fsds_quarter(duck: Duck, quarter: str, enrich: bool, fx_index: bool =
             SELECT * FROM fsds_tag WHERE quarter = ?
             QUALIFY row_number() OVER (PARTITION BY tag, version ORDER BY abstract DESC NULLS LAST, tlabel) = 1
         ),
-        -- statement lines are the totals: no co-registrant, no axis breakdown (quarters loaded
-        -- before the column existed hold totals only, hence the coalesce)
-        n AS (SELECT * FROM fsds_num WHERE quarter = ? AND coreg IS NULL AND NOT coalesce(dimensional, false)),
+        -- A statement line takes the total: no co-registrant, no axis breakdown. But some filings
+        -- report a tag ONLY broken out -- Triumph Financial's fee income is three product lines with
+        -- no total -- and taking totals only made those lines vanish from the statement. So: totals
+        -- where the filing has them, the breakdown where it has nothing else. (Quarters loaded before
+        -- the `dimensional` column existed hold totals only, hence the coalesce.)
+        n AS (
+            SELECT * EXCLUDE (has_total) FROM (
+                SELECT *, max(CASE WHEN NOT coalesce(dimensional, false) THEN 1 ELSE 0 END)
+                            OVER (PARTITION BY adsh, tag, version) AS has_total
+                FROM fsds_num WHERE quarter = ? AND coreg IS NULL
+            )
+            WHERE CASE WHEN has_total = 1 THEN NOT coalesce(dimensional, false) ELSE TRUE END
+        ),
         base AS (
             SELECT p.adsh AS accession, s.cik, p.stmt AS statement, p.report, p.line,
                    coalesce(p.inpth, 0) = 1 AS is_parenthetical,
                    p.tag AS concept, p.version AS taxonomy, p.plabel AS label, t.tlabel AS standard_label,
                    coalesce(p.negating, 0) = 1 AS negating, coalesce(t.abstract, 0) = 1 AS is_abstract,
                    coalesce(t.custom, 0) = 1 AS is_custom, t.iord, t.crdr, t.datatype,
-                   n.ddate AS period_end_rounded, n.qtrs,
+                   n.ddate AS period_end_rounded, n.qtrs, coalesce(n.segments, '') AS segments,
                    -- FSDS commonly stores perShare facts with currency-only UOM. Restore the
                    -- denominator before the Company Facts join, otherwise 52/53-week EPS dates
                    -- cannot match USD/shares contexts and silently fall back to calendar dates.
@@ -219,7 +233,7 @@ def _stage_fsds_quarter(duck: Duck, quarter: str, enrich: bool, fx_index: bool =
             -- lines whose only values were filtered out keep an empty row so the structure stays intact
             SELECT accession, cik, statement, report, line, is_parenthetical, concept, taxonomy, label,
                    standard_label, negating, is_abstract, is_custom, iord, crdr, datatype,
-                   NULL::DATE AS period_end_rounded, NULL::INTEGER AS qtrs, NULL::VARCHAR AS unit,
+                   NULL::DATE AS period_end_rounded, NULL::INTEGER AS qtrs, '' AS segments, NULL::VARCHAR AS unit,
                    NULL::DOUBLE AS value, filing_period, form, filed_date, exp_q
             FROM base b
             WHERE NOT EXISTS (
@@ -238,7 +252,7 @@ def _stage_fsds_quarter(duck: Duck, quarter: str, enrich: bool, fx_index: bool =
         derived AS (
             SELECT *,
                 dense_rank() OVER (
-                    PARTITION BY accession, statement, is_parenthetical ORDER BY report, line) AS line_order,
+                    PARTITION BY accession, statement, is_parenthetical ORDER BY report, line, segments) AS line_order,
                 -- the filing's own column is the shortest duration it reports at the balance-sheet
                 -- date (the quarter on a Q2 income statement, not the year to date); instants are
                 -- excluded from the minimum so they cannot drag it to zero
@@ -256,11 +270,11 @@ def _stage_fsds_quarter(duck: Duck, quarter: str, enrich: bool, fx_index: bool =
             SELECT *,
                 count(DISTINCT CASE WHEN qtrs = 0 THEN line_order END) OVER concept_lines AS instant_lines,
                 dense_rank() OVER (
-                    PARTITION BY accession, statement, is_parenthetical, concept, qtrs ORDER BY line_order
+                    PARTITION BY accession, statement, is_parenthetical, concept, segments, qtrs ORDER BY line_order
                 ) AS instant_line_rank,
                 last_day(filing_period - to_months(coalesce(primary_qtrs, 4) * 3)) AS opening_period
             FROM derived
-            WINDOW concept_lines AS (PARTITION BY accession, statement, is_parenthetical, concept)
+            WINDOW concept_lines AS (PARTITION BY accession, statement, is_parenthetical, concept, segments)
         ),
         with_primary AS (
             SELECT *,
@@ -288,7 +302,8 @@ def _stage_fsds_quarter(duck: Duck, quarter: str, enrich: bool, fx_index: bool =
                  AND k.is_parenthetical = p.is_parenthetical AND k.line_order = p.parent_order
         )
         SELECT w.accession, w.cik, w.statement, w.report::INTEGER AS report, w.line::INTEGER AS line,
-               w.line_order::INTEGER AS line_order, w.is_parenthetical, w.concept, w.taxonomy, w.label,
+               w.line_order::INTEGER AS line_order, w.is_parenthetical, w.concept, w.taxonomy,
+               nullif(w.segments, '') AS segments, w.label,
                w.standard_label, w.negating, w.is_abstract, w.is_custom, w.iord, w.crdr, w.datatype,
                coalesce(w.fact_start,
                         CASE WHEN w.qtrs > 0
@@ -315,6 +330,7 @@ def _checks_from_staged(duck: Duck, source: str) -> pa.Table:
         SELECT accession, cik, statement, concept, any_value(value) AS value
         FROM stg
         WHERE is_primary_period AND NOT is_parenthetical AND value IS NOT NULL
+          AND coalesce(segments, '') = ''
           AND statement IN ('BS', 'IS', 'CF') AND concept IN ({_sql_list(sorted(chk.CHECK_CONCEPTS))})
         GROUP BY 1, 2, 3, 4
         """
@@ -653,6 +669,7 @@ def build_fallback_rows(
                 "is_parenthetical": parenthetical,
                 "concept": it["concept"],
                 "taxonomy": it.get("taxonomy"),
+                "segments": None,  # companyfacts publishes undimensioned facts only
                 "label": it.get("label") or it["concept"],
                 "standard_label": it.get("standard_label"),
                 "negating": bool(it.get("negating")),

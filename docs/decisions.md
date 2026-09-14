@@ -330,3 +330,24 @@ layer needs it, starting with the debt agreements.
 Deferring costs no rework: the reader already looks in our storage first and falls back to fetching
 live from the SEC, so filling the store later changes no code, it only makes pages faster. Filings
 are immutable, so there is no window to miss.
+
+## A statement line is a concept plus its dimension (2026-09-14)
+
+The builder took undimensioned values only, so a tag a company reported *only* broken out vanished
+from the statement entirely. Measured on the reloaded lake: 46,672 presented lines in one quarter,
+6.5 % of all lines, across 91 % of filings. On NYSE and Nasdaq, 32 % of filings lost income-statement
+or cash-flow lines, Berkshire Hathaway among them.
+
+The rule now: a line takes the **total** where the filing reports one; where it reports only the
+breakdown, each member becomes its own line. `statements` gains a `segments` column carrying the
+axis=member text, and a line's identity is concept plus segments. Two members under one presented tag
+are two ordered lines, not one.
+
+The company's own presentation label is left exactly as it is. The member sits in its own column, so
+the display decision (how to render "Fee income" broken into three products) stays with the page and
+nothing is renamed in the data. Faithful labels for those lines need the original filing, because the
+data sets' `pre` table names the tag once, with one label, and never mentions the members.
+
+Checks compare totals only (`segments = ''`). Without that guard, Erie Indemnity's Class A earnings
+per share of 3.23 could be divided by Class B's 2,542 shares. Same failure as the Citigroup one fixed
+this morning: a check that does not know what it is comparing.
