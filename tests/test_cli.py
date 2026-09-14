@@ -92,3 +92,26 @@ def test_cli_compact(tmp_path, monkeypatch):
     r = runner.invoke(app, ["compact"])
     assert r.exit_code == 0, r.output
     assert "compacted" in r.output and "filings" in r.output
+
+
+def test_statements_rebuild_command(tmp_path, monkeypatch):
+    """`filings-hub statements` rebuilds from the data sets already in the lake, without touching the
+    raw zips. Needed after a builder change; the quarter argument is the quick way to try one."""
+    monkeypatch.setenv("LAKE_ROOT", str(tmp_path / "lake"))
+    monkeypatch.setenv("DATABASE_URL", "")
+    monkeypatch.setenv("SEC_USER_AGENT", "Test test@example.com")
+    monkeypatch.chdir(tmp_path)
+    reset_settings_cache()
+    assert runner.invoke(app, ["demo"]).exit_code == 0
+
+    r = runner.invoke(app, ["statements", "2026q1"])
+    assert r.exit_code == 0, r.output
+    assert "rebuilt 1 quarter(s)" in r.output
+
+    r = runner.invoke(app, ["statements", "--all"])
+    assert r.exit_code == 0, r.output
+
+    # naming nothing, or a quarter the lake has never loaded, is refused rather than guessed at
+    assert runner.invoke(app, ["statements"]).exit_code == 2
+    r = runner.invoke(app, ["statements", "1999q9"])
+    assert r.exit_code == 2 and "not loaded in the lake" in r.output
