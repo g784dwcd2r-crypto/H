@@ -309,3 +309,24 @@ the layer-2 value that makes query and time series work.
 calendar. A June year end means "year two" is fiscal 2027, spanning mid-2026 to mid-2027, and
 labelling it 2027 without saying "fiscal" would be wrong. Same class of mistake as reading a table
 as thousands when it is millions: silent, and it makes the number useless.
+
+## Store the filing documents; index the attachments, store them later (2026-09-14)
+
+Hicham settled the exhibit question on trust rather than cost. The primary documents get stored now,
+for all 433,717 filings we take numbers from, because the whole product rests on being able to show
+the source of a number. A link to sec.gov is not evidence we control: links rot, the SEC
+restructures, filings are occasionally withdrawn, and their availability is not ours to guarantee. If
+we claim a number is what the company filed, we must hold the thing the company filed.
+
+It is also the cheap half: roughly 1.3 TB, about 20 dollars a month, and about twelve hours of
+fetching at the SEC's rate limit.
+
+Attachments are deferred but indexed. Links to a filing's primary document are free today, because
+the submissions data carries the filename and we already store the URL on every filing row. Knowing
+what attachments exist requires one small request per filing, no download; doing that for the 433,717
+gives a complete inventory in a few hours and stores nothing. The content follows when the compute
+layer needs it, starting with the debt agreements.
+
+Deferring costs no rework: the reader already looks in our storage first and falls back to fetching
+live from the SEC, so filling the store later changes no code, it only makes pages faster. Filings
+are immutable, so there is no window to miss.
