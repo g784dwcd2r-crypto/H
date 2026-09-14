@@ -118,19 +118,48 @@ flowchart TD
     style OK fill:#e8f5e9,stroke:#2e7d32
 ```
 
-**Built (2026-09-14).** `filings-hub check-tolerance` does this. It reads every check, separates the
-passes the tolerance actually governs from the ones that only passed because the numbers were tiny,
-and reports how many sit *just* under the line — the "near misses" where a real break can hide. It
-keeps the earnings-per-share checks (a 1 % line) separate from the rest (0.5 %), and ends on a plain
-verdict: if near misses are rare the flat tolerance is harmless and step 9 can wait; if they are
-common, step 9 moves up. The band edges come straight from the real tolerance constants, so the
-measurement can never drift from the thing it measures. Read-only.
+### Progress
 
-**Done when.** ✅ The tool exists and is tested. What is left is to *run it against the full lake*
-(once the current rebuild has finished uploading) and read the verdict, which is a one-line command,
-not more building.
+**✅ Built and tested (2026-09-14).** The tool is `filings-hub check-tolerance`
+(`filings_hub/ingest/check_tolerance.py`). It reads every check, separates the passes the 0.5 %
+tolerance actually governs from the ones that only passed because the numbers were tiny (those pass
+on a fixed 1.0 floor, where the percentage is meaningless), and reports how many sit *just* under the
+line — the "near misses" where a real break can hide. Earnings-per-share checks are measured on their
+own 1 % line, kept apart from the rest. It ends on a plain verdict. It is read-only; it writes
+nothing.
 
-**Size.** Built in under an hour. Running it is a minute.
+Two things make it trustworthy: the band edges are imported from the real tolerance constants in
+`checks.py`, so the measurement can never drift from the thing it measures; and it is tested against
+controlled rows with known gaps (each lands in a named band) plus the real built lake. The full test
+suite is green.
+
+### What is left to do
+
+The tool is done; the **answer** is not, because it needs the real data.
+
+1. **Run it against the full lake**, once the current rebuild has finished uploading to R2. Run it
+   locally (or against a local copy), not against the remote lake, or it scans the whole thing over
+   the network — see the traps note in Part 9. One command:
+
+   ```
+   filings-hub check-tolerance
+   ```
+
+2. **Read the verdict.** It prints the near-miss share across all ~70 quarters and says, in one line,
+   whether the flat tolerance is hiding real breaks.
+
+3. **Decide step 9's priority from that number.** This is the whole point of step 1. If near misses
+   are rare, the flat 0.5 % is harmless in practice and **step 9** (a per-line tolerance from the
+   filing's own `decimals`) can wait its turn. If they are common, step 9 moves up the order, because
+   we are letting real breaks through today.
+
+4. **Record the number** back here, so the decision has its evidence attached rather than a memory of
+   a verdict.
+
+**Done when.** ✅ Tool built and tested. ▢ Run against the full lake, verdict read, step 9's priority
+set from the result.
+
+**Size.** Built in under an hour. Running it and reading the verdict is a minute.
 
 ## Step 2. Fix the seven tickers that point at two companies
 
