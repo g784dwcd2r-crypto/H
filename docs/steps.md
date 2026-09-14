@@ -156,8 +156,18 @@ The tool is done; the **answer** is not, because it needs the real data.
 4. **Record the number** back here, so the decision has its evidence attached rather than a memory of
    a verdict.
 
-**Done when.** ✅ Tool built and tested. ▢ Run against the full lake, verdict read, step 9's priority
-set from the result.
+**Result (2026-09-14, full lake — 2,047,964 checks).** The flat tolerance is **not** hiding
+breaks. Of 1,502,846 standard passes governed by the 0.5 % tolerance, **99.48 % are exact** and only
+**711 (0.05 %)** are near misses — far below the 1 % line. Verdict: harmless, **step 9 (per-line
+tolerance) can wait**, which also suits its dependency (it needs the filing's `decimals`, only
+available once filings are downloaded, step 6). EPS near misses run higher at 1.90 %, but EPS is
+printed to the cent so a 1 % band is ~2 cents of genuine rounding, not hidden error — noted, not
+acted on. Separately, ~8-9 % of checks *fail* (130k standard, 59k EPS), most standard fails >10x past
+the line: not a tolerance problem, but real non-reconciliation to chase via step 4 (coverage) and
+step 8.
+
+**Done when.** ✅ Built, tested, run on the full lake, verdict recorded, step 9 deferred on the
+evidence.
 
 **Size.** Built in under an hour. Running it and reading the verdict is a minute.
 

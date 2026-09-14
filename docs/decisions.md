@@ -599,3 +599,19 @@ Choices worth recording:
 
 Read-only and internal: it gates what we publish and tells us where to look, never shown to a user.
 Still to do: run it on the full lake and work the gap list.
+
+## Step 1 result: the flat tolerance is fine; step 9 deferred (2026-09-14, evening)
+
+`check-tolerance` ran on the full local lake: 2,047,964 checks. Of the 1,502,846 standard passes the
+0.5 % tolerance governs, 99.48 % are exact and 711 (0.05 %) are near misses. That is the answer step 1
+existed to get: the flat tolerance is not waving real breaks through, so **step 9 (a per-line
+tolerance from the filing's own `decimals`) is deferred** — low value now, and it needs the filing
+download (step 6) to have the `decimals` anyway.
+
+EPS near misses are higher (1.90 % of the 87,271 EPS passes governed by the 1 % rule), but EPS is
+printed to the cent, so a 1 % band on a low share price is a couple of cents of ordinary rounding.
+Noted, not acted on.
+
+The signal worth chasing is elsewhere: ~8-9 % of checks *fail* (130,402 standard, 58,838 EPS), and
+most standard fails are more than 10x past the line — genuine non-reconciliation, not tolerance. That
+is coverage-audit (step 4) and calculation-tree (step 8) territory, not step 1's.
