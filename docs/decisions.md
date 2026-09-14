@@ -249,3 +249,16 @@ mid-period.
 Values derived this way are read from a table, not filed as tags. They must be labelled as derived
 wherever they appear, so a reader always knows which numbers are reproductions and which are
 readings. Sequenced last, after the three core statements and the five disclosures.
+
+## Data quality is an internal check, not a user-facing feature (2026-09-14)
+
+Hicham: the arithmetic checks are ours, not the reader's. What matters to a user is that the filings
+are there and that everything is easy to understand. So `statement_checks` stays an engineering and
+operations signal: it gates what we publish and tells us where to look, and it does not appear on the
+page as badges, scores or warnings.
+
+Related, same conversation: foreign-domiciled filers (20-F, 40-F) are not "international filers" and
+are not a scope question. They file under US regulation, they are listed in the US, an investor can
+buy them, so they are in. The lake already holds 2,020 such companies, 1,363 listed, 1,208 on
+NYSE/Nasdaq, from 2009 onward. Whether their statements build as cleanly as domestic ones is an
+internal coverage measurement, not a question for him.
