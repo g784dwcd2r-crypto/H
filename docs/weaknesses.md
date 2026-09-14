@@ -206,8 +206,9 @@ into new tables and rename them together.
 Problems 1, 2, 3 and 7 have one cause: **we read the SEC's summary of a filing instead of the
 filing.** Four problems, one fix. That is why the filing work comes first.
 
-Problems 4, 5 and 6 are separate and survive that fix. Of those, 4 is probably the one to do first,
-because it is how we would learn which of the others actually matters.
+Problems 4, 5 and 6 are separate and survive that fix. Problem 4, the coverage audit, does not wait
+its turn behind the filing work: it needs nothing and runs in parallel from the start, because it is
+how we learn which of the others actually matters.
 
 ## What to do first
 

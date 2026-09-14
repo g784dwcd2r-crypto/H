@@ -113,5 +113,6 @@ filings are inline XBRL, which our reader already handles. Canada is harder. AUS
 - **The classification definitions.** We can help assign companies. The groups and the hard calls are
   human, and someone has to keep reviewing them as companies change.
 - **For a lawyer:** market data, and what protects a classification we build ourselves.
-- **One thing to settle:** the task list says "top 4,000 companies". The integrity plan says every
-  company, grouped by tier, with no cutoff. The plan is right; the task wording should change.
+- **Not a decision, just stale task wording:** an old task line says "top 4,000 companies". Settled:
+  the coverage work runs over every company, grouped by tier, with no cutoff — a top-N would hide the
+  very registrants the audit exists to count. The task wording should be updated to match.
