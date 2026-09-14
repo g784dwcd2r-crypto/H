@@ -67,11 +67,12 @@ flowchart TD
     P2 --> P8["Part 8 - Older filings,<br/>then other countries"]
     OWN["Part 7 - Ownership<br/>built already, needs<br/>switching on and filling in"]
     LIST["The company list<br/>being gathered now"] --> P4["Part 4 - Group the companies,<br/>then the dictionary"]
-    P8["Part 8 - Plumbing<br/>two known limits,<br/>only when they bite"]
+    P4 --> P10["Part 10 - What management says<br/>transcripts, tagged by theme.<br/>Same vocabulary as Part 4"]
+    P9["Part 9 - Plumbing<br/>two known limits,<br/>only when they bite"]
     PARK["Parked - share prices<br/>waiting on a lawyer"]
     style PARK fill:#eeeeee,stroke:#999999,stroke-dasharray: 5 5
     style LIST fill:#eeeeee,stroke:#999999
-    style P8 fill:#eeeeee,stroke:#999999,stroke-dasharray: 5 5
+    style P9 fill:#eeeeee,stroke:#999999,stroke-dasharray: 5 5
 ```
 
 | Part | Steps | What it is | Blocked by |
@@ -85,6 +86,7 @@ flowchart TD
 | 7. Ownership | 28 to 32 | Who holds the shares, who is trading | Nothing. Built, not switched on |
 | 8. Go wider | 33 to 34 | Older filings, other countries | Part 2 finished |
 | 9. Plumbing | 35 to 36 | Two known limits, neither urgent | Nothing. Only when they bite |
+| 10. What management says | 37 | Earnings-call transcripts, tagged by theme | A source for transcripts; runs with Part 4 |
 | Parked | Share prices | Waiting | A lawyer |
 
 ---
@@ -826,6 +828,11 @@ missing.
 from the filings, but the boundaries and the difficult calls are his, so this waits on his work
 rather than on ours.
 
+**The same grouping goes one level down.** Once the vocabulary exists, it does not only classify whole
+companies — it classifies each company's segments too: the fintech arm inside a bank, the software arm
+inside a hardware maker. That is the same judgement, applied to the segment data we already hold. It
+lives with the segments in step 19, and it is why the vocabulary is settled here first.
+
 ## Step 17. The dictionary
 
 **What it is.** A translation table sitting underneath everything, recording that different companies
@@ -948,6 +955,43 @@ flowchart TD
     style PAGE fill:#e8f5e9,stroke:#2e7d32
     style TAG fill:#e3f2fd,stroke:#1565c0
 ```
+
+**The layer above that: what *kind of business* each segment is.**
+
+Tagging the *kind of split* (geography, product, division) is not the same as tagging *what kind of
+business* each division actually is. Triumph reports four segments — Banking, Factoring, Payments and
+TriumphPay. The SEC tells us those four exist and gives us their numbers. It does **not** tell us that
+TriumphPay is a fintech and the rest is a bank. That last fact is the one an analyst cares about, and
+it is nowhere in the data.
+
+So this is step 16's grouping applied one level down: the same vocabulary that classifies whole
+companies, put onto their segments. It is what lets someone find the fintech hiding inside a bank, and
+stand it next to the pure-play fintechs.
+
+Like step 16, it is judgement, not data. The SEC gives one coarse industry code for the whole company
+— "commercial bank" for Triumph, which misses the fintech entirely. The segment labels are Hicham's to
+assign, from the same list he builds for whole companies. We already hold the segments and their
+numbers; what is added here is the label on top.
+
+```mermaid
+flowchart TD
+    T["Triumph, one company"] --> SEG["SEC gives us the segments<br/>and their numbers"]
+    SEG --> S1["Banking"]
+    SEG --> S2["Factoring"]
+    SEG --> S3["Payments"]
+    SEG --> S4["TriumphPay"]
+    S1 -.-> TAG["We add the business-model tag.<br/>SEC does not give this"]
+    S4 -.-> TAG
+    TAG --> B["Banking, Factoring, Payments = bank"]
+    TAG --> F["TriumphPay = fintech"]
+    F --> FIND["So the fintech inside a bank<br/>sits next to the pure-play fintechs"]
+    style TAG fill:#e3f2fd,stroke:#1565c0
+    style FIND fill:#e8f5e9,stroke:#2e7d32
+```
+
+**Same rule as everywhere else:** the page always shows the company's own segment names. The
+business-model tag sits underneath, for searching and comparing, and never renames anything on the
+page.
 
 ## Step 20. The debt schedule
 
@@ -1450,6 +1494,57 @@ question the plain way makes the query engine open the entire lake before it ans
 can take hours over the network. The serving site avoids this with a setting that reads each company
 on demand instead. Anyone poking at the lake by hand should use the same setting, or point at a local
 copy. Not known to have bitten yet, but the default is a trap waiting to happen.
+
+---
+
+# Part 10. Beyond the filing: what management says
+
+Everything so far comes from what a company *files*. This part is about what a company *says* — on its
+earnings calls. It is a different kind of source and a different kind of value.
+
+**Where this sits in the order.** Sequenced *with* the classification work in Part 4, not after it.
+Hicham's plan is one line of work in three moves: settle the vocabulary (step 16), apply it to whole
+companies and to their segments (step 16, step 19), then tag what management talks about using the
+same lens. It is placed at the end of this document only because it is a brand-new source — its
+position here is not its priority.
+
+## Step 37. Earnings-call transcripts, tagged by theme
+
+**What it is.** The transcript of a company's earnings call — the quarterly conversation between
+management and analysts — brought in as a new source, then tagged for *what was discussed*:
+acquisitions, pricing, market share, a new product, guidance.
+
+**Why it matters.** The numbers say *what* happened. The call is where management says *why*, and
+where analysts push on what the filing leaves out. Tagged across thousands of companies, it answers
+questions no financial statement can: who is talking about raising prices this quarter, who keeps
+naming the same competitor, where an acquisition is being hinted at before it is announced.
+
+**The source is the catch.** Transcripts are **not** an SEC data set and **not** part of a filing.
+The SEC does not publish them. So unlike almost everything else in this document, there is no free,
+official, already-structured copy to take. The transcript has to be sourced separately, and settling
+*where it comes from* is the first decision — nothing else starts until it is made.
+
+**The tagging is the value, and it is judgement.** Same shape as the classification work: a fixed list
+of themes, written down and defined, then applied. The themes share the same spine as the company and
+segment classification — one vocabulary — so a theme raised on a call can be tied back to the *kind* of
+business it was said about. Hicham owns the theme list, the same way he owns the classification.
+
+```mermaid
+flowchart TD
+    SRC["Earnings-call transcript<br/>NOT on SEC — a new source<br/>to arrange first"] --> RAW["What management actually said"]
+    RAW --> KEEP["We always keep<br/>the company's own words"]
+    RAW --> TAG["We tag the THEMES:<br/>M&A, pricing, market share,<br/>new product, guidance"]
+    TAG --> SPINE["Same vocabulary as the<br/>company and segment classification"]
+    SPINE --> ASK["So a theme can be tied to the<br/>KIND of business it was said about"]
+    style SRC fill:#fff4e5,stroke:#e65100
+    style KEEP fill:#e8f5e9,stroke:#2e7d32
+    style ASK fill:#e8f5e9,stroke:#2e7d32
+```
+
+**Same rule as the dictionary (step 17) and the segments (step 19):** we tag what was said and keep
+the words next to the tag. A tag is a way in, never a summary that replaces the transcript.
+
+**Size.** Large, and gated on the source decision.
 
 ---
 
