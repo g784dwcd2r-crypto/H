@@ -162,3 +162,24 @@ are present without an available-to-common numerator, because the numerator woul
 statements, never two concepts that sound alike, so a filing carrying cash-with-restricted-cash on
 one statement and cash-without on the other is not reported as a break. Cross-statement results are
 stored with `statement = 'XS'`.
+
+## Unless the user says otherwise, keep to the company's presentation (2026-09-14)
+
+Hicham's rule, and it governs every display decision below it: **a statement page reproduces what
+the company printed.** If a line was presented as one line, it is one line. If it was presented as
+three, it is three. We never merge, never split, never invent a total the company did not report.
+
+The corollary: anything we compute is a separate view, visibly ours. Our own table may show total
+revenue with a control that opens the parts underneath; that is analysis, not reproduction, and the
+reader can tell which is which. Breakdowns open in a side panel rather than being folded into the
+statement.
+
+Why this is the right rule for an integrity product: it makes every disagreement checkable. If our
+page and the filing differ, we are wrong. There is no judgement call to defend.
+
+What it demands of the pipeline: to reproduce a presentation we must know it. The data sets' `pre`
+table names a tag once per statement line with no dimension attached, so where a company printed
+several lines that share one tag and differ only by dimension, `pre` alone may not tell us how many
+lines there were or which value belongs to which. Whether it does is an open question being
+measured; if it does not, faithful reproduction requires reading the original filing rather than
+the summary files.
