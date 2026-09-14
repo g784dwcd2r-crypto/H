@@ -49,25 +49,30 @@ Two sources built separately that agree is real proof. That is stronger than wha
 ```mermaid
 flowchart TD
     START([Now]) --> P1["Part 1 - Four quick fixes<br/>margin of error, tickers,<br/>the guess, and counting what we miss"]
-    P1 --> P2["Part 2 - Read the filings themselves<br/>test, download, rebuild, prove,<br/>then keep it running"]
-    P2 --> P3["Part 3 - Finish the checks,<br/>then say when a number changes"]
-    P2 --> P5["Part 5 - The five disclosures<br/>segments, debt, hybrids,<br/>acquisitions, KPIs"]
-    P2 --> P6["Part 6 - Older filings,<br/>then other countries"]
+    P1 --> P2["Part 2 - Read the filings themselves<br/>test, download, rebuild,<br/>prove, keep it running"]
+    P2 --> P3["Part 3 - Finish the checks,<br/>and report on them"]
+    P2 --> P5["Part 5 - The notes and<br/>the five disclosures"]
+    P2 --> P6["Part 6 - Hand someone<br/>the document"]
+    P2 --> P7["Part 7 - Older filings,<br/>then other countries"]
     LIST["The company list<br/>being gathered now"] --> P4["Part 4 - Group the companies,<br/>then the dictionary"]
+    P8["Part 8 - Plumbing<br/>two known limits,<br/>only when they bite"]
     PARK["Parked - share prices<br/>waiting on a lawyer"]
     style PARK fill:#eeeeee,stroke:#999999,stroke-dasharray: 5 5
     style LIST fill:#eeeeee,stroke:#999999
+    style P8 fill:#eeeeee,stroke:#999999,stroke-dasharray: 5 5
 ```
 
-| Part | Steps | Blocked by |
-|---|---|---|
-| 1. Quick fixes | 1 to 4 | Nothing |
-| 2. Read the filings | 5 to 10 | Step 5 must come first |
-| 3. Finish the checks, say what changed | 11 to 13 | The real subtotal check, step 8 |
-| 4. Organise the universe | 14 to 15 | The company list |
-| 5. The five disclosures | 16 to 21 | Part 2, for the note tables |
-| 6. Go wider | 22 to 23 | Part 2 finished |
-| Parked | Share prices | A lawyer |
+| Part | Steps | What it is | Blocked by |
+|---|---|---|---|
+| 1. Quick fixes | 1 to 4 | Cheap things worth doing today | Nothing |
+| 2. Read the filings | 5 to 11 | The main project | Step 5 first |
+| 3. Checks and reporting | 12 to 15 | Knowing we are right, and saying so | The real subtotal check, step 8 |
+| 4. Organise the universe | 16 to 17 | Grouping and translating | The company list |
+| 5. Notes and disclosures | 18 to 25 | What analysts actually read | Part 2, for the note tables |
+| 6. The documents | 26 to 27 | Handing someone the filing | Part 2, and a scope decision |
+| 7. Go wider | 28 to 29 | Older filings, other countries | Part 2 finished |
+| 8. Plumbing | 30 to 31 | Two known limits, neither urgent | Nothing. Only when they bite |
+| Parked | Share prices | Waiting | A lawyer |
 
 ---
 
@@ -408,10 +413,6 @@ Only the filing carries this. The summary files leave it out, which is why this 
 
 **Size.** Small, once we hold the filings.
 
-**Housekeeping, the same time.** We store statements in one small file per company per quarter, which
-is now around half a million files. Reading one company is fast, but reading everything at once is
-slow. If the report in step 4 turns out slow, we merge them. If it is fine, we leave it alone.
-
 ---
 
 ## Step 10. Rebuild the history, and keep it running
@@ -443,11 +444,31 @@ arrived this morning already has its documents.
 
 **Size.** The rebuild is mostly machine time. The daily part is a small change.
 
+## Step 11. Tidy up the storage
+
+**What it is.** We keep statements in one small file per company per quarter. That is now roughly
+half a million files, and it grows every quarter.
+
+**Why it matters.** Reading one company is fast, which is what matters for a company page and why we
+organised it this way. Reading *everything* is slow, and the coverage report in step 4 reads
+everything. As we add filings and years, this gets worse rather than better.
+
+**How it works.** Merge each company's many small files into one, the same way we already do for the
+filings list. Nothing changes about what the data says.
+
+**When.** Only if step 4 turns out slow. Measure first. There is no point spending time on this if it
+is not actually hurting.
+
+**Done when.** The coverage report runs in a sensible time, and the file count stops climbing every
+quarter.
+
+**Size.** Small.
+
 ---
 
 # Part 3. Finish the checks, then tell users what changed
 
-## Step 11. The last two arithmetic checks
+## Step 12. The last two arithmetic checks
 
 **What it is.** We planned five checks. Three are done: profit agreeing across statements, cash
 agreeing between the cash flow statement and the balance sheet, and earnings per share recalculated
@@ -487,7 +508,7 @@ or did not apply.
 
 **Size.** Medium.
 
-## Step 12. Late filers and companies that went quiet
+## Step 13. Late filers and companies that went quiet
 
 **What it is.** Spot companies that have stopped filing on time, or stopped filing at all.
 
@@ -519,7 +540,7 @@ gone quiet.
 
 **Size.** Small. It uses data we already hold.
 
-## Step 13. Spot restatements and say so
+## Step 14. Spot restatements and say so
 
 **What it is.** Sometimes a company revises figures it already published. This year's report shows
 last year's numbers differently from how last year's report showed them. That is a restatement.
@@ -561,11 +582,41 @@ up.
 
 **Size.** Small, after the comparison check exists.
 
+## Step 15. The scorecard
+
+**What it is.** One report that pulls together everything the checks and the coverage work produce,
+re-run every time the data refreshes.
+
+**Why it matters.** All the work in parts 1 and 3 produces numbers. Without somewhere to put them,
+they get looked at once and forgotten, and we go back to fixing whatever we happen to notice. A
+report that runs every time is the difference between measuring once and actually knowing.
+
+**What is in it.** One section per piece of work: how many companies are complete, which checks ran,
+which passed, which never applied, who is filing late, what got restated. Each section has counts, a
+chart, the named list of exceptions, and a sentence in plain English saying what it means.
+
+**The number that matters most.** How many companies are getting no checks at all. That is the silent
+failure, and it belongs at the top.
+
+```mermaid
+flowchart LR
+    A["Coverage, step 4"] --> R["The scorecard<br/>re-run after every refresh"]
+    B["All the checks"] --> R
+    C["Late filers, step 13"] --> R
+    D["Restatements, step 14"] --> R
+    R --> E["Counts, charts, the exception list,<br/>and what it means in plain words"]
+    style R fill:#e3f2fd,stroke:#1565c0
+```
+
+**Done when.** It runs automatically after a refresh and nobody has to assemble it by hand.
+
+**Size.** Medium. Much of it exists already as a notebook.
+
 ---
 
 # Part 4. Organise the universe
 
-## Step 14. Group companies the way analysts actually think
+## Step 16. Group companies the way analysts actually think
 
 **What it is.** A new way of grouping companies: not by what they sell, but by how the market
 analyses them.
@@ -623,7 +674,7 @@ missing.
 **What it needs.** The company list, being gathered now. And human judgement — we can suggest
 placements, but the groups and the difficult calls are not something to automate.
 
-## Step 15. The dictionary
+## Step 17. The dictionary
 
 **What it is.** A translation table sitting underneath everything, recording that different companies
 use different words for the same thing.
@@ -664,25 +715,49 @@ human work is really needed. Measure before deciding.
 
 ---
 
-# Part 5. The five disclosures
+# Part 5. The notes, and the five disclosures
 
-The statements on their own are not the product. Once they are right, these five come next, in this
-order, because this is the order an analyst needs them in. The equity statement comes after all five.
+The statements on their own are not the product. Once they are right, these come next, in this
+order, because it is the order an analyst needs them in.
 
-Most of this work needs the note tables inside a filing, which is another reason part 2 comes first.
+Almost all of it lives in the **notes** to the accounts rather than in the statements. So it needs
+both the filings from part 2 and one new source, which is why step 18 comes first here.
 
 ```mermaid
 flowchart LR
-    S["Statements are right<br/>parts 1 to 3 done"] --> D1["1. Segmentation"]
+    S["Statements are right<br/>parts 1 to 3 done"] --> N["Step 18<br/>the SEC's notes data sets"]
+    N --> D1["1. Segmentation"]
     D1 --> D2["2. Debt schedule"]
     D2 --> D3["3. Preferred shares<br/>and hybrids"]
     D3 --> D4["4. Acquisitions"]
     D4 --> D5["5. KPIs"]
     D5 --> EQ["Then the equity statement"]
+    EQ --> TXT["Last, and hardest:<br/>the written story in the notes"]
     style S fill:#e8f5e9,stroke:#2e7d32
+    style TXT fill:#fff4e5,stroke:#e65100
 ```
 
-## Step 16. Segmentation
+## Step 18. Add the SEC's notes data sets
+
+**What it is.** A second set of files the SEC publishes, which we do not use yet. The ones we use
+today carry the statements. These carry the **notes** as well, in structured form.
+
+**Why it matters.** The notes are where most of what follows actually lives: segment tables, the debt
+maturity schedule, the detail behind almost every line. We can get some of it by reading filings
+ourselves, but where the SEC has already structured it, taking it is far cheaper than extracting it.
+
+**How it works.** Same shape as the loader we already have: download, keep every row and column,
+record what loaded and what was rejected.
+
+**Worth being clear.** This does not replace reading the original filings. It is a cheaper route to
+some of the same tables, and a second opinion on them. The filing stays the source of truth.
+
+**Done when.** The notes data sets load with the same counts and rejections reporting as everything
+else, and the disclosures below can draw on them.
+
+**Size.** Medium.
+
+## Step 19. Segmentation
 
 **What it is.** How a company splits itself up: by region, by product, by division, by customer type.
 
@@ -697,7 +772,7 @@ takes those words into a meeting with management. Underneath, we tag what *kind*
 geography, product, division, customer — so that a question can be asked across companies that use
 different words for the same idea.
 
-## Step 17. The debt schedule
+## Step 20. The debt schedule
 
 **What it is.** When a company's borrowings fall due, year by year.
 
@@ -712,7 +787,7 @@ years, and a chart only works with real ones. So we convert. But the conversion 
 company's own financial year end, so a company whose year ends in June has a "year two" that is not
 the same as a December company's. We say which we mean.
 
-## Step 18. Preferred shares and hybrids
+## Step 21. Preferred shares and hybrids
 
 **What it is.** Funding that is not quite debt and not quite ordinary shares.
 
@@ -720,7 +795,7 @@ the same as a December company's. We say which we mean.
 Ignoring it makes a company look better funded than it is, and it distorts earnings per share,
 because preferred dividends come out before ordinary shareholders see anything.
 
-## Step 19. Acquisitions
+## Step 22. Acquisitions
 
 **What it is.** What a company bought, when, for how much, and what it recorded as a result.
 
@@ -728,7 +803,7 @@ because preferred dividends come out before ordinary shareholders see anything.
 is a different business from one that grew 20 % by selling more, and the statements alone do not
 always separate the two.
 
-## Step 20. KPIs
+## Step 23. KPIs
 
 **What it is.** The measures a company chooses for itself: subscribers, same store sales, occupancy,
 load factor, whatever its industry cares about.
@@ -742,21 +817,67 @@ measures, and two companies using the same word can mean different things. That 
 This becomes urgent when we go beyond the US, because that is when the same idea starts appearing
 under different words from country to country.
 
-## Step 21. The statement of changes in equity
+## Step 24. The statement of changes in equity
 
 **What it is.** The fourth statement, showing how shareholders' stake moved over the year.
 
 **Why it is last.** Deliberately placed after the five disclosures above. It is worth having, and it
 is worth less than any of them.
 
-It also becomes easier once step 11 is done, because the retained earnings check is really a test of
+It also becomes easier once step 12 is done, because the retained earnings check is really a test of
 the same movements this statement describes.
+
+## Step 25. The story in the notes
+
+**What it is.** The written part of the notes, not the tables. A company does not only report that
+revenue grew 10 %. It says the growth was 4 % more volume and 6 % higher prices.
+
+**Why it matters.** That sentence is often worth more than the number it explains. It is the
+difference between knowing what happened and knowing why.
+
+**Why it is last.** It exists only as text in the document, so it needs the filings from part 2, and
+pulling meaning out of written English is a different kind of problem from everything above it. It is
+a separate project, listed here so it is not forgotten rather than because it is next.
+
+**Size.** Large, and least defined.
 
 ---
 
-# Part 6. Go wider
+# Part 6. What an analyst walks away with
 
-## Step 22. Filings from before 2009
+Two things that are not about numbers at all. They are about handing someone the document.
+
+## Step 26. Every exhibit, not just the main document
+
+**What it is.** A filing is a bundle. The main document is one part; the rest are exhibits — press
+releases, contracts, presentations, debt agreements.
+
+**Where we are.** We hold a demo set: 229 documents across 20 filings, for one company. That is not
+coverage. Step 6 records what exists for everything without downloading it.
+
+**The decision needed first.** Do we store every exhibit, or only some? Which forms? How far back?
+This is a cost and scope question, not a technical one, and it is open. Debt agreements are the
+obvious first choice, because step 20 needs them.
+
+**Size.** Depends entirely on that decision.
+
+## Step 27. A document someone can actually save
+
+**What it is.** A version of a filing a person can download, print and read on a plane.
+
+**The catch.** The SEC publishes filings as web pages, not PDFs. So "download the PDF" is not us
+passing on a file. We have to produce it.
+
+**Why it matters.** It is what an analyst does with a filing: save it, mark it up, read the parts
+that matter. Storing the document, in step 6, is what makes it possible.
+
+**Size.** Medium, and mostly a presentation problem rather than a data one.
+
+---
+
+# Part 7. Go wider
+
+## Step 28. Filings from before 2009
 
 **What it is.** Tagged data only exists from about 2009. Older filings are documents, not data.
 
@@ -782,7 +903,7 @@ compared with itself, which is what makes it trustworthy.
 
 **Scope.** Listed companies, annual reports, 2001 onwards, roughly 75,000 documents.
 
-## Step 23. Canada, Europe, and later Australia and New Zealand
+## Step 29. Canada, Europe, and later Australia and New Zealand
 
 **What it is.** Coverage outside the US.
 
@@ -812,6 +933,46 @@ the SEC. Real coverage means a new source for each region.
 
 **One thing to do now, while the list is being gathered:** record an identifier that works across
 countries, such as ISIN or LEI. A ticker symbol does not travel.
+
+---
+
+# Part 8. Plumbing
+
+Nobody asks for these. They are the two places where the machinery itself, rather than the data, is
+the weak point. Neither is urgent, and both are written down so they are a decision rather than a
+surprise.
+
+## Step 30. Handling more people at once
+
+**What it is.** Our query engine currently answers one question at a time.
+
+**Why it is that way.** It has to be: asking two questions at once on the same connection can mix one
+question's columns with another's answers, which would show a user numbers from the wrong company.
+One at a time is the safe choice and it was the right one.
+
+**Why it may need changing.** It puts a ceiling on how many people can use the site at the same
+moment. Today that is fine.
+
+**The fix, when needed.** Use several connections instead of one. Not a redesign.
+
+**How we will know it is time.** Pages get slower as more people use them at once, rather than
+because a query is slow.
+
+## Step 31. Publishing without a half-finished moment
+
+**What it is.** When we publish fresh data, tables are replaced one after another rather than all at
+once.
+
+**What could happen.** Someone loading a page during those seconds could see one table updated and
+another not. The numbers would not be wrong, but they could be inconsistent with each other.
+
+**Where we already are.** Two publishing jobs can never run at once, and an incomplete load refuses
+to publish at all. So this is a narrow window, not an open hole.
+
+**The fix, if it ever bites.** Load into a fresh set of tables and switch to them in one movement.
+
+**How we will know it is time.** Someone reports a page that did not add up, at a time that matches a
+publish.
 
 ---
 
