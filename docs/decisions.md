@@ -262,3 +262,29 @@ are not a scope question. They file under US regulation, they are listed in the 
 buy them, so they are in. The lake already holds 2,020 such companies, 1,363 listed, 1,208 on
 NYSE/Nasdaq, from 2009 onward. Whether their statements build as cleanly as domestic ones is an
 internal coverage measurement, not a question for him.
+
+## Two layers: the display layer and the Disclosure Unifying Layer (2026-09-14)
+
+Hicham's framing, and it generalises every naming decision made today into one architecture.
+
+**Layer 1, display.** Never touch or tamper with how a company presents its financials or its KPIs.
+This is the principle already recorded above, now stated as a layer rather than a rule about
+statements: it governs line items, segment names and KPI names alike.
+
+**Layer 2, the Disclosure Unifying Layer.** A mapping held underneath, never shown in place of the
+company's words, that says which different names mean the same thing. It exists for compute and
+query, not for display.
+
+The worked example: a restaurant grows two ways, more revenue per existing restaurant and more
+restaurants. The first is called Comps or Same Store Sales in the US, and Like for Like in the UK and
+Europe. A user asking "what are the like-for-likes of restaurants in the UK versus the US" is asking
+one question across three words. Layer 2 is what makes that answerable; layer 1 is what keeps each
+company's page honest.
+
+This is the same shape as the segmentation decision (company wording on the page, segmentation kind
+tagged underneath) and the concept dictionary (tag plus dimension as the key). They are all layer 2.
+
+**KPIs: leave as they are for now.** 59,755 company-invented tags in one quarter, in nearly every
+filing. The work is not mapping names, it is understanding definitions, and that is its own data
+engineering task. Deferred deliberately, not forgotten. It becomes load-bearing when we expand
+beyond the US, because that is when the same concept starts carrying different words by country.
