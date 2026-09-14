@@ -128,3 +128,19 @@ in the load log; anything else still lands in the rejects. `filings-hub fsds <qu
 chosen quarters from the raw zips, which live only where the backfill ran (the raw prefix is not
 part of the R2 lake), so the reload runs on the Mac and the four quarters' `fsds/num` partitions
 and `fsds/load_log` are synced up afterwards.
+
+## Submissions header: every field on the companies table (2026-09-14)
+
+`parse_company_header` used to keep seventeen fields of the SEC's submissions document and drop the
+rest: both full addresses (business and mailing), the owner organisation, LEI, description, investor
+website, flags, the insider-transaction markers and the from/to dates on former names. The raw JSON
+only lives where the backfill ran, so for anyone reading the lake those fields did not exist. The
+header schema now carries every top-level field, addresses flattened as `business_*` / `mailing_*`,
+the former-names list verbatim as JSON, and `header_extra`: a JSON object of any top-level key the
+parser has no column for, so a field the SEC adds later lands on the next refresh without a code
+change. The companies table copies every header column through (`HEADER_PASSTHROUGH`), Postgres
+gains them in migration 0018, and `filings` gains `core_type` (the SEC's grouping of a form with its
+amendments). Per-filing keys the loader does not store are logged once per process rather than
+stored: the filings table is 27M rows, and a new per-filing field is a schema decision. Existing
+lake rows read back with the new columns null until the next refresh (headers) or backfill
+(filings history).

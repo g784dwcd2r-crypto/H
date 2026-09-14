@@ -9,7 +9,7 @@ from typing import Any
 import orjson
 import pyarrow as pa
 
-from filings_hub.ingest.submissions import company_header_table
+from filings_hub.ingest.submissions import COMPANY_HEADER_SCHEMA, company_header_table
 from filings_hub.lake import layout
 from filings_hub.lake.duck import Duck
 from filings_hub.lake.storage import Storage
@@ -30,6 +30,14 @@ FINANCIAL_REPORT_FORMS = (
 ACTIVE_WINDOW_DAYS = 548
 HEADERS = "companies/headers.parquet"  # 18 months: a filer with a financial report this recent is "active"
 
+# Header columns copied onto the companies table as they are (everything the SEC says about the
+# filer except the ticker lists, which the tickers table resolves into one primary listing).
+HEADER_PASSTHROUGH = [
+    f.name
+    for f in COMPANY_HEADER_SCHEMA
+    if f.name not in ("cik", "name", "sic", "sic_description", "tickers", "exchanges")
+]
+
 COMPANIES_SCHEMA = pa.schema(
     [
         ("cik", pa.int64()),
@@ -38,16 +46,9 @@ COMPANIES_SCHEMA = pa.schema(
         ("exchange", pa.string()),
         ("sic", pa.string()),
         ("sic_description", pa.string()),
-        ("entity_type", pa.string()),
-        ("category", pa.string()),
-        ("state_of_incorporation", pa.string()),
-        ("state_of_incorporation_description", pa.string()),
-        ("fiscal_year_end", pa.string()),
-        ("ein", pa.string()),
-        ("former_names", pa.list_(pa.string())),
-        ("business_state", pa.string()),
-        ("business_city", pa.string()),
-        ("website", pa.string()),
+    ]
+    + [COMPANY_HEADER_SCHEMA.field(n) for n in HEADER_PASSTHROUGH]
+    + [
         ("is_listed", pa.bool_()),
         ("is_active", pa.bool_()),
         ("last_filing_date", pa.date32()),
@@ -172,16 +173,7 @@ def build_companies(
                 "exchange": (p["exchange"] if p else None) or ((h["exchanges"] or [None])[0] or None),
                 "sic": h["sic"],
                 "sic_description": h["sic_description"],
-                "entity_type": h["entity_type"],
-                "category": h["category"],
-                "state_of_incorporation": h["state_of_incorporation"],
-                "state_of_incorporation_description": h["state_of_incorporation_description"],
-                "fiscal_year_end": h["fiscal_year_end"],
-                "ein": h["ein"],
-                "former_names": h["former_names"],
-                "business_state": h["business_state"],
-                "business_city": h["business_city"],
-                "website": h["website"],
+                **{n: h.get(n) for n in HEADER_PASSTHROUGH},
                 "is_listed": is_listed,
                 "is_active": is_active,
                 "last_filing_date": st.get("last_filing_date"),

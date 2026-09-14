@@ -5,6 +5,7 @@ import pyarrow as pa
 
 from filings_hub.ingest import sync_filings, sync_universe
 from filings_hub.ingest.submissions import (
+    COMPANY_HEADER_SCHEMA,
     FILINGS_SCHEMA,
     filings_table,
     iter_bulk_submissions,
@@ -20,6 +21,18 @@ def test_parse_company_header():
     h = parse_company_header(fx.submissions_doc(fx.APPLE))
     assert h["cik"] == 320193 and h["fiscal_year_end"] == "0927" and h["tickers"] == ["AAPL"]
     assert h["former_names"] == ["APPLE COMPUTER INC"] and h["business_state"] == "CA"
+    # every field of the document: addresses, owner org, flags, the former-names list with its dates
+    assert (
+        h["mailing_city"] == "CUPERTINO"
+        and h["mailing_zip"] == "95014"
+        and h["business_street1"] == "ONE APPLE PARK WAY"
+    )
+    assert h["business_is_foreign"] is False and h["owner_org"] == "06 Technology" and h["phone"] == "(408) 996-1010"
+    assert h["insider_transaction_for_issuer_exists"] is True and h["insider_transaction_for_owner_exists"] is False
+    assert '"from":"1997-07-28"' in h["former_names_json"]
+    # a key the parser has no column for is kept verbatim, never dropped
+    assert h["header_extra"] == '{"someFutureField":{"added":"by the SEC after this parser was written"}}'
+    assert set(h) == set(COMPANY_HEADER_SCHEMA.names)
 
 
 def test_parse_filings_rows():
@@ -27,7 +40,7 @@ def test_parse_filings_rows():
     by_acc = {r["accession"]: r for r in rows}
     k = by_acc[fx.APPLE_10K_FY2025]
     assert k["form"] == "10-K" and k["filed_date"] == date(2025, 10, 31) and k["report_date"] == date(2025, 9, 27)
-    assert k["is_xbrl"] and k["is_inline_xbrl"] and k["year"] == 2025
+    assert k["is_xbrl"] and k["is_inline_xbrl"] and k["year"] == 2025 and k["core_type"] == "10-K"
     assert k["primary_doc_url"] == "https://www.sec.gov/Archives/edgar/data/320193/000032019325000079/aapl-20250927.htm"
     assert k["filing_index_url"].endswith("/0000320193-25-000079-index.htm")
     assert k["acceptance_datetime"].year == 2025
@@ -121,6 +134,8 @@ def test_build_companies_without_stats():
     assert tickers.to_pylist()[0]["source"] == "submissions"
     companies = sync_universe.build_companies(headers, tickers, None)
     assert companies.num_rows == 1 and companies.to_pylist()[0]["filing_count"] == 0
+    row = companies.to_pylist()[0]
+    assert row["mailing_zip"] == "95014" and row["owner_org"] == "06 Technology" and row["header_extra"]
     assert isinstance(companies, pa.Table)
 
 
