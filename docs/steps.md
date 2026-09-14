@@ -87,6 +87,17 @@ we look back at all of them and ask: how close were the ones that passed? If alm
 our margin is harmless. If lots of them were sitting just inside the line, we have been waving
 through real errors.
 
+**What we are looking for.**
+
+```mermaid
+flowchart TD
+    C["Every check we have ever run<br/>we saved both numbers and the gap"] --> G{"How big was the gap<br/>on the ones that passed?"}
+    G -->|"Almost nothing"| OK["Our margin is harmless.<br/>Leave it alone for now"]
+    G -->|"Just under the line, again and again"| BAD["We have been waving<br/>real errors through.<br/>Fix it urgently"]
+    style BAD fill:#ffe6e6,stroke:#cc0000
+    style OK fill:#e8f5e9,stroke:#2e7d32
+```
+
 **Done when.** We have the answer, and we know whether this is urgent.
 
 **Size.** About an hour. It may change the order of everything else, which is why it goes first.
@@ -101,6 +112,18 @@ visible kind of wrong.
 **How it works.** This happens when a company closes and another one later takes its symbol. Both
 keep a claim on it in our data. The fix is a rule: when two companies claim one symbol, search goes
 to the one still filing. The old one stays in our records as history.
+
+**What goes wrong, and the rule that fixes it.**
+
+```mermaid
+flowchart TD
+    T["Symbol: ABC"] --> C1["Company A<br/>closed down in 2019"]
+    T --> C2["Company B<br/>took the symbol, still filing"]
+    C1 -.->|kept as history| H["Our records"]
+    C2 ==>|search goes here| U["The user"]
+    style C2 fill:#e8f5e9,stroke:#2e7d32
+    style C1 fill:#eeeeee,stroke:#999999
+```
 
 **Done when.** All seven go to the right company, and search never offers two.
 
@@ -123,6 +146,20 @@ Worth saying: the Excel export already protects itself here. It only writes a li
 guessed lines genuinely add up, and plain numbers otherwise. So customer spreadsheets were never
 wrong. The damage is to our own checks.
 
+**How the guess works, and why it breaks.**
+
+```mermaid
+flowchart TD
+    subgraph GUESS["What we do now"]
+        L1["A line"] --> L2["Look down the page<br/>for the next total"] --> L3["Assume the line<br/>belongs to that total"]
+    end
+    L3 --> W["Right sometimes.<br/>Wrong often enough that the<br/>check complained about 98% of filings"]
+    style W fill:#ffe6e6,stroke:#cc0000
+```
+
+The company already stated the real answer in its filing. We just have not been reading it. That is
+step 8.
+
 **Done when.** Nothing presents the guess as knowledge.
 
 **Size.** Small.
@@ -144,6 +181,28 @@ reported as a reason, not a failure.
 
 Some gaps have honest explanations — a company that just listed, a foreign filer, a company that shut
 down. Those are named, not counted as errors.
+
+**How the report is built.**
+
+```mermaid
+flowchart TD
+    ALL["Every company we hold"] --> T1["Big exchanges"]
+    ALL --> T2["Smaller listings"]
+    ALL --> T3["Files accounts<br/>but not listed"]
+    ALL --> T4["Everything else<br/>shells, funds, trusts"]
+    T1 --> ROW["For each company:<br/>filings we hold vs filings the SEC lists<br/>years of statements built<br/>which checks ran, passed, never applied"]
+    T2 --> ROW
+    T3 --> ROW
+    T4 --> ROW
+    ROW --> Q{"Is there a gap?"}
+    Q -->|"Yes, and it has an honest reason"| R["Recorded as a reason:<br/>new listing, foreign filer,<br/>company shut down"]
+    Q -->|"Yes, with no explanation"| B["A bug. Goes on the list"]
+    Q -->|"No"| OK["Complete"]
+    style B fill:#ffe6e6,stroke:#cc0000
+    style OK fill:#e8f5e9,stroke:#2e7d32
+```
+
+A gap in the first group is a bug. A gap in the last group is usually normal.
 
 **Done when.** Every gap in the top tier has either a reason or a bug number against it. And we can
 say how many companies are getting no checks at all.
@@ -170,6 +229,27 @@ bank that splits its fee income into parts, a very large company, one with disco
 couple of foreign filers, an old one from before the current format, and a small company that invents
 its own labels. We run the reader over them and write down everything that breaks.
 
+**How we choose the twenty.**
+
+```mermaid
+flowchart LR
+    PICK["Pick awkward filings<br/>on purpose"] --> A["A bank that splits<br/>its fee income"]
+    PICK --> B["A very large company"]
+    PICK --> C["One with discontinued<br/>businesses"]
+    PICK --> D["Two foreign filers"]
+    PICK --> E["One from 2009,<br/>before the current format"]
+    PICK --> F["A small company using<br/>its own invented labels"]
+    A --> RUN["Run the reader over them"]
+    B --> RUN
+    C --> RUN
+    D --> RUN
+    E --> RUN
+    F --> RUN
+    RUN --> FIX["Write down what breaks.<br/>Fix it"]
+    FIX --> KEEP["Keep all twenty as permanent tests,<br/>so they can never break again quietly"]
+    style KEEP fill:#e8f5e9,stroke:#2e7d32
+```
+
 **Done when.** All twenty are read correctly, and they become permanent tests so they can never break
 again silently.
 
@@ -193,6 +273,23 @@ Attachments — exhibits, contracts, presentations — are a separate question. 
 exists without downloading it, which is quick and costs nothing to store. We fetch the contents later
 when something needs them, starting with debt agreements.
 
+**What we take, and what we only note down.**
+
+```mermaid
+flowchart TD
+    F["Every filing we quote<br/>a number from"] --> DOC["The main document<br/>DOWNLOAD AND KEEP"]
+    F --> ATT["Exhibits, contracts,<br/>presentations"]
+    ATT --> NOTE["Record that they exist.<br/>Do not download yet"]
+    NOTE -.->|"later, when something needs them"| LATER["Starting with<br/>debt agreements"]
+    DOC --> S["Our own storage<br/>1.3 TB, about 20 dollars a month"]
+    S --> P["A page can show the<br/>actual document behind a number"]
+    style DOC fill:#e8f5e9,stroke:#2e7d32
+    style NOTE fill:#eeeeee,stroke:#999999
+```
+
+Why keep our own copy rather than link to the SEC: links break, websites get reorganised, and their
+availability is not ours to promise.
+
 **Done when.** Every filing we quote a number from is in our own storage, and the page can show it.
 
 **Size.** Half a day of running, mostly waiting.
@@ -210,6 +307,22 @@ for each one, and how each number is split up. We follow those instead of recons
 The summary files stay in use as a cross-check. Where both sources produce the same number, that is
 strong evidence. Where they disagree, that is a bug with a name, and we go and look.
 
+**Two sources, one answer.**
+
+```mermaid
+flowchart TD
+    FILING["The original filing<br/>now the main source"] --> BUILD["Build the statement"]
+    SUMMARY["SEC summary files<br/>now the second opinion"] --> COMPARE{"Do the two agree?"}
+    BUILD --> COMPARE
+    COMPARE -->|"Yes"| GOOD["Strong evidence.<br/>Two separate sources agreeing<br/>is real proof"]
+    COMPARE -->|"No"| BUG["A bug with a name.<br/>Go and look at it"]
+    style GOOD fill:#e8f5e9,stroke:#2e7d32
+    style BUG fill:#fff4e5,stroke:#e65100
+```
+
+This is why we do not throw the summary files away. Before, they were our only source, so a mistake
+in them was invisible to us. Now they are an independent witness.
+
 **Done when.** The newest filing is as detailed as the older ones, and the provisional label
 disappears from the pages where we now hold the filing.
 
@@ -225,6 +338,23 @@ It catches a missing line, a duplicated line and a sign error all at once.
 
 **How it works.** The filing includes a map of what adds into what, including whether each item is
 added or subtracted. We read the map and follow it.
+
+**What the company actually tells us.**
+
+```mermaid
+flowchart TD
+    TOTAL["Total revenue<br/>19,707"] --- P1["Deposit fees<br/>plus 8,200"]
+    TOTAL --- P2["Card income<br/>plus 9,100"]
+    TOTAL --- P3["Other fees<br/>plus 2,407"]
+    TOTAL -.-> CHECK{"8,200 + 9,100 + 2,407<br/>= 19,707?"}
+    CHECK -->|"Yes"| OK["The statement adds up"]
+    CHECK -->|"No"| CATCH["A line is missing, duplicated,<br/>or has the wrong sign"]
+    style OK fill:#e8f5e9,stroke:#2e7d32
+    style CATCH fill:#ffe6e6,stroke:#cc0000
+```
+
+The filing states these relationships itself, including whether each item is added or subtracted. We
+are not working it out. We are reading it.
 
 **Done when.** The check goes from complaining about 98 % of filings to complaining about few enough
 that every complaint is worth reading. Note the target is not zero — a check that passes everything is
@@ -246,6 +376,26 @@ company reporting exact figures gets about a dollar.
 
 This is only possible from the filing. The summary files do not include it, which is why it waits
 until here.
+
+**Same rule for everyone today. The company's own rule tomorrow.**
+
+```mermaid
+flowchart TD
+    subgraph NOW["Today: one rule for all"]
+        N1["Company rounding to millions"] --> NF["Allow half a percent"]
+        N2["Company reporting exact figures"] --> NF
+        NF --> NP["Too loose for one,<br/>too strict for the other"]
+    end
+    subgraph AFTER["After: the company's own rule"]
+        A1["Rounds to millions<br/>says so in the filing"] --> AF1["Allow about half a million"]
+        A2["Reports to the dollar<br/>says so in the filing"] --> AF2["Allow about one dollar"]
+    end
+    style NP fill:#ffe6e6,stroke:#cc0000
+    style AF1 fill:#e8f5e9,stroke:#2e7d32
+    style AF2 fill:#e8f5e9,stroke:#2e7d32
+```
+
+Only the filing carries this. The summary files leave it out, which is why this step waits.
 
 **Done when.** Each check uses the precision the company declared rather than a number we chose.
 
@@ -278,6 +428,23 @@ would announce a restatement that never happened.
 
 **Also worth saying:** a restatement is not a failure and must never be shown as one. It is real
 information about the company.
+
+**How we spot one.**
+
+```mermaid
+flowchart TD
+    R24["The 2024 annual report<br/>says 2023 profit was 500"] --> CMP{"Do they match?"}
+    R25["The 2025 annual report<br/>says 2023 profit was 460"] --> CMP
+    CMP -->|"Yes"| NONE["Nothing to say"]
+    CMP -->|"No"| GUARD{"Do we hold both filings,<br/>and did both read cleanly?"}
+    GUARD -->|"No"| SKIP["Stay quiet.<br/>The difference might be our mistake"]
+    GUARD -->|"Yes"| NOTE["The company revised it.<br/>Show a notice on the page"]
+    style NOTE fill:#e8f5e9,stroke:#2e7d32
+    style SKIP fill:#fff4e5,stroke:#e65100
+```
+
+The notice reads like this: *2022 and earlier are pre-restatement; restated in the 2025 annual
+report.* It is information, never a failure.
 
 **Done when.** A company we know restated shows the notice, and the numbers behind it can be looked
 up.
@@ -315,6 +482,26 @@ a small arm.
 Each group gets a written sentence defining it. That sentence is what makes an assignment reviewable
 later, and it forces a vague term like "3PL" to mean one specific thing.
 
+**The shape of it.**
+
+```mermaid
+flowchart TD
+    I["Industrials"] --> T["Transportation"]
+    T --> TR["Trucking"]
+    T --> OTHER["Rail, Shipping, Air freight<br/>and so on"]
+    TR --> LTL["LTL Carriers"]
+    TR --> TL["TL Carriers"]
+    TR --> BR["Brokers"]
+    TR --> PL["3PL"]
+    CO["A company that mostly runs trucks<br/>but also brokers freight"] ==>|"main home"| TL
+    CO -.->|"also appears here, as a smaller part"| BR
+    style TL fill:#e8f5e9,stroke:#2e7d32
+```
+
+Depth is not fixed at four levels. Some areas need two, some need five. And every box gets a written
+sentence defining it, so an assignment can be reviewed later and a vague term like 3PL is forced to
+mean one specific thing.
+
 **How we start.** Transportation only. Write the groups, define each one, put in a few dozen
 companies we know. The test is not whether the obvious companies land correctly — any system manages
 that. The test is to write down the hard-to-place companies *first*, then see whether the structure
@@ -345,6 +532,23 @@ One important detail already settled: an entry is identified by the term *plus* 
 down, never the term alone. Otherwise a bank's card fees, deposit fees and general fees all collapse
 into one meaningless number.
 
+**It sits underneath. It never replaces the company's words.**
+
+```mermaid
+flowchart TD
+    C1["Company A says<br/>Same Store Sales"] --> DICT["The dictionary<br/>these are the same thing"]
+    C2["Company B says<br/>Comparable Sales"] --> DICT
+    C3["Company C says<br/>Like for Like"] --> DICT
+    DICT --> ASK["Now one question can be asked<br/>across all three companies"]
+    C1 ==> P1["A page still shows<br/>Same Store Sales"]
+    C2 ==> P2["A page still shows<br/>Comparable Sales"]
+    C3 ==> P3["A page still shows<br/>Like for Like"]
+    style DICT fill:#e3f2fd,stroke:#1565c0
+```
+
+The thick arrows are what a user sees. The dictionary is for searching and comparing, never for
+renaming anything on a company's own page.
+
 **Done when.** We can measure how many different terms exist per category, which tells us how much
 human work is really needed. Measure before deciding.
 
@@ -362,11 +566,38 @@ that same company's older ones. A company is only ever matched against itself.
 
 Anything produced this way is labelled as derived, everywhere it appears.
 
+**Each company is only ever matched against itself.**
+
+```mermaid
+flowchart LR
+    NEW["The same company's<br/>filings from 2009 onwards<br/>labelled by computer"] --> LEARN["Learn how THIS company<br/>words and lays out its accounts"]
+    LEARN --> APPLY["Apply that backwards to<br/>THIS company's older filings"]
+    OLD["Its own filings<br/>2001 to 2008<br/>documents, not data"] --> APPLY
+    APPLY --> OUT["Numbers recovered,<br/>and labelled as derived<br/>wherever they appear"]
+    style OUT fill:#fff4e5,stroke:#e65100
+```
+
+We never build one system that guesses across thousands of companies' wording. A company is only ever
+compared with itself, which is what makes it trustworthy.
+
 **Scope.** Listed companies, annual reports, 2001 onwards, roughly 75,000 documents.
 
 ## Step 14. Canada, Europe, and later Australia and New Zealand
 
 **What it is.** Coverage outside the US.
+
+**Why Europe is easier than Canada.**
+
+```mermaid
+flowchart TD
+    EU["Europe"] --> EUF["Annual reports filed<br/>in the same labelled format<br/>our reader already handles"]
+    EUF --> EUW["Only question: getting the files"]
+    CA["Canada"] --> CAF["Never required that format widely.<br/>Mostly documents, not data"]
+    CAF --> CAW["Have to learn to read them first"]
+    AU["Australia and New Zealand"] --> CAF
+    style EUW fill:#e8f5e9,stroke:#2e7d32
+    style CAW fill:#fff4e5,stroke:#e65100
+```
 
 **The thing most people get backwards:** Europe is easier than Canada.
 
