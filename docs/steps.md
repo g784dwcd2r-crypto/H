@@ -195,11 +195,41 @@ no longer land on the dead company, and search no longer shows the dead one for 
 findable by name). Covered by tests on the ranking, the exact queries the API runs, and the Postgres
 load path; a migration (`0020`) adds the column.
 
-**Done when.** ✅ Built, tested, migration in. ▢ Confirmed on the full lake after the next universe
-build: the seven real cases each resolve to the live company. That happens automatically on the next
-backfill/refresh (the build fills `is_current`); no extra step.
+### What is left to do
 
-**Size.** Small, as expected.
+The code is done. What is left is to make the live site use it. This does **not** need a full rebuild
+of the data, and it has nothing to do with the big statements upload running tonight.
+
+"Rebuilding the universe" just means remaking two small files — the company list and the
+symbol-to-company map (where the new flag lives). It reads files we already have and takes a couple of
+minutes, not hours.
+
+Three small things, in order:
+
+1. **Rebuild the universe.** Run `filings-hub refresh`. It remakes those two small files with the
+   new flag filled in. This also happens on its own on the next daily refresh, so if that is
+   scheduled, there is nothing to do.
+2. **Publish the two small files.** Upload the company list and the symbol map (if the site reads from
+   R2), or let the loader replace those two tables (if the site reads from Postgres). Seconds, because
+   it is two files.
+3. **Postgres only:** apply migration `0020` once, to add the new column. The loader does this.
+
+```mermaid
+flowchart LR
+    CODE["✅ Code shipped<br/>the fix is in"] --> R["1. Rebuild the universe<br/>filings-hub refresh<br/>~2 minutes, two small files"]
+    R --> PUB["2. Publish the two files<br/>company list + symbol map<br/>seconds"]
+    PUB --> PG["3. Postgres only:<br/>apply migration 0020 once"]
+    PG --> LIVE["✅ Live site sends every<br/>symbol to the company<br/>that holds it today"]
+    BIG["Tonight's big statements upload"] -.->|"unrelated, do not wait for it"| LIVE
+    style CODE fill:#e8f5e9,stroke:#2e7d32
+    style LIVE fill:#e8f5e9,stroke:#2e7d32
+    style BIG fill:#eeeeee,stroke:#999999,stroke-dasharray: 5 5
+```
+
+**Done when.** ✅ Built, tested, migration written. ▢ A universe rebuild has run and been published,
+and the seven real cases each resolve to the live company. No full backfill needed.
+
+**Size.** Small, as expected. The remaining work is minutes, not hours.
 
 ## Step 3. Stop showing a guess as if it were fact
 
