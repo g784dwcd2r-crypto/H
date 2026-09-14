@@ -351,3 +351,30 @@ data sets' `pre` table names the tag once, with one label, and never mentions th
 Checks compare totals only (`segments = ''`). Without that guard, Erie Indemnity's Class A earnings
 per share of 3.23 could be divided by Class B's 2,542 shares. Same failure as the Citigroup one fixed
 this morning: a check that does not know what it is comparing.
+
+## Five open problems converge on one thing: read the original filing (2026-09-14)
+
+Verified on the rebuilt lake: 2026q2 carries 694,242 dimensioned statement lines across 5,733
+companies. Triumph Financial's April filing is in that quarter and has its fee lines back. But its
+July filing does not, because the SEC's data sets lag a quarter or two, so the newest filing for any
+company is built the fallback way from company facts, which publishes undimensioned facts only.
+
+That gap cannot be closed with anything we currently download. Nor can four other things:
+
+| Open problem | Why the data sets cannot solve it |
+|---|---|
+| The newest quarter has no breakdown lines | The data sets have not published it yet |
+| Faithful line labels for a broken-out tag | `pre` names the tag once, with one label, and never mentions the members |
+| Proving a statement adds up | The calculation tree is dropped from the data sets; our parent guess is positional and unreliable |
+| The debt maturity schedule | 2 of 4,802 annual filings tag it; the rest is a table in the notes |
+| Holding the source of every number | Hicham's trust rule: if we took the data, we take the source |
+
+All five are answered by the same source: the filing itself. Inline XBRL carries the presentation,
+the labels, the dimensions, the calculation tree and the note tables, and fetching it is what
+storing the document already requires. So this is one project, not five, and it moves the data sets
+from primary source to cross-check — a strengthening, since two independently built sources that
+agree is real evidence, unlike the company-facts reconciliation that shared our blind spot.
+
+Meanwhile the gap is already disclosed rather than hidden: provisional periods carry a chip on the
+company page and the statements grid, and the Excel export labels them "provisional (built from XBRL
+facts; FSDS not yet published)". That stays until filings are read directly.
