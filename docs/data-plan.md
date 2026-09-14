@@ -176,7 +176,10 @@ own* older filings. A company is only ever matched to itself. Scope: listed comp
 reports, 2001 onwards, ~75,000 documents. Values derived this way are labelled as derived wherever
 they appear. 2009 already reaches back to 2008 because the 2009 report carries the prior year.
 
-Sector: SIC is not GICS and GICS is licensed. Use Hicham's list where he has one, SIC as fallback.
+Sector: superseded on 2026-09-14. Rather than pick between SIC and a licensed scheme, we author our
+own hierarchy from how analysts cover a name — see "Classify by how analysts cover a name" in
+`decisions.md`. SIC stays in `companies` exactly as the SEC gives it, as a raw fact, not as a
+fallback classification.
 
 ## Set aside — share price and market capitalisation
 
