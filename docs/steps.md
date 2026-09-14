@@ -118,9 +118,19 @@ flowchart TD
     style OK fill:#e8f5e9,stroke:#2e7d32
 ```
 
-**Done when.** We have the answer, and we know whether this is urgent.
+**Built (2026-09-14).** `filings-hub check-tolerance` does this. It reads every check, separates the
+passes the tolerance actually governs from the ones that only passed because the numbers were tiny,
+and reports how many sit *just* under the line — the "near misses" where a real break can hide. It
+keeps the earnings-per-share checks (a 1 % line) separate from the rest (0.5 %), and ends on a plain
+verdict: if near misses are rare the flat tolerance is harmless and step 9 can wait; if they are
+common, step 9 moves up. The band edges come straight from the real tolerance constants, so the
+measurement can never drift from the thing it measures. Read-only.
 
-**Size.** About an hour. It may change the order of everything else, which is why it goes first.
+**Done when.** ✅ The tool exists and is tested. What is left is to *run it against the full lake*
+(once the current rebuild has finished uploading) and read the verdict, which is a one-line command,
+not more building.
+
+**Size.** Built in under an hour. Running it is a minute.
 
 ## Step 2. Fix the seven tickers that point at two companies
 

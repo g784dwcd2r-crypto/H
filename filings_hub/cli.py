@@ -514,3 +514,25 @@ def documents(
             if i % 50 == 0 or i == len(ciks):
                 typer.echo(f"{i}/{len(ciks)} companies, {fetched} filings, {failed} failed")
     db.close()
+
+
+@app.command(name="check-tolerance")
+def check_tolerance(
+    as_json: bool = typer.Option(False, "--json", help="print the raw report as JSON"),
+    verbose: bool = False,
+) -> None:
+    """Step 1: measure how much the flat check tolerance is hiding.
+
+    Reads every check in `statement_checks` and reports how close the passing checks sat to the
+    tolerance line. Read-only. Run it against a local lake; on a remote lake it scans the whole table.
+    """
+    _setup_logging(verbose)
+    from filings_hub.ingest import check_tolerance as ct
+
+    report = ct.tolerance_report(_storage())
+    if as_json:
+        import json
+
+        typer.echo(json.dumps(report, indent=2))
+    else:
+        typer.echo(ct.format_report(report))

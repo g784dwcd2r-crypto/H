@@ -512,3 +512,25 @@ analysts cover a name, a tree with variable depth, a primary home plus membershi
 sentence per node, Transportation as the pilot). The groups themselves and the hard placements are
 Hicham's, and he is working on them now. We can suggest placements from the filings; the boundaries
 and the difficult calls wait on him, not on us.
+
+## Step 1 built: measure the flat tolerance before changing it (2026-09-14, evening)
+
+`filings-hub check-tolerance` (in `filings_hub/ingest/check_tolerance.py`) is the first piece of the
+data plan built rather than planned. It reads `statement_checks` and reports how close the passing
+checks sit to the tolerance line, so we learn whether the flat 0.5 % is hiding real breaks before
+committing to the per-line fix (step 9).
+
+Three choices worth recording:
+
+- **The band edges come from the real tolerance constants**, imported from `checks.py`, not copied.
+  If the tolerance ever changes, the measurement follows it; it can never quietly drift from the
+  thing it measures.
+- **Two pass regimes are kept apart.** A check on tiny numbers passes on the 1.0 absolute floor, not
+  the relative tolerance, so its relative gap is meaningless. Those are reported separately from the
+  passes the 0.5 % actually governs, so the near-miss share is honest.
+- **EPS is measured on its own 1 % line**, not folded in with the 0.5 % checks.
+
+It is read-only and tested against controlled rows with known gaps plus the real built lake. The
+verdict is a heuristic to guide a human (near-miss share over 1 % of governed passes -> prioritise
+step 9), not an automated decision. Still to do: run it against the full lake once the current
+rebuild finishes uploading, and read the number.
