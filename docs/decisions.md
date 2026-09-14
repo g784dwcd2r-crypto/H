@@ -575,3 +575,27 @@ so a per-row provenance marker buys nothing until step 8 mixes real calculation-
 guesses; adding it now would be schema churn for a uniform state. A guard comment on `assign_parents`
 records that it must never back a pass/fail check until the tree is read from the filing (step 8),
 which is when a subtotal check becomes meaningful.
+
+## Step 4 built: coverage and applicability, company by company (2026-09-14, evening)
+
+`filings-hub coverage-audit` (`coverage_audit.py`) answers "what should we hold, and where does it
+differ from what we do". It is the fourth and last of the start-now fixes, and the one that finds the
+weaknesses we have not noticed yet, so it earns being built before the filing-download work.
+
+Choices worth recording:
+
+- **Tiered, because a gap means different things by tier.** NYSE/Nasdaq, other listed, filing but
+  unlisted, everything else. A gap in the first tier is a bug; a gap in the last is usually a shell
+  that never filed accounts. The report never calls an expected-absence a failure: a company that
+  filed no financial report is not counted as missing statements.
+- **The headline is companies getting zero checks.** A company whose filings never trip an arithmetic
+  check is unverified and nothing said so before. The count is on the report, per tier and in total.
+- **Gaps carry a reason or a flag.** Foreign filer (20-F / 40-F), gone dark, blank-check / SPAC, or
+  "unexplained — investigate". The unexplained ones in the top two tiers are the actionable list.
+- **Aggregated in SQL, not row-by-row in Python**, so it scales to the whole ~900k-company universe;
+  only the bounded sample of unexplained gaps is pulled out. It reads through `Duck` directly with
+  typed empty stand-ins for absent tables, rather than `Database`, so it never drags in the serving
+  views (periods_serving and the rest) it does not need.
+
+Read-only and internal: it gates what we publish and tells us where to look, never shown to a user.
+Still to do: run it on the full lake and work the gap list.

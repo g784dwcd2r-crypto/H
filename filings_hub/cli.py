@@ -539,3 +539,25 @@ def check_tolerance(
         typer.echo(json.dumps(report, indent=2))
     else:
         typer.echo(ct.format_report(report))
+
+
+@app.command(name="coverage-audit")
+def coverage_audit_cmd(
+    as_json: bool = typer.Option(False, "--json", help="print the raw report as JSON"),
+    verbose: bool = False,
+) -> None:
+    """Step 4: coverage and applicability, company by company, over the whole lake.
+
+    Reports, per tier, how many companies have statements, how many are getting no check at all, and
+    which expected companies have no statements (with a reason). Read-only. Run against a local lake.
+    """
+    _setup_logging(verbose)
+    from filings_hub import coverage_audit as ca
+
+    report = ca.coverage_audit(_storage())
+    if as_json:
+        import json
+
+        typer.echo(json.dumps(report, indent=2, default=str))
+    else:
+        typer.echo(ca.format_report(report))

@@ -319,10 +319,23 @@ flowchart TD
 
 A gap in the first group is a bug. A gap in the last group is usually normal.
 
-**Done when.** Every gap in the top tier has either a reason or a bug number against it. And we can
-say how many companies are getting no checks at all.
+### Progress
 
-**Size.** Medium. It is the biggest of the four but nothing blocks it.
+**✅ Built and tested (2026-09-14).** The tool is `filings-hub coverage-audit`
+(`filings_hub/coverage_audit.py`). In one read over the lake it reports, per tier (NYSE/Nasdaq, other
+listed, filing-but-unlisted, everything else): how many companies we hold, how many have statements,
+and — the number that matters — how many have statements but **zero checks**, the silent failure. It
+also names every company that filed a financial report yet has no statements built, each tagged with
+a reason (foreign filer, gone dark, SPAC) or flagged "unexplained — investigate", and reports the
+gross-profit check's applicability rate against Hicham's 70–80 % estimate. Read-only. Tested on a
+controlled lake with known gaps (each lands in the right tier and reason) and on the real built lake.
+
+**Done when.** ✅ The tool is built and tested. ▢ Run it against the full lake (locally, once the
+rebuild has uploaded) and work the output: every unexplained gap in the top two tiers gets a reason
+or a bug, and the "no checks at all" count is recorded. That is reading a report, not more building —
+though the gaps it surfaces become their own small fixes.
+
+**Size.** Medium, as expected — the biggest of the four quick wins. Running it is a minute.
 
 ---
 
