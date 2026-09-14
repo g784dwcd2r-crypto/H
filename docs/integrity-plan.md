@@ -8,6 +8,27 @@ This follows the points Hicham raised on 14 September, in his order. Each step s
 what we build, and what "done" looks like. Steps 1 to 4 need nothing from anyone and start now.
 Steps 5 to 7 need Hicham's list and his review.
 
+## What "complete" means, corrected 2026-09-14
+
+The first version of this plan measured completeness as "do we hold the filing". That is too weak.
+Triumph Financial (TFIN) shows why: its quarterly income statement presents three fee lines that
+share one base tag, `RevenueFromContractWithCustomerExcludingAssessedTax`, and are told apart only
+by a product/service dimension (`DepositAccountMember`, `CreditAndDebitCardMember`,
+`FinancialServiceMember`). Our builder took undimensioned rows only, so all three vanished. The
+published statement shows noninterest income lines summing to 1,961,000 under a reported total of
+21,415,000: a hole of 19,454,000, which is those three lines to the dollar, 91 % of the section.
+
+So completeness is per line, not per filing: **every line the company presented, with the value it
+presented, is on the page.** In XBRL the unit of identity is the base tag PLUS its dimensional
+context, never the base tag alone.
+
+This also exposes a blind spot in how we validated. The notebook reconciled our statements against
+the SEC's companyfacts and reported 100 % agreement. Companyfacts publishes undimensioned facts
+only, so a line that exists solely with a dimension is absent from both sides and can never show up
+as a difference. Agreement between two sources that share the same blind spot is not evidence. The
+only source carrying these lines is the data sets' `num` table with its `segments` column, which we
+started storing on 2026-09-14 and which fills on the next reload.
+
 ## Rule zero: nothing the SEC publishes is dropped
 
 Every row and every column of every source file is stored. Where a stage needs a subset (the
@@ -25,6 +46,25 @@ The work runs over every company in the lake, not a cutoff. Reports are grouped 
 numbers stay readable: listed on NYSE or Nasdaq; other listed (OTC, CBOE); not listed but filing
 financial statements; everything else (funds, trusts, insiders, defunct registrants). A gap in the
 first tier is a bug; a gap in the last is usually a registrant that never filed financials.
+
+## Step 0. Restore the lines we are dropping (first, it is a live defect)
+
+Not future work: what we publish today is wrong for any company that breaks a statement section out
+by dimension. Banks (fee income by product), insurers, REITs and anyone using the product/service or
+geography axis are exposed.
+
+1. Reload the data sets so `segments` and the `dimensional` flag exist (`filings-hub fsds --all` on
+   the machine holding the raw zips, then sync `fsds/`).
+2. Decide presentation per filing. The `pre` table names a tag once per line with no dimension, so
+   where a tag has no undimensioned value but does have dimensioned ones, the presented lines are
+   the dimensioned set. Where both exist, the undimensioned value is the line and the dimensioned
+   ones are its breakdown.
+3. Rebuild statements. Keep the company's own label per line; carry axis and member on the row so a
+   breakdown can be shown or hidden.
+4. Gate on the subtotal check below: TFIN's noninterest income must add up after the rebuild.
+
+Done when: no filing in the core sample presents a subtotal its own displayed lines do not reach,
+and TFIN's three fee lines appear with their labels and values.
 
 ## Step 1. Coverage, company by company
 
@@ -51,13 +91,20 @@ companies with zero applicable checks. Report the gross-profit applicability rat
 
 Done when: the number of core companies with no applicable check is known and on the scorecard.
 
-## Step 3. Five more checks
+## Step 3. More checks
+
+**First, the detector.** `subtotal_equals_children`: every subtotal equals the sum of the lines that
+roll into it. The statements table already records each line's parent, so this runs today and it is
+the check that catches a missing line, a duplicated line and a sign error at once. It would have
+found TFIN immediately. Everything else in this step is secondary to it.
+
+**Then the rest.**
 
 Added to `filings_hub/ingest/checks.py`, stored in `statement_checks` like the existing ones, so
 they run on every future filing too.
 
-1. Net income agrees across statements: IS = CF (first line) = CI = EQ, same period. Compare like
-   with like: `ProfitLoss` (with minority interest) vs `NetIncomeLoss` (parent only).
+1. Net income agrees across statements: IS = CF (first line), comparing the same concept on both.
+   Done 2026-09-14, with the ending-cash tie between CF and BS.
 2. Retained earnings roll forward: opening + net income - dividends - buybacks charged to retained
    earnings +/- other movements on the equity statement = closing.
 3. Earnings per share: net income available to common / weighted average shares = reported EPS,
@@ -90,6 +137,17 @@ Done when: the notice shows for a known restated company and the numbers behind 
 
 Two companies call the same thing by different names. We hold about 190 concepts in short lists
 that sort lines into statements and pick revenue, cost, tax and cash flow lines. That is a seed.
+
+**The unit is the tag plus its dimension.** A dictionary keyed on the base tag alone would collapse
+TFIN's deposit fees, card income and general fee income into one number. Each entry is therefore
+(base tag, axis, member).
+
+**Measure before theorising.** Both halves of a dimension can be standard: TFIN's three members are
+all `us-gaap:`, defined by the taxonomy, not invented. Custom members cluster on the business
+segment axis, where the member is a division name. Once the reload lands, the first output of this
+step is a table: per axis, how many distinct members, what share are standard, and how many
+companies use each. That number decides how much human mapping is actually required, and it may
+well support the view that the edge cases fall into a handful of types.
 
 Build, in three layers:
 
