@@ -225,3 +225,27 @@ order, the disclosures analysts actually reach for:
 
 This reorders the plan after the three core statements are correct: the next work is these five, not
 the fourth statement.
+
+## Pre-2009 history: map a company's own dictionary backwards (2026-09-14)
+
+No XBRL tags exist before about 2009, only HTML tables with English labels. Generic parsing means
+guessing across thousands of label variations, which is the thing we spent 2026-09-14 removing.
+
+The approach instead: a company's statement barely changes year to year, so for any company that
+filed with tags in 2009 or later we already know its own wording. Apply that company's dictionary
+backwards to its own older filings. No cross-company guessing; a company is matched only to itself.
+`_template_for` in `sync_statements.py` already does this for filings the data sets do not cover, so
+this extends existing machinery rather than inventing new.
+
+It only works for companies still filing after 2009. Hicham: fine, nobody analyses Blockbuster or
+Toys R Us. Dead filers become a separate later project, a "companies no longer with us" explorer.
+
+Scope: listed companies, annual reports, 2001 onwards (pre-2001 is plain text rather than tables,
+and stops being worth it). Roughly 75,000 documents, under a day to fetch, and a few weeks of work
+overall, most of it verification rather than parsing. Remaining hard parts: reading the "in
+thousands / in millions" header correctly, bracketed negatives, and companies that changed layout
+mid-period.
+
+Values derived this way are read from a table, not filed as tags. They must be labelled as derived
+wherever they appear, so a reader always knows which numbers are reproductions and which are
+readings. Sequenced last, after the three core statements and the five disclosures.
