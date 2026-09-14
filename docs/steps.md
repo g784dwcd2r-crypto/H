@@ -448,34 +448,43 @@ arrived this morning already has its documents.
 
 ## Step 11. Tidy up the storage
 
-**What it is.** We keep statements in one small file per company per quarter. That is now roughly
-half a million files, and it grows every quarter.
+**What it is.** We keep statements in one small file per company per quarter. That is 393,920 files
+today, and it grows every quarter.
 
 **Why it matters.** Reading one company is fast, which is what matters for a company page and why we
-organised it this way. Reading *everything* is slow, and the coverage report in step 4 reads
-everything. As we add filings and years, this gets worse rather than better.
+organised it this way. The cost lands in two places, and one of them is already hurting.
+
+- *Every publish to R2 is slow.* Getting the lake onto R2 uploads one file at a time. On 14 September
+  a rebuild that took 44 minutes was followed by an upload of the 393,920 files that ran for over two
+  and a half hours. That happens on every rebuild, not once.
+- *Reading everything is slow.* The coverage report in step 4 reads the whole table. That is the
+  second cost, and it grows as we add filings and years.
 
 **How it works.** Merge each company's many small files into one, the same way we already do for the
-filings list. Nothing changes about what the data says.
+filings list. Nothing changes about what the data says. The number of files drops from ~394,000 to a
+few thousand, so both the upload and the full-table read become quick.
 
-**When.** Only if step 4 turns out slow. Measure first. There is no point spending time on this if it
-is not actually hurting.
+**When.** Soon, not "if it bites". It already bites: every publish costs hours. This is no longer
+conditional on step 4.
 
-**Done when.** The coverage report runs in a sensible time, and the file count stops climbing every
-quarter.
+**Done when.** A publish to R2 takes minutes, the coverage report runs in a sensible time, and the
+file count stops climbing every quarter.
 
 ```mermaid
 flowchart LR
-    NOW["Today<br/>one small file per company,<br/>per quarter, about 500,000 of them"] --> ONE["Reading one company<br/>FAST"]
+    NOW["Today<br/>one small file per company per quarter,<br/>393,920 of them"] --> ONE["Reading one company<br/>FAST"]
+    NOW --> PUB["Publishing to R2<br/>2.5+ hours, every rebuild"]
     NOW --> ALL["Reading everything<br/>SLOW, and getting slower"]
-    ALL --> MERGE["Merge each company's files into one"]
-    MERGE --> BOTH["Both fast.<br/>The data says exactly the same thing"]
+    PUB --> MERGE["Merge each company's files into one"]
+    ALL --> MERGE
+    MERGE --> BOTH["Publish in minutes, full reads fast.<br/>The data says exactly the same thing"]
     style ONE fill:#e8f5e9,stroke:#2e7d32
+    style PUB fill:#ffe6e6,stroke:#cc0000
     style ALL fill:#fff4e5,stroke:#e65100
     style BOTH fill:#e8f5e9,stroke:#2e7d32
 ```
 
-**Size.** Small.
+**Size.** Small. The payoff is immediate and repeats on every rebuild.
 
 ---
 
@@ -1287,6 +1296,22 @@ flowchart LR
     T3 --> FIX["Fix if it bites:<br/>load a fresh set,<br/>switch in one movement"]
     style MIX fill:#fff4e5,stroke:#e65100
 ```
+
+## Two traps to know about while working
+
+Not steps, and not bugs. Two places where the obvious way to do something is the slow way, both hit
+in real use. Written down so the next person does not lose an evening to them.
+
+**Uploading to R2: do not use `aws s3 sync` for the statements.** It moves one file at a time, and
+there are ~394,000 of them (see step 11), so a publish runs for hours. `rclone` or `s5cmd`, told to
+move many files at once, do the same job far faster. The real fix is step 11, which cuts the file
+count; until then, use the faster tool.
+
+**Ad-hoc queries against the remote lake: pass the read-only flag.** Opening the data for a quick
+question the plain way makes the query engine scan the entire lake before it answers anything, which
+can take hours. The serving site avoids this with a setting that reads each company on demand
+instead. Anyone poking at the lake by hand should use the same setting, or point at a local copy.
+This one has cost time already.
 
 ---
 
