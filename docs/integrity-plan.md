@@ -165,6 +165,35 @@ Build, in three layers:
 Done when: for the core universe, the share of statement lines mapped to a standard line and group is
 on the scorecard, and the unmapped lines are listed by frequency for review.
 
+## Step 6b. The notes, the documents, and what an analyst actually wants
+
+Settled with Hicham on 2026-09-14: the three statements alone are not a product. An analyst needs
+three things we do not fully have.
+
+**1. The full source document, downloadable.** They save it, print it, read the parts that matter.
+Today the `documents` table holds 229 rows over 20 filings for one company: a demo set, not
+coverage. Scope decision needed: primary documents only or every exhibit, which forms, how far back.
+A first cut of 10-K and 10-Q primary documents for listed companies is on the order of several
+hundred thousand files; at the SEC's rate limit that is roughly a day of fetching. EDGAR serves
+HTML, not PDF, so "download the PDF" means we render one.
+
+**2. Numbers they can lift into their own model,** grouped their way. This is the tagging work: the
+concept dictionary of step 6, keyed on tag plus dimension, is what lets an analyst say "group these
+six lines into one" and have it hold across companies.
+
+**3. The notes, which are not just words.** Segment data and segment profitability come as tables.
+The narrative carries the drivers ("revenue grew 10 %, 4 % volume and 6 % price"). Two different
+jobs:
+
+- *The tables.* Partly solved already. Segment figures are tagged and, since the 2026-09-14 reload,
+  in the lake: Apple's Americas segment revenue 45.09 bn, Europe 28.06 bn, Greater China 20.50 bn,
+  all readable from `fsds_num` on the `BusinessSegments` axis. 158,080 segment facts in one quarter.
+- *The narrative.* Needs the document text. Not available from any structured feed; it comes from the
+  filing itself, which is point 1 above. Extracting drivers from it is a later, separate task.
+
+The SEC's Financial Statement **and Notes** Data Sets add the note text blocks in structured form and
+are the cheapest route to the tables we do not already have. Adding that source is now in scope.
+
 ## Step 7. Sector and KPIs
 
 SEC SIC codes are not GICS, and GICS is licensed. Use the sector in Hicham's list; fall back to SIC.
