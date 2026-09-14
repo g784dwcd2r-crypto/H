@@ -612,3 +612,32 @@ def test_fallback_template_ignores_lines_without_statement_or_position():
     )
     assert [r["concept"] for r in rows if r["statement"] == "IS"] == ["Revenues"]
     assert all(r["statement"] for r in rows)
+
+
+def test_dimensional_num_rows_never_become_statement_lines(lake_copy: Storage):
+    """A segment breakdown carries the same tag as the line total. It is loaded (nothing is dropped)
+    but the statements builder takes the total only."""
+    quarter = "2026q1"
+    tables = {t: text.encode("utf-8") for t, text in fx.fsds_quarters()[quarter].items()}
+    num = tables["num"].decode().splitlines()
+    num.append(
+        "0000320193-26-000007\tRevenueFromContractWithCustomerExcludingAssessedTax\tus-gaap/2025\t20251231\t1"
+        "\tUSD\tStatementBusinessSegmentsAxis=AmericasSegmentMember;\t\t60000000000\t"
+    )
+    tables["num"] = ("\n".join(num) + "\n").encode()
+    import io
+    import zipfile
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as zf:
+        for name, data in tables.items():
+            zf.writestr(f"{name}.txt", data)
+    lake_copy.write_bytes(layout.raw_fsds_zip(quarter), buf.getvalue())
+    load_all_fsds(lake_copy, [quarter], force=True)
+    S.build_all_fsds(lake_copy, [quarter], force=True)
+    rows = _rows(
+        lake_copy,
+        "SELECT value FROM statements WHERE accession = '0000320193-26-000007' AND statement = 'IS' "
+        "AND concept = 'RevenueFromContractWithCustomerExcludingAssessedTax' AND is_primary_period",
+    )
+    assert [r["value"] for r in rows] == [140000000000.0]

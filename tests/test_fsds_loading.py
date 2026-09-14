@@ -140,10 +140,11 @@ def test_quoted_tab_lines_are_rejoined_not_rejected(tmp_path):
         duck.view("fsds_num", f"{layout.FSDS}/num/*/*.parquet")
         row = duck.fetch_all("SELECT value, footnote FROM fsds_num WHERE tag = 'OtherAssetsNoncurrent'")
         assert row == [(4200000.0, "see note 7")]
-        # the dimensional row is repaired but, like every dimensional row, not part of the statements load
-        assert (
-            duck.fetch_value("SELECT count(*) FROM fsds_num WHERE tag = 'InvestmentOwnedBalancePrincipalAmount'") == 0
+        # the dimensional row is loaded too, flagged, with its segments text intact
+        seg = duck.fetch_all(
+            "SELECT dimensional, segments FROM fsds_num WHERE tag = 'InvestmentOwnedBalancePrincipalAmount'"
         )
+        assert seg == [(True, "InvestmentIdentifier=GC3262 Dili Corp;")]
     finally:
         duck.close()
 
@@ -155,3 +156,36 @@ def test_rejoin_quoted_fields_shapes():
     assert j([b"a", b'"x', b"y"], 2) is None  # never closed
     assert j([b"a", b"b", b"c"], 2) is None  # nothing quoted to explain the overflow
     assert j([b'"whole"', b"b", b"c"], 3) == [b'"whole"', b"b", b"c"]  # a quoted field with no tab is left as is
+
+
+def test_every_row_and_column_of_the_file_is_kept(tmp_path):
+    """Nothing the SEC publishes is dropped: dimensional `num` rows (segment, geography, one investment
+    of a fund) load with a `dimensional` flag; columns outside the typed core (`sub` addresses, `segments`,
+    a column the SEC adds in a later vintage) pass through as text."""
+    tables = _base_tables()
+    num = tables["num"].decode().splitlines()
+    num[0] += "\tnewcol"  # a column this loader has never heard of
+    num = [line + "\t" for line in num[:1]] + [line + "\tx" for line in num[1:]]
+    num.append(
+        "0000019617-26-000001\tRevenues\tus-gaap/2025\t20251231\t4\tUSD"
+        "\tStatementBusinessSegmentsAxis=ConsumerBankingMember;\t\t1000\t\ty"
+    )
+    tables["num"] = ("\n".join(num) + "\n").encode()
+    st, _counts, log = _load(tmp_path, tables)
+    assert log["num"]["loaded_rows"] == log["num"]["raw_rows"]
+    assert log["num"]["rejected_rows"] == 0
+    duck = Duck(st)
+    try:
+        duck.view("fsds_num", f"{layout.FSDS}/num/*/*.parquet")
+        duck.view("fsds_sub", f"{layout.FSDS}/sub/*/*.parquet")
+        cols = set(duck.fetch_column("SELECT column_name FROM (DESCRIBE fsds_num)"))
+        assert {"segments", "dimensional", "newcol", "value", "ddate"} <= cols
+        assert duck.fetch_value("SELECT count(*) FROM fsds_num WHERE dimensional") == 1
+        assert duck.fetch_value("SELECT newcol FROM fsds_num WHERE dimensional") == "y"
+        assert duck.fetch_value("SELECT segments FROM fsds_num WHERE dimensional") == (
+            "StatementBusinessSegmentsAxis=ConsumerBankingMember;"
+        )
+        sub_cols = set(duck.fetch_column("SELECT column_name FROM (DESCRIBE fsds_sub)"))
+        assert {"zipba", "bas1", "baph", "cityma", "cik", "period"} <= sub_cols
+    finally:
+        duck.close()

@@ -102,6 +102,19 @@ the listing they touch, so a process still sees its own writes at once; another 
 partition is seen within a minute. Per-company statement compaction (one file per company
 instead of one per filing) remains the next step for the company page.
 
+## FSDS: every row and every column is kept (2026-09-14)
+
+The loader used to project a fixed column list and drop `num` rows that carry a `segments` (or
+`dimh`) value, on the reasoning that statements only use line totals. That silently left out the
+segment, geography and per-investment breakdowns the SEC publishes, and eleven address columns of
+`sub`. The rule is now: nothing the SEC publishes is dropped. Typed core columns stay typed, every
+other column passes through as text (so a column the SEC adds later lands without a code change),
+and `num` gains a `dimensional` flag computed from `segments` / `dimh`. The statements builder
+filters on `NOT coalesce(dimensional, false)`, so quarters loaded before the flag existed (which
+hold totals only) still build. Loading all rows roughly doubles the `num` tables; the raw zips live
+only where the backfill ran, so the reload of all quarters (`filings-hub fsds --all`) runs on the
+Mac and `fsds/` is synced up afterwards. Statements need no rebuild.
+
 ## FSDS lines the SEC quotes around a tab are re-joined, not rejected (2026-09-14)
 
 The SEC's data-set files are tab-separated and unquoted, so the loader reads them with quoting

@@ -23,8 +23,10 @@ log = logging.getLogger(__name__)
 
 TABLES = ("sub", "num", "pre", "tag")
 
-# Typed projections. Files are read with all_varchar and cast here so every quarter (2009 -> now)
-# lands with an identical schema regardless of columns the SEC added later.
+# Typed projections of the columns every vintage carries. Files are read with all_varchar and cast
+# here so every quarter (2009 -> now) lands with an identical core schema. Every other column in the
+# file (addresses in `sub`, `segments`/`dimh`/`iprx`/`dimn` in `num`, anything the SEC adds later)
+# passes through as text: nothing the SEC publishes is dropped.
 SELECTS = {
     "sub": """
         adsh, TRY_CAST(cik AS BIGINT) AS cik, name, sic, countryba, stprba, cityba, countryinc, stprinc,
@@ -47,8 +49,58 @@ SELECTS = {
     """,
 }
 
-# Optional columns that only exist in some vintages; referenced only if present.
-OPTIONAL = {"num": ["dimh", "iprx", "segments", "dimn"]}
+# Source columns consumed by SELECTS (typed or renamed there), so the pass-through excludes them.
+TYPED_SOURCE_COLUMNS = {
+    "sub": [
+        "adsh",
+        "cik",
+        "name",
+        "sic",
+        "countryba",
+        "stprba",
+        "cityba",
+        "countryinc",
+        "stprinc",
+        "ein",
+        "former",
+        "changed",
+        "afs",
+        "wksi",
+        "fye",
+        "form",
+        "period",
+        "fy",
+        "fp",
+        "filed",
+        "prevrpt",
+        "detail",
+        "instance",
+        "nciks",
+        "aciks",
+    ],
+    "num": ["adsh", "tag", "version", "coreg", "ddate", "qtrs", "uom", "value", "footnote"],
+    "pre": ["adsh", "report", "line", "stmt", "inpth", "rfile", "tag", "version", "plabel", "negating"],
+    "tag": ["tag", "version", "custom", "abstract", "datatype", "iord", "crdr", "tlabel", "doc"],
+}
+
+
+def _projection(table: str, cols: list[str]) -> str:
+    """SELECTS[table] plus every other column of the file as text. `num` also gets `dimensional`: a
+    value broken down by an axis (a segment, a geography, one investment of a fund) rather than the
+    line total; the statements builder uses only totals, everything else stays queryable."""
+    typed = [c for c in TYPED_SOURCE_COLUMNS[table] if c in cols]
+    rest = [c for c in cols if c not in typed]
+    parts = [SELECTS[table].strip()]
+    if table == "num":
+        if "segments" in cols:
+            parts.append("coalesce(segments, '') <> '' AS dimensional")
+        elif "dimh" in cols:
+            parts.append("coalesce(dimh, '') NOT IN ('', '0x00000000') AS dimensional")
+        else:
+            parts.append("false AS dimensional")
+    if rest:
+        parts.append(", ".join(f'"{c}"' for c in rest))
+    return ", ".join(parts)
 
 
 REJECT_WARN_RATIO = 0.001  # more than 0.1 % of a table's rows rejected is worth a human look
@@ -198,19 +250,13 @@ def load_fsds_quarter(storage: Storage, quarter: str, duck: Duck | None = None) 
                         encoding = "cp1252"
                     _drain_rejects(duck)
                     cols = duck.fetch_column(f"DESCRIBE SELECT * FROM {_read_csv_sql(src, 'utf-8')}")
-                    extra = ""
-                    if t == "num":
-                        # Some vintages ship dimensional rows; statements only use non-dimensional values.
-                        if "segments" in cols:
-                            extra = " WHERE (segments IS NULL OR segments = '')"
-                        elif "dimh" in cols:
-                            extra = " WHERE (dimh IS NULL OR dimh = '' OR dimh = '0x00000000')"
+                    select = _projection(t, cols)
                     out_dir = layout.fsds_table_dir(t, quarter)
                     storage.delete(out_dir)
                     storage.mkdirs(out_dir)
                     target = duck.path(f"{out_dir}/part-0.parquet")
                     duck.sql(
-                        f"COPY (SELECT {SELECTS[t]} FROM {_read_csv_sql(src, 'utf-8')}{extra}) "
+                        f"COPY (SELECT {select} FROM {_read_csv_sql(src, 'utf-8')}) "
                         f"TO '{target}' (FORMAT PARQUET, COMPRESSION ZSTD)"
                     )
                     rejected, examples, bad_encoding = _drain_rejects(duck)
@@ -218,7 +264,7 @@ def load_fsds_quarter(storage: Storage, quarter: str, duck: Duck | None = None) 
                         break
                     log.info("FSDS %s %s: not valid UTF-8, transcoding from Windows-1252", quarter, t)
                 loaded = duck.fetch_value(f"SELECT count(*) FROM read_parquet('{target}')")
-                unparsed = _unparsed_values(duck, t, target, src, "utf-8", extra)
+                unparsed = _unparsed_values(duck, t, target, src, "utf-8")
                 counts[t] = loaded
                 log_rows.append(
                     {
@@ -254,7 +300,7 @@ def load_fsds_quarter(storage: Storage, quarter: str, duck: Duck | None = None) 
             duck.close()
 
 
-def _unparsed_values(duck: Duck, table: str, target: str, src: Path, encoding: str, extra: str) -> int:
+def _unparsed_values(duck: Duck, table: str, target: str, src: Path, encoding: str) -> int:
     """Rows whose key numeric/date field was present in the file but did not parse (TRY_CAST -> NULL).
     Not rejected, not silent either: they are counted into the load log."""
     checks = {
@@ -266,9 +312,8 @@ def _unparsed_values(duck: Duck, table: str, target: str, src: Path, encoding: s
     raw_col, typed_col = checks[table]
     if raw_col is None:
         return 0
-    where = f"{extra} AND" if extra else " WHERE"  # `extra` already opens the WHERE clause
     raw_present = duck.fetch_value(
-        f"SELECT count(*) FROM {_read_csv_sql(src, encoding)}{where} {raw_col} IS NOT NULL AND {raw_col} <> ''"
+        f"SELECT count(*) FROM {_read_csv_sql(src, encoding)} WHERE {raw_col} IS NOT NULL AND {raw_col} <> ''"
     )
     typed_present = duck.fetch_value(f"SELECT count(*) FROM read_parquet('{target}') WHERE {typed_col} IS NOT NULL")
     return max(int(raw_present) - int(typed_present), 0)

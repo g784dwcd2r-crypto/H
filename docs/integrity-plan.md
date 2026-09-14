@@ -8,17 +8,23 @@ This follows the points Hicham raised on 14 September, in his order. Each step s
 what we build, and what "done" looks like. Steps 1 to 4 need nothing from anyone and start now.
 Steps 5 to 7 need Hicham's list and his review.
 
+## Rule zero: nothing the SEC publishes is dropped
+
+Every row and every column of every source file is stored. Where a stage needs a subset (the
+statements builder uses line totals, not segment breakdowns), the subset is selected at read
+time with a flag, never by leaving rows out at load time. Every load records raw, loaded,
+repaired and rejected counts, and a reject is a bug to fix, not a number to tolerate.
+
 ## The universe
 
 Our lake holds 8,394 listed companies (the same count Hicham quoted): 3,480 on Nasdaq, 2,625 on
 NYSE, 1,974 OTC, 22 CBOE, 293 with no exchange recorded. Of the 6,105 NYSE/Nasdaq names, 284 are
 blank-check SPACs and 406 have no SIC code.
 
-Until Hicham's list of the top 4,000 arrives, the **proxy core universe** is: listed on NYSE or
-Nasdaq, not a blank check (SIC 6770), not a fund or trust (SIC 6722, 6726), has at least one
-financial statement in the lake, ranked by latest annual revenue then total assets, top 4,000. The
-universe is a table, `core_universe` (cik, ticker, exchange, sic, sector, rank, source), so his list
-replaces the proxy by loading a CSV, and every report below re-runs unchanged.
+The work runs over every company in the lake, not a cutoff. Reports are grouped by tier so the
+numbers stay readable: listed on NYSE or Nasdaq; other listed (OTC, CBOE); not listed but filing
+financial statements; everything else (funds, trusts, insiders, defunct registrants). A gap in the
+first tier is a bug; a gap in the last is usually a registrant that never filed financials.
 
 ## Step 1. Coverage, company by company
 

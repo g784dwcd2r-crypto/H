@@ -81,17 +81,23 @@ def finish(verbose: bool = False) -> None:
 
 @app.command(name="fsds")
 def fsds_load(
-    quarters: list[str] = typer.Argument(..., help="FSDS quarters to (re)load from the raw zips, e.g. 2022q4"),
+    quarters: list[str] = typer.Argument(None, help="FSDS quarters to (re)load from the raw zips, e.g. 2022q4"),
+    all_quarters: bool = typer.Option(False, "--all", help="reload every quarter that has a raw zip"),
     verbose: bool = False,
 ) -> None:
-    """Reload chosen Financial Statement Data Set quarters from the raw zips already in the lake, for
-    example after a loader fix. Replaces those quarters' fsds tables and load-log rows; statements are
-    not rebuilt."""
+    """Reload Financial Statement Data Set quarters from the raw zips already in the lake, for example
+    after a loader fix. Replaces those quarters' fsds tables and load-log rows; statements are not
+    rebuilt."""
     _setup_logging(verbose)
     from filings_hub.ingest import fsds
 
     storage = _storage()
     have = set(fsds.raw_quarters(storage))
+    if all_quarters:
+        quarters = sorted(have)
+    if not quarters:
+        typer.echo("name the quarters to reload, or pass --all", err=True)
+        raise typer.Exit(2)
     missing = [q for q in quarters if q not in have]
     if missing:
         typer.echo(f"no raw zip in the lake for: {', '.join(missing)}", err=True)
