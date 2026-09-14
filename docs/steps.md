@@ -53,7 +53,8 @@ flowchart TD
     P2 --> P3["Part 3 - Finish the checks,<br/>and report on them"]
     P2 --> P5["Part 5 - The notes and<br/>the five disclosures"]
     P2 --> P6["Part 6 - Hand someone<br/>the document"]
-    P2 --> P7["Part 7 - Older filings,<br/>then other countries"]
+    P2 --> P8["Part 8 - Older filings,<br/>then other countries"]
+    OWN["Part 7 - Ownership<br/>built already, needs<br/>switching on and filling in"]
     LIST["The company list<br/>being gathered now"] --> P4["Part 4 - Group the companies,<br/>then the dictionary"]
     P8["Part 8 - Plumbing<br/>two known limits,<br/>only when they bite"]
     PARK["Parked - share prices<br/>waiting on a lawyer"]
@@ -70,8 +71,9 @@ flowchart TD
 | 4. Organise the universe | 16 to 17 | Grouping and translating | The company list |
 | 5. Notes and disclosures | 18 to 25 | What analysts actually read | Part 2, for the note tables |
 | 6. The documents | 26 to 27 | Handing someone the filing | Part 2, and a scope decision |
-| 7. Go wider | 28 to 29 | Older filings, other countries | Part 2 finished |
-| 8. Plumbing | 30 to 31 | Two known limits, neither urgent | Nothing. Only when they bite |
+| 7. Ownership | 28 to 32 | Who holds the shares, who is trading | Nothing. Built, not switched on |
+| 8. Go wider | 33 to 34 | Older filings, other countries | Part 2 finished |
+| 9. Plumbing | 35 to 36 | Two known limits, neither urgent | Nothing. Only when they bite |
 | Parked | Share prices | Waiting | A lawyer |
 
 ---
@@ -1002,9 +1004,174 @@ flowchart LR
 
 ---
 
-# Part 7. Go wider
+# Part 7. Ownership: who holds the shares, and who is trading
 
-## Step 28. Filings from before 2009
+A separate stream from everything above. Not the company's accounts, but who owns the company and
+what they are doing with their stake.
+
+Three different disclosures, three different meanings, and they must never be mixed together:
+
+| Flow | Who files it | What it tells you |
+|---|---|---|
+| **Insiders** | Directors and officers, on Forms 3, 4 and 5 | A named person bought, sold, or was granted shares |
+| **Institutions** | Fund managers, on Form 13F | What a manager held at the end of a quarter |
+| **Major stakes** | Anyone crossing 5 %, on Schedules 13D and 13G | A large holder, and what they say their purpose is |
+
+**Where we are.** More built than most of this document: parsing, storage, company pages, filters,
+CSV export, watchlists and email alerts all exist for all three flows, with careful rules about what
+we will and will not claim. What is missing is everything to do with *running* it and *filling it in*.
+
+```mermaid
+flowchart TD
+    I["Forms 3, 4, 5<br/>a named person"] --> LAKE["Stored separately<br/>by flow"]
+    F["Form 13F<br/>a fund manager"] --> LAKE
+    D["13D and 13G<br/>a holder above 5 percent"] --> LAKE
+    LAKE --> PAGE["Company pages, filters,<br/>exports, alerts"]
+    LAKE -.->|"never merged into one number"| WHY["None of these is a full<br/>share register, and adding<br/>them up would invent one"]
+    style WHY fill:#fff4e5,stroke:#e65100
+```
+
+## Step 28. Switch it on and keep it running
+
+**What it is.** The ownership collector is built but not running in production.
+
+**Why it matters.** Everything below assumes a steady flow of new filings. Until the collector runs
+on a schedule, the pages exist but the data behind them does not grow.
+
+**How it works.** It reads the SEC's daily index, queues what it finds, and works through it in
+bounded batches. It runs on its own schedule, separate from the financial statements refresh, and a
+single collector at a time so two do not fight over the same place in the queue.
+
+If a day's index is genuinely missing, a person records why, and that record is kept. We never skip a
+day because the SEC had a bad morning.
+
+**One known rough edge.** Sending an email and recording that we sent it cannot be made into one
+single action. If we crash between the two, someone gets the same alert twice. Duplicate beats
+missing, so this is accepted rather than solved.
+
+```mermaid
+flowchart LR
+    IDX["The SEC's daily list"] --> Q["Queue everything<br/>for that day"]
+    Q --> B["Work through it<br/>in bounded batches"]
+    B --> FAIL{"A filing failed?"}
+    FAIL -->|"Yes"| KEEP["Keep it for retry.<br/>Do not drop the others"]
+    FAIL -->|"No"| DONE["Day complete"]
+    KEEP --> B
+    style DONE fill:#e8f5e9,stroke:#2e7d32
+```
+
+**Done when.** It runs on a schedule, the queue drains, and the coverage report says the data is
+current. Not before — a half-drained queue looks exactly like a company nobody trades.
+
+**Size.** Small. It is mostly a decision to turn it on and watch it.
+
+## Step 29. Fill in the past
+
+**What it is.** A first run starts from yesterday. It does not go back and collect history.
+
+**Why it matters.** This is the difference between "this director sold last week" and "this director
+has sold every quarter for three years". The second is worth far more, and only history gives it.
+
+**How it works.** The same collector, pointed at older dates, with its own separate place-marker so a
+catch-up run never disturbs the daily one.
+
+**The decision needed first.** How far back. Every year costs collection time and storage, and the
+value drops off the further back you go. This is worth deciding deliberately rather than by default.
+
+```mermaid
+flowchart LR
+    T["Today<br/>collection starts from yesterday"] --> ONE["This director sold last week"]
+    H["With history"] --> MANY["This director has sold<br/>every quarter for three years"]
+    MANY --> W["Worth far more.<br/>Only history gives it"]
+    DEC{"How far back?"} -.->|"costs time and storage"| H
+    style ONE fill:#fff4e5,stroke:#e65100
+    style W fill:#e8f5e9,stroke:#2e7d32
+```
+
+**Done when.** We hold a stated number of years for all three flows, and the pages say which.
+
+**Size.** Medium, mostly waiting.
+
+## Step 30. The older filings we cannot read yet
+
+**What it is.** Older ownership filings were submitted in a format we do not parse. We record them as
+unsupported.
+
+**Why this is the right behaviour today.** We never turn a filing we cannot read into a zero. A
+company showing no insider activity because we could not parse the form would be a lie by omission.
+Unsupported stays visible and can be retried.
+
+**What is left.** Decide whether to teach the parser the old format. That depends on step 29 — if we
+only go back a few years, this may never matter.
+
+```mermaid
+flowchart TD
+    OLD["An older filing<br/>in a format we cannot read"] --> C{"What do we do?"}
+    C -->|"What we do"| U["Mark it unsupported.<br/>Keep it visible. Allow a retry"]
+    C -->|"What we must never do"| Z["Treat it as zero activity"]
+    Z --> LIE["The page would say<br/>this person did nothing,<br/>when we simply cannot read it"]
+    style U fill:#e8f5e9,stroke:#2e7d32
+    style LIE fill:#ffe6e6,stroke:#cc0000
+```
+
+**Size.** Unknown until step 29 sets the depth.
+
+## Step 31. Match holdings to the right company
+
+**What it is.** A fund manager's 13F lists securities by a code, not by the company identifier we use
+everywhere else. Until the two are connected, a position is real but unattached.
+
+**Why it matters.** An unmatched position is invisible on the company's page even though we hold it.
+And a wrong match is worse than none: it would show a holding in a company nobody actually holds.
+
+**How it works.** Two routes, both deliberate. A major-stake filing sometimes states both the code and
+the company, which establishes the link from the filer's own words. Otherwise a person registers the
+mapping with a source document that evidences it.
+
+**The rule that keeps this safe.** No guessing by company name. Ever. Conflicting mappings are
+rejected rather than resolved. Unmatched positions stay in storage and stay counted, so the gap is
+visible rather than silently zero.
+
+```mermaid
+flowchart TD
+    POS["A reported position<br/>identified by a security code"] --> M{"Do we know which<br/>company that is?"}
+    M -->|"The filing itself says so"| OK1["Linked"]
+    M -->|"A person registered it, with evidence"| OK2["Linked"]
+    M -->|"Not yet"| PEND["Stays in storage.<br/>Stays in the coverage count.<br/>Visible as a gap"]
+    NEVER["Matching on company name"] -.->|"never"| X["Too easy to get wrong"]
+    style OK1 fill:#e8f5e9,stroke:#2e7d32
+    style OK2 fill:#e8f5e9,stroke:#2e7d32
+    style X fill:#ffe6e6,stroke:#cc0000
+```
+
+**Done when.** The share of unmatched positions is on the scorecard from step 15 and is falling.
+
+**Size.** Ongoing rather than a one-off. It needs a person.
+
+## Step 32. Ownership outside the US
+
+**What it is.** Every flow above is SEC-only. Other countries disclose ownership through their own
+systems, with different thresholds, different forms and different timing.
+
+**Why it is last here.** It has the same shape as step 34: a separate source per country, and a
+country's rules decide what is even disclosable. A 5 % threshold is a US rule, not a universal one.
+
+```mermaid
+flowchart TD
+    US["United States<br/>5 percent threshold,<br/>SEC forms, known timing"] --> OURS["Everything in this part"]
+    OTHER["Every other country"] --> DIFF["Its own system,<br/>its own threshold,<br/>its own timing"]
+    DIFF --> NOTE["A 5 percent rule is a US rule.<br/>What is even disclosable<br/>changes by country"]
+    style OURS fill:#e8f5e9,stroke:#2e7d32
+    style NOTE fill:#fff4e5,stroke:#e65100
+```
+
+**Size.** Large, and not worth scoping until the statements side of other countries is decided.
+
+---
+
+# Part 8. Go wider
+
+## Step 33. Filings from before 2009
 
 **What it is.** Tagged data only exists from about 2009. Older filings are documents, not data.
 
@@ -1030,7 +1197,7 @@ compared with itself, which is what makes it trustworthy.
 
 **Scope.** Listed companies, annual reports, 2001 onwards, roughly 75,000 documents.
 
-## Step 29. Canada, Europe, and later Australia and New Zealand
+## Step 34. Canada, Europe, and later Australia and New Zealand
 
 **What it is.** Coverage outside the US.
 
@@ -1063,13 +1230,13 @@ countries, such as ISIN or LEI. A ticker symbol does not travel.
 
 ---
 
-# Part 8. Plumbing
+# Part 9. Plumbing
 
 Nobody asks for these. They are the two places where the machinery itself, rather than the data, is
 the weak point. Neither is urgent, and both are written down so they are a decision rather than a
 surprise.
 
-## Step 30. Handling more people at once
+## Step 35. Handling more people at once
 
 **What it is.** Our query engine currently answers one question at a time.
 
@@ -1095,7 +1262,7 @@ flowchart TD
     style SAFE fill:#e8f5e9,stroke:#2e7d32
 ```
 
-## Step 31. Publishing without a half-finished moment
+## Step 36. Publishing without a half-finished moment
 
 **What it is.** When we publish fresh data, tables are replaced one after another rather than all at
 once.
