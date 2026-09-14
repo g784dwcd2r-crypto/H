@@ -6,13 +6,15 @@ for the detail of each step; read this one to see how they fit together.
 
 **How to read it.**
 
-- Solid arrows mean *must come first*. Dotted arrows mean *feeds into* or *changes the priority of*.
+- Blue solid arrows mean *must come first*. Orange dotted arrows mean *feeds into* or *changes the
+  priority of*.
 - Green is done or decided. Blue is the main path. Amber is waiting on something outside the code
   (a person, a lawyer, a scope decision). Grey with a dashed border is parked or "only when it bites".
 - Steps inside one box belong to the same part of the plan. A box is not a sequence unless arrows
   say so: the four quick fixes can all start today, in any order.
 
 ```mermaid
+%%{init: {"flowchart": {"curve": "basis", "nodeSpacing": 30, "rankSpacing": 70}}}%%
 flowchart TD
     START([Now])
     IDEA["The one idea underneath everything<br/>The filing is the original.<br/>Summary files are late, thinner,<br/>and drop the company's own maths"]
@@ -101,14 +103,12 @@ flowchart TD
 
     PARK["Parked · share prices<br/>data side nearly solved<br/>waiting on a lawyer<br/>we rent prices, never statements"]
 
-    %% Part 1: can all start today
+    %% Solid arrows: must come first
     START --> S1
     START --> S2
     START --> S3
     START --> S4
     START --> S11
-
-    %% Part 2: the main path
     START --> S5
     S5 --> S6
     S6 --> S7
@@ -116,15 +116,6 @@ flowchart TD
     S7 --> S9
     S8 --> S10
     S9 --> S10
-
-    %% Cross-links out of Part 1
-    S1 -.->|"the verdict sets<br/>step 9's priority"| S9
-    S3 -.->|"the guess is replaced<br/>by the company's map"| S8
-    S11 -.->|"makes the full-table<br/>read quick"| S4
-    T1 -.->|"until step 11 lands"| S11
-    T2 -.->|"run step 1 locally"| S1
-
-    %% Part 3: blocked by the real subtotal check
     S8 --> S12
     S8 --> S14
     START --> S13
@@ -132,13 +123,8 @@ flowchart TD
     S12 --> S15
     S13 --> S15
     S14 --> S15
-
-    %% Part 4: blocked by the company list, and by Hicham
     LIST --> S16
     S16 --> S17
-    S8 -.->|"layer one: the maths<br/>each filing declares"| S17
-
-    %% Part 5: statements right first, then the notes source, then the five in order
     S10 --> S18
     S15 --> S18
     S18 --> S19
@@ -148,35 +134,39 @@ flowchart TD
     S22 --> S23
     S23 --> S24
     S24 --> S25
-    S12 -.->|"the retained earnings check<br/>tests the same movements"| S24
-    S26 -.->|"debt agreements first,<br/>because step 20 needs them"| S20
-    S6 -.->|"the written notes exist<br/>only in the document"| S25
-
-    %% Part 6: needs the stored documents
     S6 --> S26
     S6 --> S27
-
-    %% Part 7: a separate stream, nothing blocks it
     START --> OWN
     OWN --> S28
     S28 --> S29
     S28 --> S31
     S29 --> S30
-    S31 -.->|"unmatched share goes<br/>on the scorecard"| S15
-    S34 -.->|"not worth scoping until<br/>other countries' statements are decided"| S32
-
-    %% Part 8: after Part 2 is finished
     S10 --> S33
     S10 --> S34
-    LIST -.-> ISIN
     ISIN --> S34
-    S34 -.->|"KPIs turn urgent<br/>outside the US"| S23
 
-    %% Part 9: triggered by symptoms, not by the plan
+    %% Dotted arrows: feeds into, or changes the priority of
+    S1 -.->|"the verdict sets<br/>step 9's priority"| S9
+    S3 -.->|"the guess is replaced<br/>by the company's map"| S8
+    S11 -.->|"makes the full-table<br/>read quick"| S4
+    S8 -.->|"layer one: the maths<br/>each filing declares"| S17
+    S12 -.->|"the retained earnings check<br/>tests the same movements"| S24
+    S26 -.->|"debt agreements first,<br/>because step 20 needs them"| S20
+    S6 -.->|"the written notes exist<br/>only in the document"| S25
+    S31 -.->|"unmatched share goes<br/>on the scorecard"| S15
+    S34 -.->|"not worth scoping until<br/>other countries' statements are decided"| S32
+    LIST -.-> ISIN
+    S34 -.->|"KPIs turn urgent<br/>outside the US"| S23
     START -.->|"pages slow down<br/>as more people use them"| S35
     START -.->|"a page that did not add up<br/>at the time of a publish"| S36
 
+    %% Notes, kept out of the flow
+    P9 ~~~ TRAPS
+    P9 ~~~ PARK
+
     %% Styles
+    linkStyle default stroke:#1565c0,stroke-width:2px
+    linkStyle 41,42,43,44,45,46,47,48,49,50,51,52,53 stroke:#e65100,stroke-width:2px
     classDef main fill:#e3f2fd,stroke:#1565c0,color:#0d47a1
     classDef done fill:#e8f5e9,stroke:#2e7d32,color:#1b5e20
     classDef waiting fill:#fff4e5,stroke:#e65100,color:#bf360c
