@@ -447,7 +447,15 @@ def is_subtotal(concept: str | None, label: str | None, is_abstract: bool) -> bo
 
 def assign_parents(lines: list[dict[str, Any]]) -> None:
     """Set `parent_concept` on ordered lines of one statement: the next subtotal after each line.
-    Mirrors the SQL window in sync_statements (tests keep them in sync)."""
+    Mirrors the SQL window in sync_statements (tests keep them in sync).
+
+    This is a POSITIONAL GUESS, not the company's declared arithmetic: the SEC summary data sets drop
+    the filing's calculation tree, so we assume each line rolls into the next subtotal below it. It is
+    right often but wrong often enough that it must NOT back a pass/fail check (a positional
+    `subtotal_equals_children` flagged 98.3 % of filings and was worthless). It exists only to hint at
+    grouping for display, and every place that exposes it labels it as inferred. The real parent comes
+    from the filing's calculation tree once we read it (steps.md step 8); only then is a subtotal check
+    meaningful."""
     next_sub: str | None = None
     for line in reversed(lines):
         line["parent_concept"] = next_sub

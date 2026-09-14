@@ -554,3 +554,24 @@ it would have re-surfaced the dead company that the `is_current` filter is there
 
 Migration `0020` adds the column; the serving load carries it. Requires a universe rebuild to take
 effect, which every backfill and daily refresh already does.
+
+## Step 3 built: the subtotal grouping is labelled a guess, not hidden or overclaimed (2026-09-14, evening)
+
+The columns that say which line rolls into which total (`parent_concept`, `is_subtotal`) are a
+positional guess: the SEC summary data sets drop the filing's calculation tree, so we assume each
+line rolls into the next subtotal below it. Two things were true and both mattered.
+
+- **There was no check to switch off.** A positional `subtotal_equals_children` was never wired in
+  (it would have flagged 98.3 % of filings); the guessed columns only feed display. So the work was
+  not "stop running the check" but "stop presenting the guess as fact".
+- **The guess reaches a person in two places only:** the grid payload the export/API emits, and the
+  Excel workbook. The web does not read these columns. So both exposure points now carry a plain note
+  that the grouping is inferred from presentation order, not the filing's own arithmetic, and is
+  provisional. `LINE_GROUPING_BASIS` in `grid.py` ships in the payload beside `availability_basis`;
+  the Excel methodology note says the same, whatever the subtotals mode.
+
+Deliberately not done: no new stored column and no migration. Every parent guess is positional today,
+so a per-row provenance marker buys nothing until step 8 mixes real calculation-tree parents in with
+guesses; adding it now would be schema churn for a uniform state. A guard comment on `assign_parents`
+records that it must never back a pass/fail check until the tree is read from the filing (step 8),
+which is when a subtotal check becomes meaningful.

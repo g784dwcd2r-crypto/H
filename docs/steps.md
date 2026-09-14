@@ -262,9 +262,22 @@ flowchart TD
 The company already stated the real answer in its filing. We just have not been reading it. That is
 step 8.
 
-**Done when.** Nothing presents the guess as knowledge.
+### Progress
 
-**Size.** Small.
+**✅ Built and tested (2026-09-14).** Two findings shaped the fix. First, there is no subtotal *check*
+running on the guess — nothing to switch off — because the guessed columns only fill in display hints,
+they do not pass or fail anything. Second, the guess reaches a person in exactly two places: the data
+the export sends out, and the Excel file itself. Both now say, in plain words, that the grouping
+(which line adds into which total) is **inferred from the order lines are printed in, not the
+company's own arithmetic, and is provisional**. A guard comment sits on the code that makes the guess,
+so nobody later builds a pass/fail check on it before the real calculation tree arrives (step 8).
+Tested; the whole suite is green.
+
+**Done when.** ✅ Nothing presents the guess as knowledge: the export payload and the spreadsheet both
+label the grouping as inferred, and the code is guarded against a check being built on it. The real
+fix — the company's own arithmetic — is step 8.
+
+**Size.** Small, as expected.
 
 ## Step 4. Count what we are missing
 

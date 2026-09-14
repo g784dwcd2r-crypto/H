@@ -360,3 +360,17 @@ def test_export_quarterly_and_restated_workbook(db: Database):
     wb = load_workbook(io.BytesIO(data))
     assert wb["Income Statement"]["D4"].value == "FY2024 (provisional) (restated)"
     assert [c.value for c in wb["Source"][1]][-1] == "Statements source"
+
+
+def test_grid_flags_subtotal_grouping_as_inferred(db: Database):
+    """Step 3: the payload must say the subtotal grouping is a guess, not the filing's arithmetic."""
+    d = build_grid(db, fx.APPLE, ["FY2025"]).to_dict()
+    basis = d["line_grouping_basis"]
+    assert "inferred" in basis and "presentation order" in basis and "calculation tree" in basis
+
+
+def test_excel_note_flags_inferred_subtotal_grouping(db: Database):
+    """The spreadsheet a user downloads says the grouping is inferred, whatever the subtotals mode."""
+    wb = load_workbook(io.BytesIO(export_excel(db, fx.APPLE, ["FY2025"])))
+    texts = [c.value for ws in wb.worksheets for row in ws.iter_rows() for c in row if isinstance(c.value, str)]
+    assert any("inferred from" in t and "calculation tree" in t for t in texts)

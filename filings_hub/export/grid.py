@@ -32,6 +32,16 @@ PERIOD_MODES = ("as_filed", "quarterly", "annual", "ltm")
 COLUMN_ORDERS = ("newest_right", "newest_left")
 INSTANT_STATEMENTS = ("BS",)  # points in time: never derived
 
+# Which line rolls into which subtotal (`parent_concept`, and `is_subtotal` itself) is inferred from
+# the order the lines are printed in, because the SEC's summary data sets drop the filing's own
+# calculation tree. It is a positional guess, not the company's declared arithmetic. This note ships
+# in the payload so no consumer mistakes the grouping for fact; it becomes real, and this note goes
+# away, once the calculation tree is read from the filing (steps.md step 8).
+LINE_GROUPING_BASIS = (
+    "which line rolls into which subtotal is inferred from presentation order, not the filing's own "
+    "calculation tree (the SEC summary data sets omit it); treat the grouping as provisional"
+)
+
 
 @dataclass
 class PeriodColumn:
@@ -102,6 +112,7 @@ class Grid:
             "column_order": self.column_order,
             "as_of": self.as_of.isoformat() if self.as_of else None,
             "availability_basis": "SEC filing date; end of selected day, not intraday availability",
+            "line_grouping_basis": LINE_GROUPING_BASIS,
             "periods": [
                 {
                     "period_label": p.period_label,

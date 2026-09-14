@@ -385,8 +385,12 @@ def _write_source(wb: Workbook, grid: Grid, opts: ExportOptions) -> None:
             f" Availability cutoff: filings dated on or before {grid.as_of.isoformat()}. "
             "This is filing-date resolution, not intraday availability or an archived database snapshot."
         )
+    note += (
+        " Subtotal grouping (which lines roll into a total, and which lines are subtotals) is inferred from "
+        "presentation order, not the filing's own calculation tree, and is provisional."
+    )
     if opts.subtotals == "formulas":
-        note += " Subtotals are formulas where the reported children add up to the reported total, values otherwise."
+        note += " Formulas are written only where the reported children add up to the reported total; values otherwise."
     ws.cell(len(grid.periods) + 3, 1, note)
     for j, w in enumerate([14, 12, 44, 8, 24, 12, 60, 60, 60, 40, 16], 1):
         ws.column_dimensions[get_column_letter(j)].width = w
