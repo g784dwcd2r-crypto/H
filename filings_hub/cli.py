@@ -561,3 +561,26 @@ def coverage_audit_cmd(
         typer.echo(json.dumps(report, indent=2, default=str))
     else:
         typer.echo(ca.format_report(report))
+
+
+@app.command(name="check-report")
+def check_report_cmd(
+    examples: int = typer.Option(20, help="how many worst-offender rows to list"),
+    as_json: bool = typer.Option(False, "--json", help="print the raw report as JSON"),
+    verbose: bool = False,
+) -> None:
+    """Error report over the arithmetic checks: which rule fails, how badly, and for whom.
+
+    Per check: how many ran, passed, failed, and the failure severity spread, plus the companies
+    affected and the worst offenders by name. Read-only. Run against a local lake.
+    """
+    _setup_logging(verbose)
+    from filings_hub import check_report as cr
+
+    report = cr.failure_report(_storage(), examples=examples)
+    if as_json:
+        import json
+
+        typer.echo(json.dumps(report, indent=2, default=str))
+    else:
+        typer.echo(cr.format_failure_report(report))
