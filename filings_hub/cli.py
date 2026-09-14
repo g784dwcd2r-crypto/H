@@ -111,6 +111,45 @@ def fsds_load(
             )
 
 
+@app.command(name="statements")
+def statements_build(
+    quarters: list[str] = typer.Argument(None, help="FSDS quarters to rebuild, e.g. 2026q2"),
+    all_quarters: bool = typer.Option(False, "--all", help="rebuild every loaded quarter"),
+    fallbacks: bool = typer.Option(
+        False, "--fallbacks", help="also rebuild provisional statements for periods the FSDS has not covered"
+    ),
+    verbose: bool = False,
+) -> None:
+    """Rebuild the as-reported statements from the Financial Statement Data Sets already in the lake.
+
+    Needed after a builder change; the raw zips are not read again. Rebuilding every quarter takes a
+    while, so a single quarter is the quick way to see a change before committing to all of them.
+    """
+    _setup_logging(verbose)
+    import time
+
+    from filings_hub.ingest import fsds, sync_statements
+
+    storage = _storage()
+    have = fsds.loaded_quarters(storage)
+    if all_quarters:
+        quarters = have
+    if not quarters:
+        typer.echo("name the quarters to rebuild, or pass --all", err=True)
+        raise typer.Exit(2)
+    missing = [q for q in quarters if q not in have]
+    if missing:
+        typer.echo(f"not loaded in the lake: {', '.join(missing)}", err=True)
+        raise typer.Exit(2)
+    step = time.monotonic()
+    done = sync_statements.build_all_fsds(storage, quarters, force=True)
+    typer.echo(f"rebuilt {len(done)} quarter(s) in {time.monotonic() - step:.0f}s")
+    if fallbacks:
+        step = time.monotonic()
+        built = sync_statements.fill_all_fallbacks(storage)
+        typer.echo(f"provisional statements: {built} in {time.monotonic() - step:.0f}s")
+
+
 @app.command()
 def compact(
     years: str = typer.Option("", help="comma-separated years; empty = every year"),
