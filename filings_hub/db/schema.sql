@@ -594,3 +594,10 @@ ALTER TABLE filings ADD COLUMN IF NOT EXISTS core_type TEXT;
 -- the same tag broken out by product or share class is several lines, not one. Empty for a total.
 ALTER TABLE statements ADD COLUMN IF NOT EXISTS segments TEXT;
 CREATE INDEX IF NOT EXISTS statements_segments_idx ON statements (cik, statement) WHERE segments IS NOT NULL;
+
+-- ==== 0020_ticker_current_owner.sql ====
+-- 0020: which company currently owns a reused ticker symbol. A symbol gets reused after a company
+-- delists; both companies keep a row, and is_current marks the one still filing so a ticker lookup
+-- never lands on the dead company. Set by mark_current_owner at universe-build time.
+ALTER TABLE tickers ADD COLUMN IF NOT EXISTS is_current BOOLEAN;
+CREATE INDEX IF NOT EXISTS tickers_ticker_current_idx ON tickers (ticker) WHERE is_current;

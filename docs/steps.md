@@ -184,9 +184,22 @@ flowchart TD
     style C1 fill:#eeeeee,stroke:#999999
 ```
 
-**Done when.** All seven go to the right company, and search never offers two.
+### Progress
 
-**Size.** Small.
+**✅ Built and tested (2026-09-14).** The universe build now settles, once, which company currently
+owns each symbol (`mark_current_owner` in `sync_universe.py`, a new `is_current` flag on the tickers
+table). The winner is the company still filing, most recently; a symbol with a single owner is
+current even if that owner is defunct. Every place that turns a symbol into a company — the exact
+ticker redirect, search, the CLI, and verify — now prefers the current owner, so a reused symbol can
+no longer land on the dead company, and search no longer shows the dead one for that symbol (it stays
+findable by name). Covered by tests on the ranking, the exact queries the API runs, and the Postgres
+load path; a migration (`0020`) adds the column.
+
+**Done when.** ✅ Built, tested, migration in. ▢ Confirmed on the full lake after the next universe
+build: the seven real cases each resolve to the live company. That happens automatically on the next
+backfill/refresh (the build fills `is_current`); no extra step.
+
+**Size.** Small, as expected.
 
 ## Step 3. Stop showing a guess as if it were fact
 

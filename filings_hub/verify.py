@@ -151,7 +151,10 @@ def check_refresh_streak(db: Database, streak: int = REFRESH_WEEKDAY_STREAK) -> 
 # 3. the golden set has periods, statements and an Excel export a human can check
 # ---------------------------------------------------------------------------------------------
 def _resolve(db: Database, ticker: str) -> int | None:
-    rows = db.query("SELECT cik FROM tickers WHERE ticker = ? ORDER BY is_primary DESC LIMIT 1", [ticker.upper()])
+    rows = db.query(
+        "SELECT cik FROM tickers WHERE ticker = ? ORDER BY (is_current IS TRUE) DESC, is_primary DESC LIMIT 1",
+        [ticker.upper()],
+    )
     return int(rows[0]["cik"]) if rows else None
 
 

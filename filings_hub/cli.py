@@ -231,7 +231,10 @@ def _lookup_cik(db, ident: str) -> int | None:
     """CIK for a ticker or numeric CIK string; None when unknown."""
     if ident.isdigit():
         return int(ident)
-    rows = db.query("SELECT cik FROM tickers WHERE ticker = ? ORDER BY is_primary DESC LIMIT 1", [ident.upper()])
+    rows = db.query(
+        "SELECT cik FROM tickers WHERE ticker = ? ORDER BY (is_current IS TRUE) DESC, is_primary DESC LIMIT 1",
+        [ident.upper()],
+    )
     return int(rows[0]["cik"]) if rows else None
 
 

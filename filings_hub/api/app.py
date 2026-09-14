@@ -108,9 +108,9 @@ SEARCH_SQL = f"""
 WITH matches AS (
     (SELECT cik FROM companies WHERE lower(name) LIKE ? LIMIT {SEARCH_CANDIDATE_CAP})
     UNION
-    SELECT cik FROM companies WHERE ticker = ?
-    UNION
-    SELECT cik FROM tickers WHERE ticker = ?
+    -- exact ticker: only the current owner, so a reused symbol never surfaces the delisted company.
+    -- (companies.ticker is the company's is_primary row from this same table, so no branch is lost.)
+    SELECT cik FROM tickers WHERE ticker = ? AND is_current IS NOT FALSE
     UNION
     SELECT cik FROM companies WHERE cik = ?
 )
@@ -126,7 +126,8 @@ def search_params(q: str, limit: int) -> list[Any]:
     matches nothing, rather than casting every CIK to text (which no index can serve)."""
     sym = q.strip().upper()
     cik = int(q) if q.strip().isdigit() else None
-    return [f"%{q.strip().lower()}%", sym, sym, cik, sym, limit]
+    # name LIKE, exact ticker (current owner), exact cik, then the ORDER BY ticker-match, then limit.
+    return [f"%{q.strip().lower()}%", sym, cik, sym, limit]
 
 
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
@@ -228,7 +229,10 @@ def create_app(
         if cik.isdigit():
             return int(cik)
         rows = database.query(
-            "SELECT cik FROM tickers WHERE ticker = ? ORDER BY is_primary DESC LIMIT 1",
+            # A reused symbol has two companies; is_current is the one still filing. IS NOT FALSE keeps
+            # a lake not yet rebuilt with the column (is_current null) behaving as it did before.
+            "SELECT cik FROM tickers WHERE ticker = ? "
+            "ORDER BY (is_current IS TRUE) DESC, is_primary DESC LIMIT 1",
             [cik.upper()],
         )
         if not rows:

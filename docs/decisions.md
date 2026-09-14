@@ -534,3 +534,23 @@ It is read-only and tested against controlled rows with known gaps plus the real
 verdict is a heuristic to guide a human (near-miss share over 1 % of governed passes -> prioritise
 step 9), not an automated decision. Still to do: run it against the full lake once the current
 rebuild finishes uploading, and read the number.
+
+## Step 2 built: a reused ticker resolves to its current owner (2026-09-14, evening)
+
+Seven symbols were each claimed by two companies, so a lookup could land on a delisted one. Fixed at
+build time rather than per query: `mark_current_owner` marks one `is_current` owner per symbol in the
+tickers table, ranked by still-filing, then most recent, then most filings, then a stable CIK. A
+symbol with a single owner is current even when that owner is defunct — we never drop the history.
+
+Why build-time and not just a smarter query: the tie-break is the same everywhere a symbol becomes a
+company (the exact-ticker redirect, search, the CLI, verify). Marking it once keeps each of those a
+plain filter (`is_current IS NOT FALSE`, or `ORDER BY (is_current IS TRUE) DESC`) that reads the same
+and cannot drift between call sites. The queries use `IS NOT FALSE` / `IS TRUE` so a lake not yet
+rebuilt with the column behaves exactly as before rather than breaking.
+
+The redundant `companies WHERE ticker = ?` branch in search was removed: `companies.ticker` is copied
+from the company's own `is_primary` tickers row, so the tickers branch already covers it, and keeping
+it would have re-surfaced the dead company that the `is_current` filter is there to hide.
+
+Migration `0020` adds the column; the serving load carries it. Requires a universe rebuild to take
+effect, which every backfill and daily refresh already does.

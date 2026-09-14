@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from collections import defaultdict
 from datetime import date, timedelta
 from typing import Any
 
@@ -63,7 +64,8 @@ TICKERS_SCHEMA = pa.schema(
         ("cik", pa.int64()),
         ("ticker", pa.string()),
         ("exchange", pa.string()),
-        ("is_primary", pa.bool_()),
+        ("is_primary", pa.bool_()),  # this company's primary ticker (a company can list under several)
+        ("is_current", pa.bool_()),  # this company currently owns the ticker symbol (see mark_current_owner)
         ("source", pa.string()),
     ]
 )
@@ -139,6 +141,38 @@ def build_tickers(ticker_rows: list[dict[str, Any]], headers: pa.Table) -> pa.Ta
         r["is_primary"] = r["cik"] not in primary_seen
         primary_seen.add(r["cik"])
     return pa.Table.from_pylist(out, schema=TICKERS_SCHEMA)
+
+
+def mark_current_owner(tickers: pa.Table, companies: pa.Table) -> pa.Table:
+    """Set `is_current`: for each ticker symbol, which company owns it now.
+
+    A symbol gets reused: a company delists and, years later, another company takes the same ticker.
+    Both keep a row here (we never drop the history), so a bare `WHERE ticker = ?` matches two
+    companies and a lookup can land on the dead one. `is_current` breaks that tie once, at build time,
+    so every query stays a simple filter. The winner is the company still filing, most recently, with
+    the most filings; a stable CIK order settles a true draw. A symbol with a single owner is current
+    by definition, including one whose only owner is defunct.
+    """
+    by_cik = {
+        r["cik"]: (bool(r["is_active"]), r["last_filing_date"], r["filing_count"] or 0)
+        for r in companies.select(["cik", "is_active", "last_filing_date", "filing_count"]).to_pylist()
+    }
+
+    def rank(cik: int) -> tuple:
+        active, last, count = by_cik.get(cik, (False, None, 0))
+        # active first, then most recent filing, then most filings; None date loses. Negatives sort
+        # descending under Python's ascending sort, so the winner is the minimum.
+        return (not active, -(last.toordinal() if last else 0), -count, cik)
+
+    rows = tickers.to_pylist()
+    by_ticker: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for r in rows:
+        by_ticker[r["ticker"]].append(r)
+    for group in by_ticker.values():
+        winner = min(group, key=lambda r: rank(r["cik"]))
+        for r in group:
+            r["is_current"] = r is winner
+    return pa.Table.from_pylist(rows, schema=TICKERS_SCHEMA)
 
 
 def build_companies(
@@ -220,6 +254,9 @@ def sync_universe(
     finally:
         duck.close()
     companies = build_companies(headers, tickers, stats, today)
+    # companies now carries is_active / last_filing_date / filing_count, so we can settle which
+    # company currently owns each ticker symbol that more than one company has claimed.
+    tickers = mark_current_owner(tickers, companies)
     storage.write_parquet(HEADERS, headers)
     storage.write_parquet(layout.COMPANIES, companies)
     storage.write_parquet(layout.TICKERS, tickers)

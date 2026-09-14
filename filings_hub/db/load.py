@@ -96,7 +96,7 @@ TABLE_COLUMNS: dict[str, list[str]] = {
         "last_financial_report_form",
         "filing_count",
     ],
-    "tickers": ["cik", "ticker", "exchange", "is_primary", "source"],
+    "tickers": ["cik", "ticker", "exchange", "is_primary", "is_current", "source"],
     "filings": [
         "accession",
         "cik",
