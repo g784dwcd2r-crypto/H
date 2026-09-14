@@ -6,19 +6,19 @@ for the detail of each step; read this one to see how they fit together.
 
 **How to read it.**
 
-- Blue solid arrows mean *must come first*. Orange dotted arrows mean *feeds into* or *changes the
-  priority of*.
+- Blue solid arrows mean *must come first*. Orange dotted arrows mean *related*, and the label on
+  each says how: feeds into, sets the priority of, or waits on.
+- The parts run top to bottom in the same order as the steps document, so scroll down to follow it.
 - Green is done or decided. Blue is the main path. Amber is waiting on something outside the code
   (a person, a lawyer, a scope decision). Grey with a dashed border is parked or "only when it bites".
 - Steps inside one box belong to the same part of the plan. A box is not a sequence unless arrows
   say so: the four quick fixes can all start today, in any order.
 
 ```mermaid
-%%{init: {"flowchart": {"curve": "basis", "nodeSpacing": 30, "rankSpacing": 70}}}%%
-flowchart TD
+%%{init: {"flowchart": {"curve": "basis", "nodeSpacing": 40, "rankSpacing": 60}}}%%
+flowchart TB
     START([Now])
     IDEA["The one idea underneath everything<br/>The filing is the original.<br/>Summary files are late, thinner,<br/>and drop the company's own maths"]
-    START --- IDEA
 
     subgraph P1["Part 1 · Four quick fixes — nothing blocks these"]
         direction TB
@@ -104,6 +104,7 @@ flowchart TD
     PARK["Parked · share prices<br/>data side nearly solved<br/>waiting on a lawyer<br/>we rent prices, never statements"]
 
     %% Solid arrows: must come first
+    START --> IDEA
     START --> S1
     START --> S2
     START --> S3
@@ -145,28 +146,51 @@ flowchart TD
     S10 --> S34
     ISIN --> S34
 
-    %% Dotted arrows: feeds into, or changes the priority of
+    %% Dotted arrows: related, the label says how
     S1 -.->|"the verdict sets<br/>step 9's priority"| S9
     S3 -.->|"the guess is replaced<br/>by the company's map"| S8
-    S11 -.->|"makes the full-table<br/>read quick"| S4
-    S8 -.->|"layer one: the maths<br/>each filing declares"| S17
+    S4 -.->|"its full-table read<br/>needs step 11"| S11
+    S8 -.->|"layer one of the dictionary:<br/>the maths each filing declares"| S17
     S12 -.->|"the retained earnings check<br/>tests the same movements"| S24
-    S26 -.->|"debt agreements first,<br/>because step 20 needs them"| S20
+    S20 -.->|"needs the debt agreements<br/>step 26 fetches first"| S26
     S6 -.->|"the written notes exist<br/>only in the document"| S25
-    S31 -.->|"unmatched share goes<br/>on the scorecard"| S15
-    S34 -.->|"not worth scoping until<br/>other countries' statements are decided"| S32
-    LIST -.-> ISIN
-    S34 -.->|"KPIs turn urgent<br/>outside the US"| S23
+    S15 -.->|"tracks the unmatched<br/>share from step 31"| S31
+    S23 -.->|"turns urgent when step 34<br/>goes outside the US"| S34
+    S32 -.->|"waits for step 34 to settle<br/>other countries' statements"| S34
+    LIST -.->|"record it while the<br/>list is being gathered"| ISIN
     START -.->|"pages slow down<br/>as more people use them"| S35
     START -.->|"a page that did not add up<br/>at the time of a publish"| S36
 
-    %% Notes, kept out of the flow
-    P9 ~~~ TRAPS
-    P9 ~~~ PARK
+    %% Invisible links: keep the parts in document order, top to bottom
+    IDEA ~~~ S1
+    IDEA ~~~ S2
+    IDEA ~~~ S3
+    IDEA ~~~ S4
+    S2 ~~~ S5
+    S2 ~~~ S11
+    S10 ~~~ S12
+    S10 ~~~ S13
+    S10 ~~~ S14
+    S15 ~~~ LIST
+    S17 ~~~ S18
+    S25 ~~~ S26
+    S25 ~~~ S27
+    S26 ~~~ OWN
+    S27 ~~~ OWN
+    S30 ~~~ S33
+    S30 ~~~ ISIN
+    S32 ~~~ S33
+    S33 ~~~ S35
+    S34 ~~~ S36
+    S35 ~~~ T1
+    S36 ~~~ T2
+    T1 ~~~ PARK
+    T2 ~~~ PARK
 
     %% Styles
     linkStyle default stroke:#1565c0,stroke-width:2px
     linkStyle 41,42,43,44,45,46,47,48,49,50,51,52,53 stroke:#e65100,stroke-width:2px
+    linkStyle 54,55,56,57,58,59,60,61,62,63,64,65,66,67,68,69,70,71,72,73,74,75,76,77 stroke-width:0px,stroke:none
     classDef main fill:#e3f2fd,stroke:#1565c0,color:#0d47a1
     classDef done fill:#e8f5e9,stroke:#2e7d32,color:#1b5e20
     classDef waiting fill:#fff4e5,stroke:#e65100,color:#bf360c
