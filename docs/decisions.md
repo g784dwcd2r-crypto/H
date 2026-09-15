@@ -1021,3 +1021,26 @@ One thing seen while reading it and deliberately left alone: a per-share line st
 company's own printed label ("in dollars per share") beside a renminbi unit. That is the filer's
 wording, and the rule is that a page shows the company's own words; the unit beside it is ours and is
 correct.
+
+## All four fixes measured: 1.7 % (2026-09-15)
+
+The exchange-rate fix applied and measured, closing the set. `net_change_in_cash` 5,585 to 3,333, a
+fall of 2,252 against an estimate of about 2,200 from the sampled filings; income after tax 4,815 to
+4,404 on the same commit's three tag-candidate gaps. Total 37,991 to 35,328, **1.7 %** of 2,063,641
+checks, and 33.0 % of companies carry any failing check.
+
+The whole arc: **9.2 % to 1.7 %**, and 71.6 % to 33.0 % of companies. Four bugs, each measured
+before and after:
+
+| Bug | Failures cleared | Reached the page? |
+|---|---|---|
+| Cash compared the start-of-year figure to the end-of-year one | 99,102 (to zero) | No |
+| Foreign filers' home currency and dollar translation both kept | ~2 % of filers | **Yes** |
+| EPS used the group's profit instead of the parent's share | 41,549 | No |
+| The exchange-rate effect counted twice | 2,252 | No |
+
+What remains, 35,328: about 24,000 unexplained and ours to investigate, about 7,700 filer tagging
+errors named and deliberately not repaired, and the rest tolerance and period questions. The two
+untouched checks, gross profit (3,900) and operating income (2,854), have not moved through any of
+this because nothing fixed so far touches them; they are next, and may need the filing's own declared
+arithmetic (step 8) rather than another tuning round.
