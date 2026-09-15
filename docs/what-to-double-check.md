@@ -11,8 +11,8 @@ decided wrong".
 
 ## The short version
 
-Checks that fail went from **9.2 % to 1.8 %** (189,322 down to 37,991 of ~2 million). Companies with
-at least one failing check went from **71.6 % to 34.9 %**. Almost none of the original 9 % was real —
+Checks that fail went from **9.2 % to 1.7 %** (189,322 down to 35,328 of 2,063,641). Companies with
+at least one failing check went from **71.6 % to 33.0 %**. Almost none of the original 9 % was real —
 it was our checking code being wrong, not the filings.
 
 Four real bugs, fixed:
@@ -74,10 +74,10 @@ is more completely tagged than its original.
 
 ### e. We do not "fix" the filer's own tagging mistakes
 
-About **7,671** of the remaining failures are the filing being wrong, not us: a share count tagged in
+About **7,643** of the remaining failures are the filing being wrong, not us: a share count tagged in
 thousands while the EPS implies units (6,178 of them — the median tagged share count is 26,218, which
-is 26 million filed in thousands), a figure whose sign is inverted (876), one side tagged as zero
-(617). Our check is right to flag these. We list them; we do not silently correct them.
+is 26 million filed in thousands), a figure whose sign is inverted (871), one side tagged as zero
+(594). Our check is right to flag these. We list them; we do not silently correct them.
 
 **Check:** agree that is the right posture? The alternative is quietly repairing the filing, which
 would mean showing a number the company did not file.
@@ -106,25 +106,29 @@ across 167 filings.
 
 ## 3. The list of what is left
 
-`filings-hub check-report --csv failures.csv` writes every remaining failing check with the company's
-name, which check, and a reason. That file is the honest statement of where we are.
+Every remaining failing check, with the company's name, which check, and a reason, is the honest
+statement of where we are. It is a spreadsheet, and it is already on GitHub:
 
-The reasons, across all 37,991:
+[`reports/failures-2026-09-15.xlsx`](https://github.com/g784dwcd2r-crypto/H/blob/claude/laughing-feynman-7dk0vk/reports/failures-2026-09-15.xlsx)
+— `reports/README.md` next to it explains how to read a row. (`check-report --csv` writes the same
+thing as plain text.)
+
+The reasons, across all 35,328:
 
 | Reason | Count | Whose problem |
 |---|---|---|
-| Unexplained | 24,177 | **Ours to investigate** |
+| Unexplained | 21,965 | **Ours to investigate** |
 | Share count filed in thousands | 6,178 | The filer's |
-| Just over the tolerance | 3,835 | A tolerance question |
-| Out by a factor of 2 to 4 (a period) | 2,308 | Probably ours |
-| Sign inverted | 876 | The filer's |
-| One side tagged zero | 617 | The filer's |
+| Just over the tolerance | 3,515 | A tolerance question |
+| Out by a factor of 2 to 4 (a period) | 2,205 | Probably ours |
+| Sign inverted | 871 | The filer's |
+| One side tagged zero | 594 | The filer's |
 
 ```mermaid
 flowchart TD
-    ALL["37,991 failing checks"] --> OURS["Unexplained: 24,177<br/>still ours to fix"]
-    ALL --> THEIRS["Filer tagging errors: 7,671<br/>named, deliberately not 'fixed'"]
-    ALL --> TOL["Tolerance and period: 6,143<br/>judgement calls"]
+    ALL["35,328 failing checks"] --> OURS["Unexplained: 21,965<br/>still ours to fix"]
+    ALL --> THEIRS["Filer tagging errors: 7,643<br/>named, deliberately not 'fixed'"]
+    ALL --> TOL["Tolerance and period: 5,720<br/>judgement calls"]
     style OURS fill:#fff4e5,stroke:#e65100
     style THEIRS fill:#e8f5e9,stroke:#2e7d32
 ```
