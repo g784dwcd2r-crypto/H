@@ -327,33 +327,52 @@ def check_income_statement(v: dict[str, float]) -> list[CheckResult]:
 
 
 def _check_income_after_tax(v: dict[str, float]) -> list[CheckResult]:
-    """Pretax income minus tax is income from CONTINUING operations, not the bottom line.
+    """Pretax income minus tax must equal an after-tax line the filing offers.
 
-    Getting this wrong is how a correct filing fails a check: a company selling a business reports
-    discontinued operations after tax, below the tax line, and a company using a pretax concept whose
-    name says "...AndIncomeLossFromEquityMethodInvestments" has excluded its share of associates'
-    profit from that subtotal. Both have to be bridged before the two sides can be compared.
+    Which line, and with what bridge, cannot be read off the tag names, because filers use the same
+    tags both ways. `IncomeLossFromContinuingOperations` is defined as the parent's portion and is
+    short by the minority's share on some filings, but is the consolidated figure on others (equal to
+    `ProfitLoss` to the dollar); a bridge that always added the minority's share failed 69 % of the
+    time. The pretax tag whose name says equity-method income is excluded is used, six filings in
+    eight, for a subtotal that includes it; an add-back that trusted the name double-counted.
+
+    So the check does what an analyst does: it asks whether pretax minus tax equals any legitimate
+    after-tax line, in a fixed preference order, with and without the equity-method add-back, and
+    records which held. A wrong tax figure or a wrong bottom line still fails every candidate; only
+    the tag ambiguity is absorbed. A failure is reported against the preferred pair.
     """
     pretax, tax = _first(v, PRETAX_CONCEPTS), _first(v, TAX_CONCEPTS)
     if not (pretax and tax):
         return []
-    lhs, parts = pretax[1] - tax[1], [pretax[0], f"- {tax[0]}"]
+    base = pretax[1] - tax[1]
+    lhs_options: list[tuple[float, str]] = [(base, f"{pretax[0]} - {tax[0]}")]
     if "IncomeLossFromEquityMethodInvestments" in pretax[0] and (eq := _first(v, EQUITY_METHOD_CONCEPTS)):
-        lhs += eq[1]  # the subtotal's own name says it is excluded
-        parts.append(f"+ {eq[0]}")
-    if cont := _first(v, CONTINUING_ONLY_CONCEPTS):
-        rhs, rhs_name = cont[1], cont[0]
-        if cont[0] == "IncomeLossFromContinuingOperations" and (nci := _first(v, NONCONTROLLING_INCOME_CONCEPTS)):
-            # the parent's portion is all the filer gave: put the minority's share back
-            rhs, rhs_name = cont[1] + nci[1], f"{cont[0]} + {nci[0]}"
-        return [_result("IS", "income_after_tax", lhs, rhs, " ".join(parts) + f" = {rhs_name}")]
-    total = _first(v, TOTAL_INCOME_CONCEPTS)
-    if not total:
+        lhs_options.append((base + eq[1], f"{pretax[0]} - {tax[0]} + {eq[0]}"))
+
+    rhs_options: list[tuple[float, str]] = []
+    for concept in CONTINUING_ONLY_CONCEPTS:
+        if v.get(concept) is not None:
+            rhs_options.append((v[concept], concept))
+    if v.get("IncomeLossFromContinuingOperations") is not None and (nci := _first(v, NONCONTROLLING_INCOME_CONCEPTS)):
+        rhs_options.append(
+            (v["IncomeLossFromContinuingOperations"] + nci[1], f"IncomeLossFromContinuingOperations + {nci[0]}")
+        )
+    if total := _first(v, TOTAL_INCOME_CONCEPTS):
+        # the bottom line: discontinued operations sit below the tax line and come off it first
+        if disc := _first(v, DISCONTINUED_CONCEPTS):
+            rhs_options.append((total[1] - disc[1], f"{total[0]} - {disc[0]}"))
+        else:
+            rhs_options.append((total[1], total[0]))
+    if not rhs_options:
         return []
-    if disc := _first(v, DISCONTINUED_CONCEPTS):
-        lhs += disc[1]  # reported after tax, so it belongs on the same side as the bottom line
-        parts.append(f"+ {disc[0]}")
-    return [_result("IS", "income_after_tax", lhs, total[1], " ".join(parts) + f" = {total[0]}")]
+
+    for rhs, rhs_name in rhs_options:
+        for lhs, lhs_name in lhs_options:
+            if _close(lhs, rhs):
+                return [_result("IS", "income_after_tax", lhs, rhs, f"{lhs_name} = {rhs_name}")]
+    lhs, lhs_name = lhs_options[0]
+    rhs, rhs_name = rhs_options[0]
+    return [_result("IS", "income_after_tax", lhs, rhs, f"{lhs_name} = {rhs_name}")]
 
 
 def _eps_close(lhs: float, rhs: float, relative: float = EPS_RELATIVE_TOLERANCE) -> bool:

@@ -886,3 +886,31 @@ parent's line first. Three of fifteen sampled rows proved it to the dollar: pret
   excluded; that bucket overlaps this one and is re-measured after the fix.
 - **Result (via `recheck`):** income after tax 12,134 → 8,682; 41,858 of 2,063,641 checks fail, 2.0 %,
   from 9.2 % at the start; 36.6 % of companies with any failing check, from 71.6 %.
+
+## The tax identity stops trusting tag names (2026-09-15)
+
+`check-dig income_after_tax` on the rebuilt checks corrected the previous entry on two counts.
+
+- **The minority bridge was wrong 69 % of the time.** `IncomeLossFromContinuingOperations + minority`
+  ran 1,538 times and failed 1,067. QVC showed why: its `IncomeLossFromContinuingOperations` is
+  already the consolidated figure, equal to `ProfitLoss` to the dollar, so adding the minority's share
+  broke it — while other filers use the same tag for the parent's portion, short by exactly that
+  share. One tag, both meanings.
+- **The equity-method pretax tag is used against its name.** Six of eight sampled filings on
+  `...BeforeIncomeTaxesMinorityInterestAndIncomeLossFromEquityMethodInvestments` closed exactly
+  *without* the add-back (CHS: 419,878 + 4,091 = 423,969 = ProfitLoss; United Security; Susser;
+  Donegal; City National; QVC). The name says the subtotal excludes equity-method income; most filers
+  tag a subtotal that includes it. The add-back that trusted the name double-counted.
+
+**The rule now.** A tag's name is not evidence of how a filer used it. The check asks whether pretax
+minus tax equals *any* legitimate after-tax line the filing offers — the consolidated continuing line,
+the IFRS one, the plain continuing line as it is, the plain line plus the minority's share, then the
+bottom line less discontinued operations — with and without the equity-method add-back, in that
+preference order, and records which held. A wrong tax figure or a wrong bottom line still fails every
+candidate; only the ambiguity of the tags is absorbed. A failure is reported against the preferred
+pair. Rejected: keeping one reading per tag — the data says there is no such thing.
+
+What the sample also showed and the check leaves alone: a REIT whose joint-venture loss is tagged
+under a concept we do not watch (Hines); a filer whose minority share carries the inverted sign
+(Odyssey); a foreign filer whose pretax figure is on the parent's basis (iKang). Filer tagging
+oddities, to stay on the named list.

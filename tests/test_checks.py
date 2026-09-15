@@ -150,7 +150,9 @@ def test_income_after_tax_bridges_discontinued_operations():
 
 
 def test_income_after_tax_bridges_equity_method_when_the_subtotal_excludes_it():
-    """The concept's own name says whether the share of associates' profit is inside the subtotal."""
+    """When the pretax tag's name says the share of associates' profit is outside the subtotal, the
+    add-back is tried; it is taken only when it is what closes the identity (see the next test for
+    the filers who use the same tag for a subtotal that already includes it)."""
     v = {
         "IncomeLossFromContinuingOperationsBeforeIncomeTaxesMinorityInterestAndIncomeLossFromEquityMethodInvestments": 4789,
         "IncomeTaxExpenseBenefit": 1000,
@@ -365,3 +367,38 @@ def test_the_tax_identity_compares_to_consolidated_continuing_income_not_the_par
     del v["NetIncomeLossAttributableToNoncontrollingInterest"]
     r = one(C.check_income_statement(v), "income_after_tax")
     assert not r.passed and r.rhs == 70.0
+
+
+def test_the_tax_identity_does_not_trust_tag_names_and_records_which_reading_held():
+    """Filers use the same tags both ways, so the check tries every legitimate after-tax line, with
+    and without the equity-method add-back, and records which held. Numbers from the real filings
+    that showed it."""
+    # CHS: the pretax tag whose name says equity-method income is excluded, used for a subtotal that
+    # includes it; adding the 175.8m back double-counted. Closes without the add-back.
+    chs = {
+        "IncomeLossFromContinuingOperationsBeforeIncomeTaxesMinorityInterestAndIncomeLossFromEquityMethodInvestments": 419_878_000,
+        "IncomeTaxExpenseBenefit": -4_091_000,
+        "IncomeLossFromEquityMethodInvestments": 175_777_000,
+        "ProfitLoss": 423_969_000,
+        "NetIncomeLoss": 424_192_000,
+    }
+    r = one(C.check_income_statement(chs), "income_after_tax")
+    assert r.passed and "+ IncomeLossFromEquityMethodInvestments" not in r.detail
+    assert r.detail.endswith("= ProfitLoss")
+    # QVC: IncomeLossFromContinuingOperations already consolidated (equal to ProfitLoss); the minority
+    # bridge broke it. Closes on the line as it is.
+    qvc = {
+        "IncomeLossFromContinuingOperationsBeforeIncomeTaxesMinorityInterestAndIncomeLossFromEquityMethodInvestments": 98_000_000,
+        "IncomeTaxExpenseBenefit": 57_000_000,
+        "IncomeLossFromEquityMethodInvestments": 39_000_000,
+        "IncomeLossFromContinuingOperations": 41_000_000,
+        "NetIncomeLossAttributableToNoncontrollingInterest": 4_000_000,
+        "ProfitLoss": 41_000_000,
+    }
+    r = one(C.check_income_statement(qvc), "income_after_tax")
+    assert r.passed and r.detail.endswith("= IncomeLossFromContinuingOperations")
+    # nothing closes: reported against the preferred pair, the plain reading and the first line
+    broken = {**qvc, "IncomeTaxExpenseBenefit": 50_000_000}
+    r = one(C.check_income_statement(broken), "income_after_tax")
+    assert not r.passed and r.lhs == 48_000_000 and r.rhs == 41_000_000
+    assert r.detail.endswith("= IncomeLossFromContinuingOperations") and "+ IncomeLossFromEquityMethod" not in r.detail
