@@ -568,6 +568,7 @@ def check_report_cmd(
     examples: int = typer.Option(20, help="how many worst-offender rows to list"),
     as_json: bool = typer.Option(False, "--json", help="print the raw report as JSON"),
     csv: str = typer.Option("", help="also write every failing check, with company and reason, to this CSV"),
+    xlsx: str = typer.Option("", help="also write the same as a spreadsheet, summary sheet and all"),
     verbose: bool = False,
 ) -> None:
     """Error report over the arithmetic checks: which rule fails, how badly, why, and for whom.
@@ -588,6 +589,9 @@ def check_report_cmd(
     if csv:
         n = cr.export_failures(_storage(), csv)
         typer.echo(f"wrote {n:,} failing checks with reasons to {csv}")
+    if xlsx:
+        n = cr.export_failures_xlsx(_storage(), xlsx)
+        typer.echo(f"wrote {n:,} failing checks to {xlsx} (Summary and Failures sheets)")
 
 
 @app.command(name="check-dig")

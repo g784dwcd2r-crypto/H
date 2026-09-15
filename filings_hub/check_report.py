@@ -397,3 +397,121 @@ def format_dig(report: dict[str, Any]) -> str:
             if s["values"]:
                 out.append("      " + "  ".join(s["values"]))
     return "\n".join(out)
+
+
+def export_failures_xlsx(storage: Storage, path: str) -> int:
+    """Every failing check as a workbook, for a reviewer rather than a machine.
+
+    One sheet summarising by check and by reason, one sheet of every failure with the company named,
+    frozen headers and a filter over every column. CIK and accession are written as text so a
+    spreadsheet does not turn them into scientific notation, which is what makes a CSV of this
+    painful to read. Returns the number of failing checks written.
+    """
+    from openpyxl import Workbook
+    from openpyxl.styles import Alignment, Font, PatternFill
+    from openpyxl.utils import get_column_letter
+
+    report = failure_report(storage, examples=0)
+    if not report.get("total"):
+        return 0
+    duck = Duck(storage)
+    try:
+        duck.view("sc", f"{layout.STATEMENT_CHECKS}/*/*.parquet")
+        have_companies = duck.view("companies", layout.COMPANIES, hive=False)
+        name_col = "c.name" if have_companies else "NULL"
+        name_join = "LEFT JOIN companies c ON c.cik = q.cik" if have_companies else ""
+        rows = duck.fetch_dicts(
+            _base_sql()
+            + f"""
+            SELECT q.cik, {name_col} AS name, q.accession, q.statement, q.check_name, q.reason,
+                   q.lhs, q.rhs, q.lhs - q.rhs AS difference, round(q.q, 2) AS tolerance_multiple, q.detail
+            FROM r q {name_join}
+            WHERE NOT q.passed
+            ORDER BY q.reason, q.check_name, q.cik, q.accession
+            """
+        )
+    finally:
+        duck.close()
+
+    head = Font(bold=True, color="FFFFFF")
+    fill = PatternFill("solid", fgColor="44546A")
+    wb = Workbook()
+
+    summary = wb.active
+    summary.title = "Summary"
+    summary["A1"] = "Failing arithmetic checks"
+    summary["A1"].font = Font(bold=True, size=14)
+    summary["A2"] = (
+        f"{report['failed']:,} of {report['total']:,} checks fail "
+        f"({report['failed'] / report['total'] * 100:.1f} %). "
+        f"{report['companies_with_failure']:,} of {report['companies_checked']:,} companies have at least one."
+    )
+    summary["A3"] = "Not every failure is ours: a filer's own tagging error is listed, never silently corrected."
+
+    at = 5
+    for title, data in (
+        (
+            "By check",
+            [
+                (CHECK_LABELS.get(r["check_name"], r["check_name"]), r["failed"], r["total"])
+                for r in report["per_check"]
+            ],
+        ),
+        ("By reason", None),
+    ):
+        summary.cell(at, 1, title).font = Font(bold=True)
+        at += 1
+        if data is None:
+            counts: dict[str, int] = {}
+            for row in rows:
+                counts[row["reason"]] = counts.get(row["reason"], 0) + 1
+            data = [(k, v, report["failed"]) for k, v in sorted(counts.items(), key=lambda kv: -kv[1])]
+        for cell, value in zip("ABC", ("", "failed", "of which ran"), strict=True):
+            summary[f"{cell}{at}"] = value
+            summary[f"{cell}{at}"].font = head
+            summary[f"{cell}{at}"].fill = fill
+        at += 1
+        for label, failed, ran in data:
+            summary.cell(at, 1, label)
+            summary.cell(at, 2, failed).number_format = "#,##0"
+            summary.cell(at, 3, ran).number_format = "#,##0"
+            at += 1
+        at += 1
+    summary.column_dimensions["A"].width = 54
+    summary.column_dimensions["B"].width = 12
+    summary.column_dimensions["C"].width = 14
+
+    ws = wb.create_sheet("Failures")
+    headers = [
+        ("Company", 34),
+        ("CIK", 10),
+        ("Filing", 22),
+        ("Statement", 10),
+        ("Check", 46),
+        ("Why", 42),
+        ("Computed", 20),
+        ("Reported", 20),
+        ("Difference", 20),
+        ("Times over tolerance", 20),
+        ("What was compared", 80),
+    ]
+    for i, (title, width) in enumerate(headers, start=1):
+        cell = ws.cell(1, i, title)
+        cell.font, cell.fill, cell.alignment = head, fill, Alignment(horizontal="center")
+        ws.column_dimensions[get_column_letter(i)].width = width
+    for n, row in enumerate(rows, start=2):
+        ws.cell(n, 1, row["name"] or "")
+        ws.cell(n, 2, str(row["cik"]))  # text, so it is not reformatted as a number
+        ws.cell(n, 3, row["accession"] or "")
+        ws.cell(n, 4, row["statement"] or "")
+        ws.cell(n, 5, CHECK_LABELS.get(row["check_name"], row["check_name"]))
+        ws.cell(n, 6, row["reason"])
+        for col, key in ((7, "lhs"), (8, "rhs"), (9, "difference")):
+            ws.cell(n, col, row[key]).number_format = "#,##0.00"
+        ws.cell(n, 10, row["tolerance_multiple"]).number_format = "#,##0.00"
+        ws.cell(n, 11, row["detail"] or "")
+    ws.freeze_panes = "A2"
+    ws.auto_filter.ref = f"A1:{get_column_letter(len(headers))}{len(rows) + 1}"
+
+    wb.save(path)
+    return len(rows)

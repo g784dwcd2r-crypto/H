@@ -279,3 +279,32 @@ def test_dig_shows_the_lines_used_the_reasons_and_a_sample_with_the_numbers(tmp_
     text = cr.format_dig(rep)
     assert "IncomeLossFromContinuingOperations" in text and "Dig Co" in text and "ProfitLoss=80" in text
     assert cr.format_dig(cr.dig(Storage(str(tmp_path / "empty")), "x")) == "no statement_checks in the lake"
+
+
+def test_export_xlsx_is_readable_by_a_reviewer(tmp_path):
+    """The spreadsheet a reviewer opens: a summary, every failure with the company named, and ids
+    written as text so a spreadsheet does not turn a CIK into scientific notation."""
+    from openpyxl import load_workbook
+
+    st = Storage(str(tmp_path))
+    _seed_reasons(st)
+    out = tmp_path / "failures.xlsx"
+    assert cr.export_failures_xlsx(st, str(out)) == len(REASON_ROWS)
+
+    wb = load_workbook(out)
+    assert wb.sheetnames == ["Summary", "Failures"]
+    summary = "\n".join(str(c.value) for row in wb["Summary"].iter_rows() for c in row if c.value)
+    n = len(REASON_ROWS)
+    assert f"{n} of {n} checks fail" in summary and "By check" in summary and "By reason" in summary
+    assert "never silently corrected" in summary  # the posture is stated where a reviewer reads it
+
+    ws = wb["Failures"]
+    assert [c.value for c in ws[1]][:6] == ["Company", "CIK", "Filing", "Statement", "Check", "Why"]
+    assert ws.freeze_panes == "A2" and ws.auto_filter.ref
+    body = list(ws.iter_rows(min_row=2, values_only=True))
+    assert len(body) == len(REASON_ROWS)
+    assert {r[0] for r in body} == {"Reason Co"}
+    assert {r[1] for r in body} == {"9"} and all(isinstance(r[1], str) for r in body)  # CIK as text
+    assert {r[5] for r in body} == {reason for _, _, _, reason in REASON_ROWS}
+    assert any("Gross profit" in str(r[4]) for r in body)  # the plain-language name, not gross_profit
+    assert cr.export_failures_xlsx(Storage(str(tmp_path / "empty")), str(tmp_path / "e.xlsx")) == 0
