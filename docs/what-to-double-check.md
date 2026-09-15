@@ -2,14 +2,8 @@
 
 **For Hicham.**
 
-We re-did the arithmetic inside every filing, using only the company's own numbers. Where it did not
-add up, we went looking for why. Most of the time the fault was ours and we fixed it.
-
-But some of the fixes needed an *accounting* decision, and we made those decisions ourselves. A test
-can tell us the code does what we told it to do. No test can tell us we told it the right thing.
-That is what this asks you for.
-
-Nothing here is on fire. It is: **we decided something on your behalf — tell us if we decided wrong.**
+We re-did the arithmetic inside every filing, using only the company's own numbers.
+Where it did not add up, we went looking for why. Most of the time the fault was ours and we fixed it.
 
 ---
 
@@ -21,19 +15,17 @@ Almost none of that 9.2% was real. It was our checking code being wrong, not the
 
 Four real bugs, now fixed:
 
-| | What was wrong | Did anyone reading the site see it? |
-|---|---|---|
-| 1 | The cash check compared cash at the *start* of the year against cash at the *end* | No — checking only |
-| 2 | For foreign companies we kept both currencies, so one statement could mix them | **Yes** |
-| 3 | Earnings per share used the whole group's profit instead of the parent's share | No — checking only |
-| 4 | Where a company lists the currency effect on cash separately, we counted it twice | No — checking only |
+| | What was wrong |
+|---|---|
+| 1 | The cash check compared cash at the *start* of the year against cash at the *end* |
+| 2 | For foreign companies we kept both currencies, so one statement could mix them |
+| 3 | Earnings per share used the whole group's profit instead of the parent's share |
+| 4 | Where a company lists the currency effect on cash separately, we counted it twice |
 
-Only **number 2** ever changed a number a reader could see. That is why it is the one thing below
-that needs a real person to go and look.
 
 ---
 
-# Part 1 — The five decisions
+# Part 1: the five decisions
 
 **(a) and (b) are answered.** They are kept here with the answers, because the reasoning is the
 part worth keeping. Three are still open.
@@ -58,13 +50,13 @@ Now the company has 40 million shares. What is earnings per share?
 * Using the parent's $80m → **$2.00**
 
 We used to use the first. **We now use the second**, because earnings per share means earnings per
-share *for the people holding this company's shares* — and the minority's $20m is not theirs.
+share *for the people holding this company's shares*, and the minority's $20m is not theirs.
 
-> **Answered — yes.** *"When I buy a stock, I am buying an interest in the parent's share. And
-> therefore I have a right to the parent's share, not to the group's profit."* — Hicham, 15 Sep.
+> **Answered: yes.** *"When I buy a stock, I am buying an interest in the parent's share. And
+> therefore I have a right to the parent's share, not to the group's profit."* (Hicham, 15 Sep)
 > The change cleared 41,549 failing checks.
 
-## b. The tax check uses the group's figure — because it faces someone else
+## b. The tax check uses the group's figure, because it faces someone else
 
 Same two numbers. Different answer. Not because the checks disagree, but because they answer to
 different people.
@@ -73,14 +65,14 @@ different people.
 slice of which subsidiary. So every number in "profit before tax, minus tax, equals profit after
 tax" is the group's:
 
-> $130m before tax − $30m tax = **$100m** — the group's figure, not the parent's $80m
+> $130m before tax − $30m tax = **$100m**, the group's figure, *not* the parent's $80m.
 
 **A share faces its holder.** Profit gets divided by who owns what, and the minority's $20m belongs
 to someone else.
 
 > **Answered.** *"These are not opposite figures. They are two concepts. A company's tax liability
-> is to the state — it doesn't care who owns what portion. Profits are for the shareholders, so they
-> are split according to ownership. It's about who you are facing."* — Hicham, 15 Sep.
+> is to the state; it doesn't care who owns what portion. Profits are for the shareholders, so they
+> are split according to ownership. It's about who you are facing."* (Hicham, 15 Sep)
 >
 > The code was already doing this correctly. The description above it was wrong: we had called them
 > opposite preferences, as if one were an exception to the other. They are two different questions
@@ -89,9 +81,9 @@ to someone else.
 ## c. Four companies in five do not tell us what they divided by
 
 **The situation.** A company prints "earnings per share: $2.42". To check it, we need the two numbers
-they used — the profit on top, and the share count underneath.
+they used: the profit on top, and the share count underneath.
 
-Most companies tag the share count. **Only about one in five tag the profit figure** — 40,225
+Most companies tag the share count. **Only about one in five tag the profit figure**: 40,225
 filings out of 210,698. For the other four-fifths we have to guess, and we use net income.
 
 **Why the guess is usually a little bit off.** Take a company with $100m profit and 40m shares. You
@@ -102,7 +94,7 @@ first:
 > ($100m − $3m) ÷ 40m shares = **$2.42**, not $2.50
 
 That is a 3% difference and the company is completely right. The catch: the $3m is disclosed in the
-*notes* at the back, not on the face of the income statement — and our check only reads the
+*notes* at the back, not on the face of the income statement, and our check only reads the
 statement. **We cannot see it.**
 
 **What we did.** We split the check in two:
@@ -113,13 +105,13 @@ statement. **We cannot see it.**
 | **Approximate** | We had to guess | within **5%** |
 
 A real one that still fails: American Express, 2020. We compute **$0.455**, they report **$0.41**.
-That is 10% apart — beyond our 5%, so it is listed.
+That is 10% apart, beyond our 5%, so it is listed.
 
 > **Please confirm: is 5% the right allowance?** It has to be wide enough to cover a normal
 > restricted-share adjustment, but narrow enough that a genuine error still gets caught. This is the
 > single most valuable answer you can give us. It is one line to change.
 
-## d. We keep each statement in one currency — whichever most of its lines use
+## d. We keep each statement in one currency: whichever most of its lines use
 
 **The situation.** A Chinese company files in renminbi and also provides a US dollar translation of
 the same statement. Both sets of numbers are in the same filing.
@@ -140,10 +132,10 @@ dollars. If it is a dead tie, the dollar wins.
 
 > **Please confirm: is "whichever most lines use" the rule you want?** The alternative is to always
 > prefer the company's home currency. They give the same answer nearly every time. They disagree only
-> when a company tagged its translation more thoroughly than its original — and then our rule picks
+> when a company tagged its translation more thoroughly than its original, and then our rule picks
 > the translation.
 
-## e. When the filing itself is wrong, we say so — we do not fix it
+## e. When the filing itself is wrong, we say so, we do not fix it
 
 **The situation.** Some of these failures are not our mistake. The filing genuinely contradicts
 itself. About **7,643** of the 35,328 are this.
@@ -153,11 +145,11 @@ Three examples, all real:
 | Company | What we compute | What they report | What happened |
 |---|---|---|---|
 | AAR Corp | −251,412 | −$0.25 | Share count tagged a million times too small |
-| Tenax Therapeutics | +$0.61 | −$0.61 | The sign is flipped — a profit tagged where there is a loss |
+| Tenax Therapeutics | +$0.61 | −$0.61 | The sign is flipped: a profit tagged where there is a loss |
 | Avon Products | $0.05 | $0.00 | A line tagged as zero when it is not zero |
 
 The most common by far is the share count. The typical one of these reads **26,218** when the company
-means **26,218,000** — they filed it in thousands and forgot to say so.
+means **26,218,000**. They filed it in thousands and forgot to say so.
 
 **We could quietly correct these.** We decided not to. If we "fix" it, we are showing a number the
 company never filed, and nobody downstream can tell. So we list it and leave it alone.
@@ -166,16 +158,16 @@ company never filed, and nobody downstream can tell. So we list it and leave it 
 
 ---
 
-# Part 2 — The one thing that needs a person
+# Part 2: the one thing that needs a person
 
 **Open one real company's page on the site and read it.**
 
 Of the four bugs, the currency one (number 2) is the only one that ever changed what a reader sees.
 And everything that has verified it so far has been numbers checking numbers. We pushed a filing
-through the page-building code and read what came out — but it was a *made-up* filing. **Nobody has
+through the page-building code and read what came out, but it was a *made-up* filing. **Nobody has
 opened a real company page and looked at it.**
 
-**Who to pick:** a Chinese, Hong Kong or Singapore company. That is where this actually happens —
+**Who to pick:** a Chinese, Hong Kong or Singapore company. That is where this happens:
 renminbi and dollars together account for 2,222 of the 3,502 affected lines in a single quarter,
 across 167 filings. They are mostly 20-F and 6-K filers.
 
@@ -186,18 +178,18 @@ example on our side.
 
 * one currency from the top of the statement to the bottom
 * no blank space where a number should be
-* nothing about 7× or 150× out of line with the numbers around it — those are the renminbi and yen
+* nothing about 7× or 150× out of line with the numbers around it. Those are the renminbi and yen
   exchange rates, and seeing one is exactly what the mixing bug looked like
 
 ---
 
-# Part 3 — What is still failing
+# Part 3: what is still failing
 
 The full list is a spreadsheet, already on GitHub:
 
 **[reports/failures-2026-09-15.xlsx](https://github.com/g784dwcd2r-crypto/H/blob/claude/laughing-feynman-7dk0vk/reports/failures-2026-09-15.xlsx)**
 
-GitHub will not preview it — click **View raw** and it downloads. The `reports/README.md` file next
+GitHub will not preview it: click **View raw** and it downloads. The `reports/README.md` file next
 to it explains how to read a row.
 
 Every row says the same thing: *we added up the company's own lines and got this; the company says
@@ -207,9 +199,9 @@ that; here is the gap.*
 
 ```mermaid
 flowchart TD
-    ALL["35,328 failing checks"] --> OURS["21,965 — no pattern yet<br/>ours to investigate"]
-    ALL --> THEIRS["7,643 — the filing is wrong<br/>named, deliberately not corrected"]
-    ALL --> TOL["5,720 — rounding and period<br/>judgement calls"]
+    ALL["35,328 failing checks"] --> OURS["21,965: no pattern yet<br/>ours to investigate"]
+    ALL --> THEIRS["7,643: the filing is wrong<br/>named, deliberately not corrected"]
+    ALL --> TOL["5,720: rounding and period<br/>judgement calls"]
     style OURS fill:#fff4e5,stroke:#e65100
     style THEIRS fill:#e8f5e9,stroke:#2e7d32
     style TOL fill:#e3f2fd,stroke:#1565c0
@@ -217,25 +209,25 @@ flowchart TD
 
 | Reason | Count | Whose problem |
 |---|---|---|
-| No pattern — needs someone to read the filing | 21,965 | **Ours to investigate** |
+| No pattern; needs someone to read the filing | 21,965 | **Ours to investigate** |
 | Share count filed in thousands | 6,178 | The filer's |
 | Just over the rounding limit | 3,515 | A tolerance question |
 | Out by a factor of 2 to 4 | 2,205 | **Probably ours** |
 | Sign flipped | 871 | The filer's |
 | One side tagged as zero | 594 | The filer's |
 
-**"Just over the rounding limit" looks like this** — Art's Way Manufacturing: revenue minus cost of
+**"Just over the rounding limit" looks like this.** Art's Way Manufacturing: revenue minus cost of
 goods comes to 2,345,561; they print 2,330,654. Fifteen thousand dollars apart on a two-million-dollar
 number. That is rounding, and it is noise.
 
-**"Out by a factor of 2 to 4" looks like this** — AAR Corp: we compute gross profit of 225,300,000
+**"Out by a factor of 2 to 4" looks like this.** AAR Corp: we compute gross profit of 225,300,000
 and they report 61,500,000. That is not rounding. It is 3.7 times out, which is what a *nine-month*
 revenue paired against a *three-month* gross profit looks like. **That one is ours**, and it is the
 whole group of 2,205. We have not fixed it yet.
 
 > **If you want to help with the big pile:** take ten rows marked "no pattern" from a check you know
 > well, and tell us whether the filing is wrong or our arithmetic is. Every fix so far came from
-> reading real filings — never from theorising.
+> reading real filings, never from theorising.
 
 ---
 
@@ -244,7 +236,7 @@ whole group of 2,205. We have not fixed it yet.
 * **The code.** It is tested. A mistake there shows up as a failing test.
 * **Whether the goal is zero failures.** It is not. Some failures are the filing being wrong, and the
   check is right to point at them. The goal is *no failure caused by us*, and every other one named.
-* **Gross profit and operating income** (6,754 failures). We have not diagnosed these yet — they are
+* **Gross profit and operating income** (6,754 failures). We have not diagnosed these yet; they are
   next. They may need a structural fix rather than a tweak: filings state their own arithmetic in a
   part of the file we do not read yet. That is real work, not a small change.
 
@@ -254,6 +246,6 @@ whole group of 2,205. We have not fixed it yet.
 
 **Answer (c): is 5% the right allowance on an approximate EPS check?**
 
-That number decides pass or fail on **331,012** checks — every filing where we had to guess. 15,026
-of them fail today. It is one line to change. And it is pure accounting judgement — exactly the call
+That number decides pass or fail on **331,012** checks, every filing where we had to guess. 15,026
+of them fail today. It is one line to change. And it is pure accounting judgement, exactly the call
 we cannot make for you.
