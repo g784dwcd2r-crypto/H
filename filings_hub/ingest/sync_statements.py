@@ -327,11 +327,13 @@ def _checks_from_staged(duck: Duck, source: str) -> pa.Table:
     """Run Python arithmetic checks on the primary-period values in `stg`."""
     pivot = duck.fetch_arrow(
         f"""
-        -- value_presented carries the sign the filer shows (a line stored negated comes back
-        -- positive); arg_max picks the latest-dated value, so an instant reported at both the
-        -- start and end of a period (e.g. cash on the cash-flow statement) uses the END figure.
+        -- the value as filed: the checks are written for it (costs positive, cash-flow activities
+        -- signed; see checks.py). The presented sign was tried and broke ~60k checks: a cost shown
+        -- as (cost) is still a positive cost to subtract, and one fact shown negated on one statement
+        -- and plain on another is still one number. arg_max picks the latest-dated value, so an
+        -- instant reported at both ends of a period (cash on the cash-flow statement) is the END one.
         SELECT accession, cik, statement, concept,
-               arg_max(value_presented, period_end_rounded) AS value
+               arg_max(value, period_end_rounded) AS value
         FROM stg
         WHERE is_primary_period AND NOT is_parenthetical AND value IS NOT NULL
           AND coalesce(segments, '') = ''
@@ -715,9 +717,9 @@ def build_fallback_rows(
                     primary = v["period_end_rounded"] == filing_period and v["qtrs"] == primary_qtrs
                 if primary and not parenthetical and it["concept"] in chk.CHECK_CONCEPTS:
                     # values are sorted ascending by period end, so the last primary one wins: the
-                    # period-END figure for an instant reported at both ends (e.g. cash). Use the
-                    # presented sign so a line the filer stores negated is compared the right way up.
-                    primary_values[it["concept"]] = -v["value"] if base["negating"] else v["value"]
+                    # period-END figure for an instant reported at both ends (e.g. cash). The value
+                    # as filed, which is what the checks are written for (see _checks_from_staged).
+                    primary_values[it["concept"]] = v["value"]
                 stmt_rows.append(
                     {
                         **base,

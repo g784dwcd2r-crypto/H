@@ -647,6 +647,8 @@ For a normal filing nothing changes (`value_presented == value`, one value per p
 checks stay passing; only the negated lines and the double-reported instants are corrected. Locked in
 by tests: a negated-but-balanced sheet now passes, cash uses the ending figure, and a real imbalance
 still fails. The true failure rate will be visible after a statements rebuild re-runs the checks.
+**Corrected 2026-09-15: the sign half of this fix was wrong and is reverted; the period half
+stands. See the entry of that date.**
 
 ## Step 5 built: the reader gets its twenty real filings (2026-09-15)
 
@@ -699,3 +701,33 @@ presentation arcs). There is no `_lab.xml` to fetch; the fetch was right and the
 - The two skipped rows were list mistakes, not reader ones: `BRK.B` is stored under another spelling
   and ExxonMobil changed CIK on re-incorporation, so the ticker resolved to the old company with no
   recent 10-K. Both are now given by CIK, as the micro-caps already were.
+
+## The sign half of the check fix was wrong; the period half was right (2026-09-15)
+
+The rebuild re-ran the checks with both halves of the 2026-09-14 fix, and the report split them:
+
+| Check | Before | After |
+|---|---|---|
+| Ending cash agrees, cash flow = balance sheet | 99,102 | 455 |
+| Income after tax | 13,480 | 72,443 |
+| Gross profit | 4,802 | 17,058 |
+| Operating income | 3,451 | 6,646 |
+| Net income agrees, income statement = cash flow | 806 | 2,585 |
+
+- **Period-end: right.** Picking the latest-dated value (`arg_max` on `period_end_rounded`) removed
+  the beginning-versus-ending cash mix-up almost entirely, as the pre-rebuild simulation predicted
+  (98.3 % of a 3,000 sample). It stays.
+- **Presented sign: wrong, reverted.** `checks.py` is written for the value as filed — costs
+  positive, cash-flow activities signed — and says so. Feeding it the page sign inverted every line a
+  filer shows negated: a cost shown as (cost) became a negative cost, so `revenue - cost` added
+  instead of subtracting; a tax shown as (tax) likewise; and net income, *one fact* shown plain on
+  the income statement and negated on the cash-flow statement, compared unequal to itself
+  (`364,000,000 vs -364,000,000`). About 60,000 new failures to cure ~800 real sign oddities.
+- **What the ~800 are.** Filers who tagged a line with the wrong sign (Texas Pacific's negative
+  Assets). They are anomalies in the filings and the checks are right to flag them; a global rule to
+  hide them is exactly what just misfired. They stay flagged, and they are 0.04 % of checks.
+- **The honest number, expected after the revert:** about 90,000 failures, ~4.4 %, dominated by EPS
+  (~58,000) and income after tax (~13,000), which are the next two to diagnose from real rows.
+- **Lesson kept.** The diagnosis came from the worst-offender list, where sign flips dominate
+  because a flip is the largest *possible* error, not the most *common* one. The query that measured
+  the pattern across all failures came second and contradicted it; it should have come first.

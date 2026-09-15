@@ -719,55 +719,98 @@ def test_a_tag_reported_with_a_total_keeps_only_the_total(lake_copy: Storage):
 
 
 def _stg(rows: list[dict]) -> pa.Table:
-    cols = ["accession", "cik", "statement", "concept", "value", "value_presented",
-            "period_end_rounded", "is_primary_period", "is_parenthetical", "segments"]
+    cols = [
+        "accession",
+        "cik",
+        "statement",
+        "concept",
+        "value",
+        "value_presented",
+        "period_end_rounded",
+        "is_primary_period",
+        "is_parenthetical",
+        "segments",
+    ]
     return pa.Table.from_pylist([{c: r.get(c) for c in cols} for r in rows])
 
 
-def test_checks_use_presented_sign_and_period_end_value(tmp_path):
-    """A balance sheet whose Assets line is stored negated still balances, and the cash check uses
-    the period-END cash, not the beginning. Both were false failures before the sign/period fix."""
+def test_checks_use_the_raw_value_and_the_period_end_figure(tmp_path):
+    """The checks read the value as filed, not the sign shown on the page, and for an instant reported
+    at both ends of a period (cash on the cash-flow statement) they use the period-END figure.
+
+    The presented sign was tried (2026-09-14) and reverted (2026-09-15): a cost shown as (cost) is
+    still a positive cost to subtract, and one fact shown negated on one statement and plain on
+    another is still one number. Every case below fails on the presented sign and passes on the raw."""
     duck = Duck(Storage(str(tmp_path)))
     try:
+
+        def row(stmt, concept, value, presented, end):
+            return {
+                "accession": "a1",
+                "cik": 1,
+                "statement": stmt,
+                "concept": concept,
+                "value": value,
+                "value_presented": presented,
+                "period_end_rounded": end,
+                "is_primary_period": True,
+                "is_parenthetical": False,
+                "segments": "",
+            }
+
+        y, prior = date(2025, 12, 31), date(2024, 12, 31)
         rows = [
-            # Assets filed negated: raw value -100, but the presented (page) value is +100
-            {"accession": "a1", "cik": 1, "statement": "BS", "concept": "Assets",
-             "value": -100.0, "value_presented": 100.0, "period_end_rounded": date(2025, 12, 31),
-             "is_primary_period": True, "is_parenthetical": False, "segments": ""},
-            {"accession": "a1", "cik": 1, "statement": "BS", "concept": "LiabilitiesAndStockholdersEquity",
-             "value": 100.0, "value_presented": 100.0, "period_end_rounded": date(2025, 12, 31),
-             "is_primary_period": True, "is_parenthetical": False, "segments": ""},
-            # cash: balance sheet shows the ending figure (79); the cash-flow statement shows both the
+            # gross profit: the cost is shown as (200) on the page, negated; as filed it is +200
+            row("IS", "Revenues", 300.0, 300.0, y),
+            row("IS", "CostOfRevenue", 200.0, -200.0, y),
+            row("IS", "GrossProfit", 100.0, 100.0, y),
+            # net income: one fact, shown plain on the income statement and negated on the cash flow
+            row("IS", "NetIncomeLoss", 50.0, 50.0, y),
+            row("CF", "NetIncomeLoss", 50.0, -50.0, y),
+            # cash: the balance sheet shows the ending figure (79); the cash-flow statement shows the
             # beginning (71, prior year) and the ending (79). The check must use the ending.
-            {"accession": "a1", "cik": 1, "statement": "BS", "concept": "CashAndCashEquivalentsAtCarryingValue",
-             "value": 79.0, "value_presented": 79.0, "period_end_rounded": date(2025, 12, 31),
-             "is_primary_period": True, "is_parenthetical": False, "segments": ""},
-            {"accession": "a1", "cik": 1, "statement": "CF", "concept": "CashAndCashEquivalentsAtCarryingValue",
-             "value": 71.0, "value_presented": 71.0, "period_end_rounded": date(2024, 12, 31),
-             "is_primary_period": True, "is_parenthetical": False, "segments": ""},
-            {"accession": "a1", "cik": 1, "statement": "CF", "concept": "CashAndCashEquivalentsAtCarryingValue",
-             "value": 79.0, "value_presented": 79.0, "period_end_rounded": date(2025, 12, 31),
-             "is_primary_period": True, "is_parenthetical": False, "segments": ""},
+            row("BS", "CashAndCashEquivalentsAtCarryingValue", 79.0, 79.0, y),
+            row("CF", "CashAndCashEquivalentsAtCarryingValue", 71.0, 71.0, prior),
+            row("CF", "CashAndCashEquivalentsAtCarryingValue", 79.0, 79.0, y),
         ]
         duck.register("stg", _stg(rows))
         checks = {c["check_name"]: c for c in S._checks_from_staged(duck, "fsds").to_pylist()}
-        assert checks["assets_eq_liabilities_and_equity"]["passed"] is True  # presented sign -> balances
-        assert checks["ending_cash_cf_equals_bs"]["passed"] is True          # period-end cash -> matches
+        assert checks["gross_profit"]["passed"] is True  # 300 - 200 = 100 on the value as filed
+        assert checks["net_income_is_equals_cf"]["passed"] is True  # 50 = 50: one fact, one number
+        assert checks["ending_cash_cf_equals_bs"]["passed"] is True  # period-end cash: 79 = 79
     finally:
         duck.close()
 
 
 def test_check_still_fails_a_real_imbalance(tmp_path):
-    """The fix must not mask a genuine break: presented Assets that really do not balance still fail."""
+    """The fix must not mask a genuine break: Assets that really do not balance still fail."""
     duck = Duck(Storage(str(tmp_path)))
     try:
         rows = [
-            {"accession": "b1", "cik": 2, "statement": "BS", "concept": "Assets",
-             "value": 90.0, "value_presented": 90.0, "period_end_rounded": date(2025, 12, 31),
-             "is_primary_period": True, "is_parenthetical": False, "segments": ""},
-            {"accession": "b1", "cik": 2, "statement": "BS", "concept": "LiabilitiesAndStockholdersEquity",
-             "value": 100.0, "value_presented": 100.0, "period_end_rounded": date(2025, 12, 31),
-             "is_primary_period": True, "is_parenthetical": False, "segments": ""},
+            {
+                "accession": "b1",
+                "cik": 2,
+                "statement": "BS",
+                "concept": "Assets",
+                "value": 90.0,
+                "value_presented": 90.0,
+                "period_end_rounded": date(2025, 12, 31),
+                "is_primary_period": True,
+                "is_parenthetical": False,
+                "segments": "",
+            },
+            {
+                "accession": "b1",
+                "cik": 2,
+                "statement": "BS",
+                "concept": "LiabilitiesAndStockholdersEquity",
+                "value": 100.0,
+                "value_presented": 100.0,
+                "period_end_rounded": date(2025, 12, 31),
+                "is_primary_period": True,
+                "is_parenthetical": False,
+                "segments": "",
+            },
         ]
         duck.register("stg", _stg(rows))
         checks = {c["check_name"]: c for c in S._checks_from_staged(duck, "fsds").to_pylist()}
