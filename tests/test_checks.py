@@ -293,3 +293,30 @@ def test_the_tax_identity_still_prefers_the_consolidated_total():
     }
     tax = one(C.check_income_statement(v), "income_after_tax")
     assert tax.passed and tax.rhs == 1_200 and tax.detail.endswith("= ProfitLoss")
+
+
+def test_diluted_eps_takes_the_diluted_numerator_when_the_company_tags_both():
+    """Diluted earnings can carry add-backs (convertible interest) that basic does not. Checking the
+    diluted EPS against the basic numerator was off by exactly those."""
+    v = {
+        "NetIncomeLossAvailableToCommonStockholdersBasic": 1_000,
+        "NetIncomeLossAvailableToCommonStockholdersDiluted": 1_060,  # + 60 of convertible interest
+        "WeightedAverageNumberOfSharesOutstandingBasic": 100,
+        "WeightedAverageNumberOfDilutedSharesOutstanding": 106,
+        "EarningsPerShareBasic": 10.0,
+        "EarningsPerShareDiluted": 10.0,
+    }
+    r = {c.check_name: c for c in C.check_income_statement(v)}
+    assert r["eps_basic"].passed and r["eps_basic"].detail.startswith(
+        "NetIncomeLossAvailableToCommonStockholdersBasic /"
+    )
+    assert r["eps_diluted"].passed and r["eps_diluted"].detail.startswith(
+        "NetIncomeLossAvailableToCommonStockholdersDiluted /"
+    )
+    # with only the basic numerator tagged, diluted falls back to it, as before
+    del v["NetIncomeLossAvailableToCommonStockholdersDiluted"]
+    r = {c.check_name: c for c in C.check_income_statement(v)}
+    assert (
+        r["eps_diluted"].detail.startswith("NetIncomeLossAvailableToCommonStockholdersBasic /")
+        and not r["eps_diluted"].passed
+    )

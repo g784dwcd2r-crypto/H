@@ -347,25 +347,30 @@ def _eps_close(lhs: float, rhs: float) -> bool:
 def _check_eps(v: dict[str, float]) -> list[CheckResult]:
     """Earnings per share must be the earnings credited to common shareholders over the share count
     the company itself reported. Only runs when the numerator is unambiguous: either the company
-    tagged earnings available to common, or it reports no preferred dividends to deduct."""
-    numerator = _first(v, EPS_NUMERATOR_CONCEPTS)
-    if numerator is None:
-        if _first(v, PREFERRED_DIVIDEND_CONCEPTS):
-            return []  # preferred dividends come out first and we cannot see how much
-        numerator = _first(v, EPS_FALLBACK_NUMERATOR_CONCEPTS)
-        if (
-            numerator is not None
-            and numerator[0] == "ProfitLoss"
-            and (nci := _first(v, NONCONTROLLING_INCOME_CONCEPTS))
-        ):
-            # the consolidated total is all the filer gave; take the minority's share back out
-            numerator = (f"ProfitLoss - {nci[0]}", numerator[1] - nci[1])
-    if numerator is None:
-        return []
+    tagged earnings available to common, or it reports no preferred dividends to deduct.
+
+    Each column takes the company's own numerator for THAT column first: diluted earnings can carry
+    add-backs (interest on convertible debt) that basic does not, so a diluted EPS checked against
+    the basic numerator was off by exactly those."""
     out: list[CheckResult] = []
     for kind, eps_concept, shares_concept in EPS_PAIRS:
         eps, shares = v.get(eps_concept), v.get(shares_concept)
         if eps is None or not shares:
+            continue
+        own = EPS_NUMERATOR_CONCEPTS if kind == "basic" else tuple(reversed(EPS_NUMERATOR_CONCEPTS))
+        numerator = _first(v, own)
+        if numerator is None:
+            if _first(v, PREFERRED_DIVIDEND_CONCEPTS):
+                continue  # preferred dividends come out first and we cannot see how much
+            numerator = _first(v, EPS_FALLBACK_NUMERATOR_CONCEPTS)
+            if (
+                numerator is not None
+                and numerator[0] == "ProfitLoss"
+                and (nci := _first(v, NONCONTROLLING_INCOME_CONCEPTS))
+            ):
+                # the consolidated total is all the filer gave; take the minority's share back out
+                numerator = (f"ProfitLoss - {nci[0]}", numerator[1] - nci[1])
+        if numerator is None:
             continue
         computed = numerator[1] / shares
         out.append(
