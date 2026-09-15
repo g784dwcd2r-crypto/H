@@ -829,3 +829,7 @@ share — the 50 % "other" and 29 % "within 5 %" buckets of the ratio table, tog
   remains.
 - **Method note.** This one was diagnosed from the distribution across every failure first, with the
   numerator table pointing at one line; no fix was written until the pattern was measured.
+- **Result (same day, via `recheck`, six minutes):** 50,796 of 2,063,641 checks fail, 2.5 %, from 4.1 %.
+  EPS fell by 33,212: diluted 30,750 → 15,010, basic 28,176 → 10,704. Diluted now fails 40 % more
+  often than basic, so what remains has a diluted-specific component to measure next; income after
+  tax (12,134) is the second-largest bucket.
