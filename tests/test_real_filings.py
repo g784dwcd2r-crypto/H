@@ -149,6 +149,42 @@ def test_resolver_picks_the_latest_xbrl_filing_of_the_form(tmp_path):
     assert out["NOFORM"]["error"] and "no XBRL 20-F" in out["NOFORM"]["error"]
 
 
+def _small_lake(tmp_path: Path, tickers: pa.Table) -> Storage:
+    """A lake whose tickers table has whatever owner flags the caller gives it."""
+    st = Storage(str(tmp_path))
+    st.write_parquet(layout.TICKERS, tickers)
+    st.write_parquet(layout.COMPANIES, pa.table({"cik": [21344, 999], "name": ["Coca-Cola", "Old KO"]}))
+    st.write_parquet(
+        f"{layout.filings_year_dir(2024)}/f.parquet",
+        pa.table(
+            {
+                "accession": ["0001-24-1", "0999-24-1"],
+                "cik": [21344, 999],
+                "form": ["10-K", "10-K"],
+                "filed_date": [date(2024, 2, 20), date(2024, 3, 1)],
+                "is_xbrl": [True, True],
+            }
+        ),
+    )
+    return st
+
+
+ROW = {"key": "KO", "ticker": "KO", "cik": "", "form": "10-K", "year": "", "covers": "c"}
+
+
+def test_resolver_works_on_a_tickers_table_from_before_step_2(tmp_path):
+    """The real lake had no `is_current` yet (the universe is rebuilt after step 2); `is_primary` decides."""
+    st = _small_lake(tmp_path, pa.table({"ticker": ["KO", "KO"], "cik": [999, 21344], "is_primary": [False, True]}))
+    (out,) = rf.resolve_reader_set(st, [ROW])
+    assert out["error"] is None and out["cik"] == 21344 and out["accession"] == "0001-24-1"
+
+
+def test_resolver_works_with_no_owner_flags_at_all(tmp_path):
+    st = _small_lake(tmp_path, pa.table({"ticker": ["KO"], "cik": [21344]}))
+    (out,) = rf.resolve_reader_set(st, [ROW])
+    assert out["error"] is None and out["cik"] == 21344
+
+
 def test_resolver_on_an_empty_lake_reports_rather_than_guesses(tmp_path):
     out = rf.resolve_reader_set(Storage(str(tmp_path)), [{"key": "KO", "ticker": "KO", "cik": "", "form": "10-K"}])
     assert out[0]["error"] and out[0]["accession"] is None

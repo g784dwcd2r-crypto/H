@@ -59,8 +59,9 @@ def _int_or_none(value: str | int | None) -> int | None:
 def resolve_reader_set(storage: Storage, rows: list[dict[str, str]]) -> list[dict[str, Any]]:
     """Each row's accession, found offline in the lake.
 
-    Ticker to CIK the way `verify` does it (the current owner of a reused ticker first, step 2),
-    then the latest XBRL filing of that form, or the latest one filed in `year` when set. A row given
+    Ticker to CIK the way `verify` does it: the current owner of a reused ticker first (step 2), or
+    the primary listing on a tickers table from before step 2. Then
+    the latest XBRL filing of that form, or the latest one filed in `year` when set. A row given
     by CIK skips the ticker lookup. A row that cannot be resolved comes back with `error` set rather
     than a guessed filing."""
     duck = Duck(storage)
@@ -68,6 +69,13 @@ def resolve_reader_set(storage: Storage, rows: list[dict[str, str]]) -> list[dic
         have_tickers = duck.view("tickers", layout.TICKERS, hive=False)
         have_companies = duck.view("companies", layout.COMPANIES, hive=False)
         have_filings = duck.view("filings", f"{layout.FILINGS}/*/*.parquet")
+        # `is_current` (step 2) exists only once the universe has been rebuilt; an older tickers table
+        # carries `is_primary` alone. Order by whichever owner flags are there; never fail for the lack.
+        owner_flags: list[str] = []
+        if have_tickers:
+            cols = {r["column_name"] for r in duck.fetch_dicts("DESCRIBE tickers")}
+            owner_flags = [c for c in ("is_current", "is_primary") if c in cols]
+        owner_order = (" ORDER BY " + ", ".join(f"({c} IS TRUE) DESC" for c in owner_flags)) if owner_flags else ""
         out: list[dict[str, Any]] = []
         for row in rows:
             r: dict[str, Any] = {
@@ -84,7 +92,7 @@ def resolve_reader_set(storage: Storage, rows: list[dict[str, str]]) -> list[dic
                     out.append(r)
                     continue
                 hit = duck.fetch_dicts(
-                    "SELECT cik FROM tickers WHERE ticker = ? ORDER BY (is_current IS TRUE) DESC LIMIT 1",
+                    f"SELECT cik FROM tickers WHERE ticker = ?{owner_order} LIMIT 1",
                     [(row.get("ticker") or "").upper()],
                 )
                 if not hit:
