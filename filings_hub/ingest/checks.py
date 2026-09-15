@@ -94,8 +94,24 @@ CONTINUING_ONLY_CONCEPTS = (
     "IncomeLossFromContinuingOperationsIncludingPortionAttributableToNoncontrollingInterest",
     "ProfitLossFromContinuingOperations",  # ifrs-full
 )
-# Bottom-line income: continuing plus discontinued operations.
+# Bottom-line income: continuing plus discontinued operations. ProfitLoss first: it is the
+# consolidated total, including the minority's share, which is what pretax income minus tax equals.
 TOTAL_INCOME_CONCEPTS = ("ProfitLoss", "NetIncomeLoss")
+# Earnings credited to the parent's own shareholders, which is what EPS is per share OF. The order is
+# the reverse of the tax identity's: NetIncomeLoss (the parent's portion) before ProfitLoss (the
+# consolidated total, including the minority's share). Taking ProfitLoss first failed 42 % of EPS
+# checks on companies with subsidiaries, by exactly the minority's share.
+EPS_FALLBACK_NUMERATOR_CONCEPTS = (
+    "NetIncomeLoss",
+    "ProfitLossAttributableToOwnersOfParent",  # ifrs-full
+    "ProfitLoss",
+)
+# The minority's share of the consolidated profit, to bridge ProfitLoss down to the parent's portion
+# when a filer reports the total only.
+NONCONTROLLING_INCOME_CONCEPTS = (
+    "NetIncomeLossAttributableToNoncontrollingInterest",
+    "ProfitLossAttributableToNoncontrollingInterests",  # ifrs-full
+)
 CONTINUING_CONCEPTS = CONTINUING_ONLY_CONCEPTS + TOTAL_INCOME_CONCEPTS
 # Results of businesses being sold or closed, reported after tax and below the tax line.
 DISCONTINUED_CONCEPTS = (
@@ -188,6 +204,8 @@ CHECK_CONCEPTS = frozenset(
         *PRETAX_CONCEPTS,
         *TAX_CONCEPTS,
         *CONTINUING_CONCEPTS,
+        *EPS_FALLBACK_NUMERATOR_CONCEPTS,
+        *NONCONTROLLING_INCOME_CONCEPTS,
         *DISCONTINUED_CONCEPTS,
         *EQUITY_METHOD_CONCEPTS,
         *PREFERRED_DIVIDEND_CONCEPTS,
@@ -334,7 +352,14 @@ def _check_eps(v: dict[str, float]) -> list[CheckResult]:
     if numerator is None:
         if _first(v, PREFERRED_DIVIDEND_CONCEPTS):
             return []  # preferred dividends come out first and we cannot see how much
-        numerator = _first(v, TOTAL_INCOME_CONCEPTS)
+        numerator = _first(v, EPS_FALLBACK_NUMERATOR_CONCEPTS)
+        if (
+            numerator is not None
+            and numerator[0] == "ProfitLoss"
+            and (nci := _first(v, NONCONTROLLING_INCOME_CONCEPTS))
+        ):
+            # the consolidated total is all the filer gave; take the minority's share back out
+            numerator = (f"ProfitLoss - {nci[0]}", numerator[1] - nci[1])
     if numerator is None:
         return []
     out: list[CheckResult] = []

@@ -808,3 +808,24 @@ is changed.
 The journey, for the record: 9.2 % with two false causes (an arbitrary cash instant, and two
 currencies on one line) and one wrong fix on the way (the presented sign, reverted); 4.1 % with the
 checks reading the value as filed, the period-end instant, and one currency per statement.
+
+## EPS is per share of the parent's earnings, not the consolidated total (2026-09-15)
+
+The pattern across all 58,926 EPS failures, measured before anything was changed: 41,549 of them,
+70 %, used `ProfitLoss` as the numerator, and that numerator failed 41.8 % of the time against 5 to
+7 % for every other. `ProfitLoss` is the consolidated profit *including* the minority shareholders'
+share of subsidiaries; `NetIncomeLoss` is the portion that belongs to the parent's own shareholders,
+which is what earnings per share is per share of. The check listed `ProfitLoss` first, so a company
+with subsidiaries (which reports both) was checked on the wrong line, off by exactly the minority's
+share — the 50 % "other" and 29 % "within 5 %" buckets of the ratio table, together.
+
+- **Fix.** For EPS the preference is reversed: `NetIncomeLoss`, then the IFRS owners-of-parent line,
+  then `ProfitLoss` only when that is all the filer reports — and then the minority's share is taken
+  back out when it is tagged. The tax identity keeps `ProfitLoss` first, correctly: pretax income
+  minus tax *is* the consolidated total. Locked in by tests for both directions.
+- **Expected.** Up to ~40,000 of the 58,926 EPS failures clear. The rest are different, smaller
+  causes on other numerators (share counts filed in thousands, ~5,000; a year-to-date numerator
+  against a quarterly EPS, ~3,000; a handful of sign and zero cases), to be measured again from what
+  remains.
+- **Method note.** This one was diagnosed from the distribution across every failure first, with the
+  numerator table pointing at one line; no fix was written until the pattern was measured.

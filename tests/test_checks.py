@@ -247,3 +247,49 @@ def test_run_filing_checks_covers_every_statement_and_the_cross_checks():
         "net_income_is_equals_cf": True,
         "ending_cash_cf_equals_bs": True,
     }
+
+
+def test_eps_is_per_share_of_the_parents_earnings_not_the_consolidated_total():
+    """ProfitLoss is the consolidated profit including the minority shareholders' share of subsidiaries;
+    NetIncomeLoss is the parent's portion, and EPS is per share of that. Taking ProfitLoss first failed
+    42 % of EPS checks on companies with subsidiaries, by exactly the minority's share."""
+    v = {
+        "ProfitLoss": 1_200,  # 1,000 to the parent, 200 to minority holders
+        "NetIncomeLoss": 1_000,
+        "NetIncomeLossAttributableToNoncontrollingInterest": 200,
+        "WeightedAverageNumberOfSharesOutstandingBasic": 100,
+        "EarningsPerShareBasic": 10.0,  # 1,000 / 100, as the company reports it
+    }
+    eps = one(C.check_income_statement(v), "eps_basic")
+    assert eps.passed and eps.lhs == 10.0 and eps.detail.startswith("NetIncomeLoss /")
+    # the consolidated total would have said 12.00 and failed
+    assert 1_200 / 100 == 12.0 and not C._eps_close(12.0, 10.0)
+
+
+def test_eps_bridges_the_consolidated_total_by_the_minoritys_share_when_that_is_all_there_is():
+    v = {
+        "ProfitLoss": 1_200,
+        "NetIncomeLossAttributableToNoncontrollingInterest": 200,
+        "WeightedAverageNumberOfSharesOutstandingBasic": 100,
+        "EarningsPerShareBasic": 10.0,
+    }
+    eps = one(C.check_income_statement(v), "eps_basic")
+    assert eps.passed and eps.lhs == 10.0
+    assert eps.detail.startswith("ProfitLoss - NetIncomeLossAttributableToNoncontrollingInterest /")
+    # with no minority line, the total is the parent's and is used as before
+    del v["NetIncomeLossAttributableToNoncontrollingInterest"]
+    v["EarningsPerShareBasic"] = 12.0
+    assert one(C.check_income_statement(v), "eps_basic").passed
+
+
+def test_the_tax_identity_still_prefers_the_consolidated_total():
+    """Pretax income minus tax is the consolidated profit, minority share included: the opposite
+    preference from EPS, on purpose."""
+    v = {
+        "IncomeLossFromContinuingOperationsBeforeIncomeTaxesExtraordinaryItemsNoncontrollingInterest": 1_500,
+        "IncomeTaxExpenseBenefit": 300,
+        "ProfitLoss": 1_200,
+        "NetIncomeLoss": 1_000,
+    }
+    tax = one(C.check_income_statement(v), "income_after_tax")
+    assert tax.passed and tax.rhs == 1_200 and tax.detail.endswith("= ProfitLoss")
