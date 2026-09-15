@@ -9,8 +9,8 @@ Where it did not add up, we went looking for why. Most of the time the fault was
 
 ## What I still need from you
 
-Three of the five are answered. Here is the whole list in one place, so you do not have to re-read
-the document to find out what is left.
+Three of the original five are answered, and checking one of them turned up two new questions. Here
+is everything in one place, so you do not have to re-read the document to find out what is left.
 
 | | The question | Status |
 |---|---|---|
@@ -19,6 +19,8 @@ the document to find out what is left.
 | **c** | Is 5% the right allowance when we have to guess the top number? | **Open. This is the big one.** |
 | **d** | Should a statement keep whichever currency most of its lines use? | **Answered:** the presentation decides. See below for what I found when I checked whether we can read it. |
 | **e** | Are we right to list a filing's own tagging errors rather than repair them? | Open |
+| **f** | **New, from your currency answer.** A company printed two currency columns. We show one. Right? | **Open** |
+| **g** | **New.** Which company should we use as the test case for that? | **Open** |
 | | Open one real foreign company's page and read it | Not done. Needs a person, nothing to decide. |
 
 Your answer to (b) was worth more than your answer to (a), because you did not just confirm it, you
@@ -54,10 +56,12 @@ Four real bugs, now fixed:
 
 ---
 
-# Part 1: the five decisions
+# Part 1: the decisions
 
 **(a), (b) and (d) are answered, and I have kept them here with your answers in them**, because the
-reasoning is the part worth keeping. (c) and (e) are still open.
+reasoning is the part worth keeping. (c) and (e) are still open, and (f) and (g) are new: they came
+out of checking your answer to (d), and (f) is the one where two of your own rules point in different
+directions.
 
 ## a. Earnings per share uses the parent's profit, not the whole group's
 
@@ -197,6 +201,46 @@ instruments, not a translated copy of the accounts.
 So **neither of our test filings actually has a convenience translation**, which means the case that
 caused our only reader-visible bug is not in the set we test against. I have added getting one to the
 plan.
+
+### f. Two of your rules disagree here, and I need you to break the tie
+
+This is the follow-up, and I only saw it once I had gone looking for the presented currency.
+
+Your first rule is that we show what the company printed. A Chinese company printing a renminbi
+column and a dollar column beside it **printed both of them**. Our currency rule keeps one and drops
+the other from the statement.
+
+So on that company's page today, a reader sees only the renminbi column, and a number the company
+genuinely published is not on the page. We still hold every figure, so nothing is lost from the data.
+It is a presentation question, not a storage one.
+
+```mermaid
+flowchart TD
+    F["The company printed<br/>two columns"] --> A["<b>1. One column</b><br/>the presented currency only<br/><i>what we do today</i>"]
+    F --> B["<b>2. A switch</b><br/>presented currency by default,<br/>the company's own translation<br/>available and labelled as theirs"]
+    F --> C["<b>3. Both columns</b><br/>side by side,<br/>exactly as the filing prints them"]
+    style A fill:#e3f2fd,stroke:#1565c0
+    style B fill:#e8f5e9,stroke:#2e7d32
+    style C fill:#fff4e5,stroke:#e65100
+```
+
+My own read, for what it is worth: option 2. The translation is the company's number rather than
+ours, so showing it does not break the first rule as long as the page says whose it is, and an
+investor comparing a Chinese company with an American one will want the dollars. But dropping it
+outright is the current behaviour and I would rather you chose than have me assume.
+
+**The question: when a company prints two currency columns, which of those three should the page
+do?**
+
+### g. Which company should we test this on?
+
+We need one filing in our permanent test set that actually has a convenience translation, and right
+now we would be picking blind. You know these names better than I do.
+
+**A Chinese, Hong Kong or Singapore company that prints a US dollar column beside its home
+currency.** Any one you would trust as typical. Renminbi and dollars alone is 2,222 of the 3,502
+affected figures in a single quarter, so that is the most representative pairing, but I will take
+whichever one you think is the fairest test.
 
 ## e. When the filing itself is wrong, we say so, we do not fix it
 
