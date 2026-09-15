@@ -164,7 +164,7 @@ breaks. Of 1,502,846 standard passes governed by the 0.5 % tolerance, **99.48 % 
 tolerance) can wait**, which also suits its dependency (it needs the filing's `decimals`, only
 available once filings are downloaded, step 6). EPS near misses run higher at 1.90 %, but EPS is
 printed to the cent so a 1 % band is ~2 cents of genuine rounding, not hidden error — noted, not
-acted on. Separately, ~8-9 % of checks *fail* (130k standard, 59k EPS), most standard fails >10x past
+acted on. Separately, 4.1 % of checks *fail* after the period, sign and currency fixes (25k standard, 59k EPS; was 9.2 %), most standard fails >10x past
 the line: not a tolerance problem, but real non-reconciliation to chase via step 4 (coverage) and
 step 8.
 

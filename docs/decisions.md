@@ -777,3 +777,30 @@ on those filings, which is why `recheck` and a rebuild disagreed.
 - **Consequence.** This changes the statements table, not just the checks, so it needs one full
   `statements --all` rebuild; `recheck` cannot apply it. After that rebuild, `recheck` and the build
   should agree to the row, which the one-quarter proof will show.
+
+## After the currency fix: 4.1 %, and two checks are effectively solved (2026-09-15)
+
+`recheck` on the rebuilt lake, six and a half minutes: 84,008 of 2,063,641 checks fail (4.1 %), 41.4 %
+of companies with at least one failing check. Per check, before and after keeping each statement in
+its reporting currency:
+
+| Check | Before | After |
+|---|---|---|
+| Ending cash agrees, cash flow = balance sheet | 434 | 0 |
+| Net income agrees, income statement = cash flow | 807 | 1 |
+| Balance sheet balances | 1,403 | 322 |
+| Net change in cash | 7,048 | 5,585 |
+| Income after tax | 13,347 | 12,134 |
+| Gross profit | 4,787 | 3,900 |
+| Operating income | 3,425 | 2,854 |
+| EPS, basic and diluted | 59,666 | 58,926 |
+
+Every remaining ending-cash failure and all but one same-fact net-income failure were currency
+mixing; so were three-quarters of the balance-sheet failures. The worst-offender list is now the
+~800 genuine filer sign oddities and nothing else. What is left is EPS, 70 % of the remainder, then
+income after tax; both to be diagnosed from the pattern across all their failures before anything
+is changed.
+
+The journey, for the record: 9.2 % with two false causes (an arbitrary cash instant, and two
+currencies on one line) and one wrong fix on the way (the presented sign, reverted); 4.1 % with the
+checks reading the value as filed, the period-end instant, and one currency per statement.
