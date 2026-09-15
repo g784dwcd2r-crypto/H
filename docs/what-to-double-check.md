@@ -35,6 +35,9 @@ that needs a real person to go and look.
 
 # Part 1 — The five decisions
 
+**(a) and (b) are answered.** They are kept here with the answers, because the reasoning is the
+part worth keeping. Three are still open.
+
 ## a. Earnings per share uses the parent's profit, not the whole group's
 
 **The situation.** Say a company owns 80% of a subsidiary. It has to report two different profit
@@ -57,24 +60,33 @@ Now the company has 40 million shares. What is earnings per share?
 We used to use the first. **We now use the second**, because earnings per share means earnings per
 share *for the people holding this company's shares* — and the minority's $20m is not theirs.
 
-> **Please confirm:** is the parent's share always the right one for EPS? This change cleared 41,549
-> failing checks, so if it is wrong, it is wrong on a lot of companies.
+> **Answered — yes.** *"When I buy a stock, I am buying an interest in the parent's share. And
+> therefore I have a right to the parent's share, not to the group's profit."* — Hicham, 15 Sep.
+> The change cleared 41,549 failing checks.
 
-## b. But the tax check wants the opposite one
+## b. The tax check uses the group's figure — because it faces someone else
 
-Same two figures. Opposite answer.
+Same two numbers. Different answer. Not because the checks disagree, but because they answer to
+different people.
 
-Tax is charged on the *whole group's* profit. So when we check "profit before tax, minus tax, equals
-profit after tax", every number in that line has to be the group's:
+**Tax faces the state.** The state taxes the company as a whole. It does not care who owns which
+slice of which subsidiary. So every number in "profit before tax, minus tax, equals profit after
+tax" is the group's:
 
-> $130m before tax − $30m tax = **$100m** — the group's figure, *not* the parent's $80m.
+> $130m before tax − $30m tax = **$100m** — the group's figure, not the parent's $80m
 
-So the two checks deliberately pull in opposite directions. EPS wants the parent's number. The tax
-check wants the group's.
+**A share faces its holder.** Profit gets divided by who owns what, and the minority's $20m belongs
+to someone else.
 
-> **Please confirm:** you agree these two want opposite figures.
+> **Answered.** *"These are not opposite figures. They are two concepts. A company's tax liability
+> is to the state — it doesn't care who owns what portion. Profits are for the shareholders, so they
+> are split according to ownership. It's about who you are facing."* — Hicham, 15 Sep.
+>
+> The code was already doing this correctly. The description above it was wrong: we had called them
+> opposite preferences, as if one were an exception to the other. They are two different questions
+> with two different counterparties, and each takes the figure its counterparty is owed.
 
-## c. Two-thirds of companies do not tell us what they divided by
+## c. Four companies in five do not tell us what they divided by
 
 **The situation.** A company prints "earnings per share: $2.42". To check it, we need the two numbers
 they used — the profit on top, and the share count underneath.

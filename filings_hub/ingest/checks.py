@@ -103,11 +103,14 @@ CONTINUING_ONLY_CONCEPTS = (
 )
 # Bottom-line income: continuing plus discontinued operations. ProfitLoss first: it is the
 # consolidated total, including the minority's share, which is what pretax income minus tax equals.
+# Tax is owed by the whole entity and the state does not care who owns which subsidiary, so every
+# term in that identity is the group's.
 TOTAL_INCOME_CONCEPTS = ("ProfitLoss", "NetIncomeLoss")
-# Earnings credited to the parent's own shareholders, which is what EPS is per share OF. The order is
-# the reverse of the tax identity's: NetIncomeLoss (the parent's portion) before ProfitLoss (the
-# consolidated total, including the minority's share). Taking ProfitLoss first failed 42 % of EPS
-# checks on companies with subsidiaries, by exactly the minority's share.
+# Earnings credited to the parent's own shareholders, which is what EPS is per share OF. This is not
+# the tax identity's order reversed; the two face different counterparties. Tax faces the state,
+# which taxes the entity whole. A share faces its holder, whose claim is on the parent alone, so the
+# minority's share of a subsidiary is not theirs. Taking ProfitLoss first failed 42 % of EPS checks
+# on companies with subsidiaries, by exactly the minority's share.
 EPS_FALLBACK_NUMERATOR_CONCEPTS = (
     "NetIncomeLoss",
     "ProfitLossAttributableToOwnersOfParent",  # ifrs-full

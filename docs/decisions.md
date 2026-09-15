@@ -1044,3 +1044,25 @@ errors named and deliberately not repaired, and the rest tolerance and period qu
 untouched checks, gross profit (3,900) and operating income (2,854), have not moved through any of
 this because nothing fixed so far touches them; they are next, and may need the filing's own declared
 arithmetic (step 8) rather than another tuning round.
+
+## Whose figure a check takes: the counterparty decides (2026-09-15)
+
+Two checks use the two profit figures a group reports, and they take different ones. Earnings per
+share takes the parent's share; pretax minus tax takes the consolidated total. Both confirmed by
+Hicham — but the reasoning we had written down was wrong, and is worth fixing, because the wrong
+version does not generalise.
+
+We had described them as opposite preferences, as though EPS were an exception to the tax identity.
+They are not. They face different counterparties:
+
+- **Tax faces the state**, which taxes the entity as a whole and does not care who owns which
+  subsidiary. Every term in "pretax minus tax equals after-tax" is therefore the group's.
+- **A share faces its holder**, whose claim is on the parent alone. The minority's share of a
+  subsidiary is not theirs, so EPS divides the parent's portion.
+
+Ask who the number answers to and the right figure follows. That is the rule to apply to the next
+check of this shape. "EPS is the reverse of the tax one" is not a rule, it is a coincidence of two
+answers.
+
+No code changed — the checks already did this. The comments in `filings_hub/ingest/checks.py` and
+the explanation in `docs/what-to-double-check.md` did not.
