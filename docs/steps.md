@@ -89,6 +89,62 @@ flowchart TD
 | 10. What management says | 37 | Earnings-call transcripts, tagged by theme | A source for transcripts; runs with Part 4 |
 | Parked | Share prices | Waiting | A lawyer |
 
+## Where we stand (2026-09-15)
+
+**The arithmetic is in good shape and we can prove it.** Of 2,063,641 checks across 17,052 companies,
+**1.7 % fail**, down from 9.2 %. Companies carrying at least one failing check: **33 %**, down from
+72 %. The two checks that catch the worst kind of error — profit agreeing across statements, cash
+agreeing between the cash-flow statement and the balance sheet — sit at **one failure and zero**.
+
+Four real defects were found and fixed, each measured before and after:
+
+| What was wrong | Cleared | Did a reader see it? |
+|---|---|---|
+| The cash check compared start-of-year cash with end-of-year cash | 99,102 | No |
+| A foreign filer's home currency and its dollar translation both kept, so one statement could mix them | ~2 % of filers | **Yes** |
+| Earnings per share used the group's profit instead of the parent's share | 41,549 | No |
+| The exchange-rate effect on cash counted twice | 2,252 | No |
+
+Almost none of the original 9 % was real. It was our checking code, not the filings.
+
+**What is left, and whose it is.** Every remaining failure carries a reason and a company name
+(`filings-hub check-report --xlsx`, and see `what-to-double-check.md`):
+
+| | Count | |
+|---|---|---|
+| Unexplained | ~24,000 | **Ours. The only number that should be shrinking** |
+| Filer tagging errors — a share count filed in thousands, an inverted sign, a side tagged zero | ~7,700 | Named, never silently corrected |
+| Just over the tolerance, or out by a period | ~6,100 | Judgement calls |
+
+```mermaid
+flowchart TD
+    ALL["2,063,641 checks"] --> PASS["98.3 % pass"]
+    ALL --> FAIL["1.7 % fail: 35,328"]
+    FAIL --> OURS["~24,000 unexplained<br/>OURS to fix"]
+    FAIL --> THEIRS["~7,700 the filer's own<br/>tagging errors<br/>named, not corrected"]
+    FAIL --> JUDGE["~6,100 tolerance<br/>and period calls"]
+    OURS --> CEIL["Much of this needs the filing's<br/>own declared arithmetic:<br/>steps 6, 7 and 8"]
+    style PASS fill:#e8f5e9,stroke:#2e7d32
+    style OURS fill:#fff4e5,stroke:#e65100
+    style THEIRS fill:#e8f5e9,stroke:#2e7d32
+    style CEIL fill:#e3f2fd,stroke:#1565c0
+```
+
+**Two checks have not moved at all:** gross profit (3,900) and operating income (2,854). Nothing
+fixed so far touches them, and both ask "does this subtotal equal the lines above it" — which is
+exactly the arithmetic the filing declares and we do not read yet. They are the clearest evidence
+that the tuning loop has a ceiling.
+
+**So the next real work is step 6.** Step 5 is done — the reader is proven on 26 awkward real
+filings, kept as permanent tests. Everything still comes from the SEC's summary spreadsheets rather
+than the filings themselves, which is why the newest quarter is thinner than the older ones, why
+detail is lost, and why we guess at each company's own arithmetic instead of reading it. That is the
+ceiling, and steps 6 and 7 lift it.
+
+**Also open, and small:** nobody has opened a real company page since the currency fix changed the
+stored data (step 8b), and `checks_passed` on the statement rows — which feeds the coverage report
+and `verify` — is stale until the next full `statements` build.
+
 ---
 
 # Part 1. Four quick fixes
@@ -164,9 +220,9 @@ breaks. Of 1,502,846 standard passes governed by the 0.5 % tolerance, **99.48 % 
 tolerance) can wait**, which also suits its dependency (it needs the filing's `decimals`, only
 available once filings are downloaded, step 6). EPS near misses run higher at 1.90 %, but EPS is
 printed to the cent so a 1 % band is ~2 cents of genuine rounding, not hidden error — noted, not
-acted on. Separately, 4.1 % of checks *fail* after the period, sign and currency fixes (25k standard, 59k EPS; was 9.2 %), most standard fails >10x past
-the line: not a tolerance problem, but real non-reconciliation to chase via step 4 (coverage) and
-step 8.
+acted on. Separately, checks that *fail* went from 9.2 % to **1.7 %** across four fixes (see "Where
+we stand"); what remains is mostly not a tolerance problem but real non-reconciliation, to chase via
+step 4 (coverage) and step 8.
 
 **Done when.** ✅ Built, tested, run on the full lake, verdict recorded, step 9 deferred on the
 evidence.
@@ -572,7 +628,7 @@ being wrong — a company that tagged its assets as a negative number — and th
 so. The target is **no failure caused by us, and every remaining one named with a reason**:
 `filings-hub check-report --csv` writes every failing check with the company and why (a filer's sign,
 a share count filed in thousands, a period, just over the tolerance, or unexplained). "Unexplained"
-is the only column that should be shrinking. The arithmetic checks went 9.2 % → 2.0 % this way, and
+is the only column that should be shrinking. The arithmetic checks went 9.2 % → 1.7 % this way, and
 what is left is roughly 1 to 2 thousand failures that are still ours.
 
 **Why this step is the ceiling.** Gross profit, operating income and part of income after tax fail
@@ -776,6 +832,26 @@ flowchart LR
 
 **Worth remembering.** These are ours, not the reader's. They tell us where to look and they decide
 what we are willing to publish. They never appear on a company page as a score or a badge.
+
+**What building the first three taught us, and these two must not relearn the hard way.**
+
+*A tag's name is not evidence of how a filer used it.* `IncomeLossFromContinuingOperations` is
+defined as the parent's share and is exactly that on some filings, and the consolidated total on
+others. The IFRS tag whose name says the exchange-rate effect is inside it is used, almost always,
+for the figure before it. A check that trusts a name fails tens of thousands of times on filings that
+are perfectly fine. Offer every arithmetically legitimate reading, take the one that closes, and
+record which held.
+
+*Measure across every failure before writing a fix.* Both wrong turns we took came from reading the
+worst-offender list, where sign flips dominate because a flip is the largest *possible* error, not the
+most common one. One of those fixes created 60,000 new failures before it was reverted the same day.
+The distribution across all failures contradicted the anecdote both times.
+
+*A check on an inferred input is approximate and should say so in its name.* Where a company does not
+tag its own EPS numerator we substitute net income, and the real numerator differs by a few percent
+for reasons that live in the notes. That check is named `..._approx` and tolerated at 5 %; the exact
+one stays at 1 %. The retained-earnings roll-forward will meet the same problem — the movements that
+are not tagged — and should split the same way rather than loosening one tolerance for everyone.
 
 **Done when.** Both run over every company, and we can say for each one how often it passed, failed,
 or did not apply.
