@@ -2,7 +2,7 @@ key,ticker,cik,form,year,covers
 AAPL,AAPL,,10-K,,52/53-week fiscal year ending in September; a very large filer
 MSFT,MSFT,,10-K,,June fiscal year end
 JPM,JPM,,10-K,,bank: no gross profit line; interest income presentation
-XOM,XOM,2115436,10-K,,large integrated energy filer; a new CIK after re-incorporation, so given by CIK
+XOM,XOM,34088,10-K,,large integrated energy filer; given by its long-standing CIK (the successor registrant after re-incorporation has no 10-K in our lake yet)
 BRK.B,BRK.B,1067983,10-K,,holding company with an insurance segment and a very long balance sheet; dotted ticker, so given by CIK
 WMT,WMT,,10-K,,January fiscal year end; 52/53-week retailer
 GOOGL,GOOGL,,10-K,,two share classes on one CIK
