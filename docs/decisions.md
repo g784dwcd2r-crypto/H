@@ -746,3 +746,31 @@ operand stays — it recomputes, it does not copy. Deliberately not refreshed: `
 statement rows, which would mean rewriting the statements table, the expensive part, for an
 internal loop. `check-report` reads `statement_checks` and is current at once; the published pass
 rate catches up on the next build, and the command says so.
+
+## Two currencies on one line: a statement is kept in its reporting currency (2026-09-15)
+
+Found by the one-quarter proof of `recheck`: the recomputed checks differed from the build's on
+about forty verdicts. The cause was upstream. In one quarter, 3,502 check inputs had two different
+values on the same line at the same date, and the SEC's number table can only do that with two
+*units*: a foreign filer prints its statements in its home currency with a "convenience
+translation" into dollars beside them, and the data sets carry both (net income in HK$ and in US$,
+7.8x apart; cash in renminbi and dollars, 7.0x; cost of revenue in yen and dollars, 159x).
+
+Left in, three things went wrong, in order of seriousness: the company page showed whichever row was
+scanned first, line by line, so a renminbi revenue could sit above a dollar cost; a check compared a
+renminbi revenue with a dollar cost and failed for no real reason; and the build was non-deterministic
+on those filings, which is why `recheck` and a rebuild disagreed.
+
+- **The rule.** A statement is kept in one currency: the one most of its lines are reported in, by
+  distinct tags, then rows; the dollar, then alphabetical order, break a tie. Non-monetary units
+  (shares, pure) are untouched and a per-share unit follows its currency prefix. Defined once, in the
+  FSDS staging (`currency` CTE) and the same rule in the provisional path (`reporting_currency`), so
+  the page and the checks inherit the same answer.
+- **A line reported only in the translation shows nothing**, rather than the wrong currency. The
+  translation itself is not lost: the facts table holds every unit; it just no longer competes for
+  the statement line.
+- **Rejected:** keeping both rows and letting the page choose. The grid keys a line by concept and
+  label, so the second row silently overwrote the first — that *was* the bug.
+- **Consequence.** This changes the statements table, not just the checks, so it needs one full
+  `statements --all` rebuild; `recheck` cannot apply it. After that rebuild, `recheck` and the build
+  should agree to the row, which the one-quarter proof will show.

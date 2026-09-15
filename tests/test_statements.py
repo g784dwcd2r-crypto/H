@@ -817,3 +817,102 @@ def test_check_still_fails_a_real_imbalance(tmp_path):
         assert checks["assets_eq_liabilities_and_equity"]["passed"] is False
     finally:
         duck.close()
+
+
+# -- one currency per statement --------------------------------------------------------------------
+
+APPLE_ACC = "0000320193-26-000007"
+
+
+def _translated(line: str, ccy: str, factor: float) -> str:
+    """The same FSDS num row in another currency: unit swapped, value scaled, everything else equal."""
+    f = line.split("\t")
+    f[5] = f[5].replace("USD", ccy)
+    f[8] = str(float(f[8]) * factor) if f[8] else f[8]
+    return "\t".join(f)
+
+
+def _build_quarter_with(
+    lake_copy: Storage, quarter: str, extra_num: list[str], extra_pre: tuple[str, ...] = ()
+) -> None:
+    import io
+    import zipfile
+
+    tables = {t: text.encode("utf-8") for t, text in fx.fsds_quarters()[quarter].items()}
+    tables["num"] = ("\n".join(tables["num"].decode().splitlines() + list(extra_num)) + "\n").encode()
+    if extra_pre:
+        tables["pre"] = ("\n".join(tables["pre"].decode().splitlines() + list(extra_pre)) + "\n").encode()
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as zf:
+        for name, data in tables.items():
+            zf.writestr(f"{name}.txt", data)
+    lake_copy.write_bytes(layout.raw_fsds_zip(quarter), buf.getvalue())
+    load_all_fsds(lake_copy, [quarter], force=True)
+    S.build_all_fsds(lake_copy, [quarter], force=True)
+
+
+def _apple_usd_rows(quarter: str) -> list[str]:
+    return [
+        ln
+        for ln in fx.fsds_quarters()[quarter]["num"].splitlines()
+        if ln.startswith(APPLE_ACC + "\t") and "\tUSD" in ln
+    ]
+
+
+def test_a_convenience_translation_does_not_become_a_second_value(lake_copy: Storage):
+    """A filer prints its statements in one currency with a dollar translation beside them: the data
+    sets carry the same tag, date and line twice, in two units. The statement keeps the currency most
+    of its lines use; the translation never competes for the line."""
+    rev = [ln for ln in _apple_usd_rows("2026q1") if "\tRevenueFromContractWithCustomerExcludingAssessedTax\t" in ln]
+    assert rev
+    _build_quarter_with(lake_copy, "2026q1", [_translated(ln, "CNY", 7.0) for ln in rev])
+    rows = _rows(
+        lake_copy,
+        f"SELECT value, unit FROM statements WHERE accession = '{APPLE_ACC}' AND statement = 'IS' "
+        "AND concept = 'RevenueFromContractWithCustomerExcludingAssessedTax' AND is_primary_period",
+    )
+    assert [(r["value"], r["unit"]) for r in rows] == [(140000000000.0, "USD")]
+
+
+def test_the_home_currency_wins_even_when_it_is_not_the_dollar(lake_copy: Storage):
+    """Every line translated, plus one line reported only at home: the home currency is what most
+    lines are reported in, so the whole statement is kept in it and the dollar rows go."""
+    usd = _apple_usd_rows("2026q1")
+    home_only = f"{APPLE_ACC}\tHomeCurrencyOnlyItem\tus-gaap/2025\t20251231\t1\tCNY\t\t\t700000\t"
+    pre = f"{APPLE_ACC}\t2\t98\tIS\t0\tH\tHomeCurrencyOnlyItem\tus-gaap/2025\tHome currency only\t0"
+    _build_quarter_with(lake_copy, "2026q1", [_translated(ln, "CNY", 7.0) for ln in usd] + [home_only], (pre,))
+    rows = _rows(
+        lake_copy,
+        f"SELECT concept, value, unit FROM statements WHERE accession = '{APPLE_ACC}' AND value IS NOT NULL "
+        "AND regexp_matches(unit, '^[A-Z]{3}(/shares)?$')",
+    )
+    assert rows and all(r["unit"].startswith("CNY") for r in rows)
+    by = {
+        r["concept"]: r["value"]
+        for r in rows
+        if r["concept"] in ("RevenueFromContractWithCustomerExcludingAssessedTax", "HomeCurrencyOnlyItem")
+    }
+    assert by["RevenueFromContractWithCustomerExcludingAssessedTax"] == 140000000000.0 * 7
+    assert by["HomeCurrencyOnlyItem"] == 700000.0
+
+
+def test_a_line_reported_only_in_the_translation_shows_nothing_not_the_wrong_currency(lake_copy: Storage):
+    only_translated = f"{APPLE_ACC}\tTranslationOnlyItem\tus-gaap/2025\t20251231\t1\tCNY\t\t\t700000\t"
+    pre = f"{APPLE_ACC}\t2\t98\tIS\t0\tH\tTranslationOnlyItem\tus-gaap/2025\tTranslation only\t0"
+    _build_quarter_with(lake_copy, "2026q1", [only_translated], (pre,))
+    rows = _rows(
+        lake_copy,
+        f"SELECT value, unit FROM statements WHERE accession = '{APPLE_ACC}' AND concept = 'TranslationOnlyItem'",
+    )
+    assert [(r["value"], r["unit"]) for r in rows] == [(None, None)]  # the line stays, empty and honest
+
+
+def test_reporting_currency_rule():
+    rc = S.reporting_currency
+    assert rc([("Rev", "USD"), ("Cost", "USD"), ("Rev", "CNY")]) == "USD"  # more concepts
+    assert rc([("Rev", "CNY"), ("Cost", "CNY"), ("Rev", "USD")]) == "CNY"  # the home currency, not the dollar
+    assert rc([("Rev", "CNY"), ("Rev", "USD")]) == "USD"  # a dead heat goes to the dollar
+    assert rc([("Rev", "GBP"), ("Rev", "EUR")]) == "EUR"  # then alphabetical, so it is stable
+    assert rc([("Eps", "CNY/shares"), ("Cost", "CNY"), ("Rev", "USD")]) == "CNY"  # per-share follows its prefix
+    assert rc([("Shares", "shares"), ("Ratio", "pure")]) is None  # nothing monetary
+    assert S.in_currency("shares", "USD") and S.in_currency("USD/shares", "USD") and not S.in_currency("CNY", "USD")

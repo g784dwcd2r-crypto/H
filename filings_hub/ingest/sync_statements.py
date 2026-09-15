@@ -14,6 +14,7 @@ from __future__ import annotations
 import logging
 import re
 from collections import defaultdict
+from collections.abc import Iterable
 from datetime import date
 from typing import Any
 
@@ -213,6 +214,26 @@ def _stage_fsds_quarter(duck: Duck, quarter: str, enrich: bool, fx_index: bool =
             LEFT JOIN t ON t.tag = p.tag AND t.version = p.version
             LEFT JOIN n ON n.adsh = p.adsh AND n.tag = p.tag AND n.version = p.version
         ),
+        -- A foreign filer often prints its statements in its home currency with a "convenience
+        -- translation" into dollars beside them, and the data sets carry both: the same tag, date and
+        -- line twice, in two units (net income in HK$ and in US$, 7.8x apart). Left in, the page shows
+        -- whichever row came first and a check compares a renminbi revenue with a dollar cost. A
+        -- statement is kept in ONE currency: the one most of its lines are reported in (by distinct
+        -- tags, then rows; USD, then alphabetical, break a tie). Non-monetary units (shares, pure) are
+        -- untouched and a per-share unit follows its currency prefix. `reporting_currency` is the same
+        -- rule for the provisional path.
+        currency AS (
+            SELECT accession, ccy FROM (
+                SELECT accession, regexp_extract(unit, '^([A-Z]{{3}})', 1) AS ccy,
+                       count(DISTINCT concept) AS n_tags, count(*) AS n_rows
+                FROM base
+                WHERE value IS NOT NULL AND regexp_matches(unit, '^[A-Z]{{3}}(/shares)?$')
+                GROUP BY 1, 2
+            )
+            QUALIFY row_number() OVER (
+                PARTITION BY accession ORDER BY n_tags DESC, n_rows DESC, (ccy = 'USD') DESC, ccy
+            ) = 1
+        ),
         kept AS (
             -- Which value belongs on a line is decided by the concept, not by the statement it sits on:
             -- `tag.iord` says whether it is an instant ('I', reported with qtrs = 0) or a duration
@@ -220,15 +241,20 @@ def _stage_fsds_quarter(duck: Duck, quarter: str, enrich: bool, fx_index: bool =
             -- cash flow statement -- the cash reconciliation lines are instants -- and let an equity
             -- line take both its closing balance and the year's movement as "the" value.
             -- A custom tag with no `tag` row (iord IS NULL) falls back to what the statement expects.
-            SELECT * FROM base
-            WHERE period_end_rounded IS NULL
+            SELECT b.* FROM base b
+            LEFT JOIN currency c USING (accession)
+            WHERE (period_end_rounded IS NULL
                OR (iord = 'I' AND qtrs = 0)
                OR (iord = 'D' AND qtrs > 0 AND (exp_q IS NULL OR list_contains(exp_q, qtrs)))
                OR (iord IS NULL AND (
                        (statement = 'BS' AND qtrs = 0)
                     OR (statement <> 'BS' AND qtrs = 0)
                     OR (statement <> 'BS' AND qtrs > 0 AND (exp_q IS NULL OR list_contains(exp_q, qtrs)))
-               ))
+               )))
+              -- one currency per statement (see `currency`); a row without a value passes through
+              AND (b.value IS NULL OR c.ccy IS NULL
+                   OR NOT regexp_matches(b.unit, '^[A-Z]{{3}}(/shares)?$')
+                   OR regexp_extract(b.unit, '^([A-Z]{{3}})', 1) = c.ccy)
         ),
         missing AS (
             -- lines whose only values were filtered out keep an empty row so the structure stays intact
@@ -532,6 +558,33 @@ def _keep_period(statement: str, qtrs: int, exp: set[int] | None) -> bool:
     return exp is None or qtrs in exp
 
 
+_MONETARY_UNIT = re.compile(r"^([A-Z]{3})(/shares)?$")
+
+
+def reporting_currency(units: Iterable[tuple[str, str | None]]) -> str | None:
+    """The one currency a filing's statements are kept in, from (concept, unit) pairs: the currency
+    reported on the most distinct concepts, then on the most rows; USD, then alphabetical, break a
+    tie. None when nothing is monetary. The same rule as the `currency` CTE in `_stage_fsds_quarter`,
+    for the provisional path: a foreign filer's dollar convenience translation must not become a
+    second value on a line, in either path."""
+    tags: dict[str, set[str]] = defaultdict(set)
+    rows: dict[str, int] = defaultdict(int)
+    for concept, unit in units:
+        m = _MONETARY_UNIT.match(unit or "")
+        if m:
+            tags[m.group(1)].add(concept)
+            rows[m.group(1)] += 1
+    if not rows:
+        return None
+    return min(rows, key=lambda c: (-len(tags[c]), -rows[c], c != "USD", c))
+
+
+def in_currency(unit: str | None, ccy: str) -> bool:
+    """True for a non-monetary unit, or a monetary one in `ccy` (a per-share unit by its prefix)."""
+    m = _MONETARY_UNIT.match(unit or "")
+    return m is None or m.group(1) == ccy
+
+
 def build_fallback_rows(
     cik: int,
     accession: str,
@@ -554,6 +607,13 @@ def build_fallback_rows(
         if f["taxonomy"] == "dei":
             continue
         by_concept[f["concept"]].append(f)
+    # one currency per filing, as the FSDS path does (see `reporting_currency`)
+    ccy = reporting_currency(
+        (c, f.get("unit")) for c, fs in by_concept.items() for f in fs if f.get("value") is not None
+    )
+    if ccy:
+        for concept, fs in list(by_concept.items()):
+            by_concept[concept] = [f for f in fs if in_currency(f.get("unit"), ccy)]
 
     def fact_rows(concept: str, statement: str) -> list[dict[str, Any]]:
         out = []
