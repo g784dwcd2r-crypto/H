@@ -884,3 +884,5 @@ parent's line first. Three of fifteen sampled rows proved it to the dollar: pret
   income although they tag discontinued operations separately: a filer's mis-tag, to be labelled.
   About half of the failures use the pretax concept whose name says equity-method income is
   excluded; that bucket overlaps this one and is re-measured after the fix.
+- **Result (via `recheck`):** income after tax 12,134 → 8,682; 41,858 of 2,063,641 checks fail, 2.0 %,
+  from 9.2 % at the start; 36.6 % of companies with any failing check, from 71.6 %.
