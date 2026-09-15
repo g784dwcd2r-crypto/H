@@ -1,0 +1,20 @@
+{
+  "key": "XOM",
+  "ticker": "XOM",
+  "cik": 34088,
+  "name": "EXXON MOBIL CORP",
+  "form": "10-K",
+  "year": "",
+  "accession": "0000034088-26-000045",
+  "filed_date": "2026-02-18",
+  "covers": "large integrated energy filer; given by its long-standing CIK (the successor registrant after re-incorporation has no 10-K in our lake yet)",
+  "files": {
+    "instance": "xom-20251231_htm.xml.gz",
+    "schema": "xom-20251231.xsd.gz",
+    "labels": "xom-20251231_lab.xml.gz",
+    "presentation": "xom-20251231_pre.xml.gz",
+    "calculation": "xom-20251231_cal.xml.gz",
+    "definition": "xom-20251231_def.xml.gz"
+  },
+  "missing": []
+}
