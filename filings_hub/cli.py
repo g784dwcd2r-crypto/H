@@ -590,6 +590,20 @@ def check_report_cmd(
         typer.echo(f"wrote {n:,} failing checks with reasons to {csv}")
 
 
+@app.command(name="check-dig")
+def check_dig_cmd(
+    check_name: str = typer.Argument(..., help="e.g. income_after_tax, eps_basic_approx, net_change_in_cash"),
+    examples: int = typer.Option(15, help="failing filings to sample"),
+    verbose: bool = False,
+) -> None:
+    """Everything about one check's failures that finds the next cause: which line each side used and
+    how often it fails, the reasons, and a sample of failing filings with every relevant number."""
+    _setup_logging(verbose)
+    from filings_hub import check_report as cr
+
+    typer.echo(cr.format_dig(cr.dig(_storage(), check_name, examples=examples)))
+
+
 @app.command(name="check-explain")
 def check_explain_cmd(
     cik: int = typer.Argument(..., help="company CIK to explain"),

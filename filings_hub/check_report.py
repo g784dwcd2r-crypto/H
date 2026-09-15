@@ -10,8 +10,10 @@ Read-only. Run it against a local lake (a remote lake scans whole tables; see st
 
 from __future__ import annotations
 
+from collections import defaultdict
 from typing import Any
 
+from filings_hub.ingest import checks as chk
 from filings_hub.ingest.checks import EPS_APPROX_RELATIVE_TOLERANCE, EPS_RELATIVE_TOLERANCE, RELATIVE_TOLERANCE
 from filings_hub.lake import layout
 from filings_hub.lake.duck import Duck
@@ -279,4 +281,119 @@ def format_explain(report: dict[str, Any]) -> str:
             f"  {ln['concept'][:48]:<48} {ln['statement']:>4} {ln['negating']!s:>8} "
             f"{(ln['value'] or 0):>18,.0f} {(ln['value_presented'] or 0):>18,.0f}"
         )
+    return "\n".join(out)
+
+
+# -- digging into one check ----------------------------------------------------------------------
+
+
+def _quoted(values: list[str]) -> str:
+    return ", ".join("'" + v.replace("'", "''") + "'" for v in values)
+
+
+def _fmt(v: float | None) -> str:
+    if v is None:
+        return "-"
+    return f"{v:,.0f}" if abs(v) >= 1000 else f"{v:.4g}"
+
+
+def dig(storage: Storage, check_name: str, examples: int = 15) -> dict[str, Any]:
+    """Everything about one check's failures that finds the next cause, in one pass.
+
+    Three views, the same three that found every cause so far: which line each side of the check
+    used and how often each fails (the EPS and tax-identity bugs were one line failing five times
+    more than the others); the reasons; and a random sample of failing filings with every check
+    concept they carry, so the arithmetic can be read rather than theorised about."""
+    duck = Duck(storage)
+    try:
+        if not duck.view("sc", f"{layout.STATEMENT_CHECKS}/*/*.parquet"):
+            return {"check": check_name, "message": "no statement_checks in the lake"}
+        have_companies = duck.view("companies", layout.COMPANIES, hive=False)
+        base = _base_sql()
+        by_rhs = duck.fetch_dicts(
+            base
+            + """
+            SELECT split_part(detail, ' = ', 2) AS line, count(*) AS ran, count(*) FILTER (WHERE NOT passed) AS failed
+            FROM r WHERE check_name = ? GROUP BY 1 ORDER BY 2 DESC
+            """,
+            [check_name],
+        )
+        by_lhs = duck.fetch_dicts(
+            base
+            + """
+            SELECT split_part(detail, ' ', 1) AS line, count(*) AS ran, count(*) FILTER (WHERE NOT passed) AS failed
+            FROM r WHERE check_name = ? GROUP BY 1 ORDER BY 2 DESC
+            """,
+            [check_name],
+        )
+        reasons = duck.fetch_dicts(
+            base + "SELECT reason, count(*) AS n FROM r WHERE check_name = ? AND NOT passed GROUP BY 1 ORDER BY 2 DESC",
+            [check_name],
+        )
+        name_col = "c.name" if have_companies else "NULL"
+        name_join = "LEFT JOIN companies c ON c.cik = q.cik" if have_companies else ""
+        sample = duck.fetch_dicts(
+            base
+            + f"""
+            SELECT q.cik, {name_col} AS name, q.accession, q.statement, q.lhs, q.rhs, q.ratio, q.reason, q.detail
+            FROM r q {name_join}
+            WHERE q.check_name = ? AND NOT q.passed
+            ORDER BY random() LIMIT {int(examples)}
+            """,
+            [check_name],
+        )
+        for row in sample:
+            row["form"], row["values"] = None, []
+        if sample and duck.view("st", f"{layout.STATEMENTS}/*/*.parquet"):
+            rows = duck.fetch_dicts(
+                f"""
+                SELECT accession, form, statement, concept, value FROM st
+                WHERE accession IN ({_quoted([r["accession"] for r in sample])})
+                  AND is_primary_period AND NOT is_parenthetical AND coalesce(segments, '') = ''
+                  AND value IS NOT NULL AND concept IN ({_quoted(sorted(chk.CHECK_CONCEPTS))})
+                ORDER BY accession, statement, concept
+                """
+            )
+            values: dict[str, list[str]] = defaultdict(list)
+            forms: dict[str, str] = {}
+            for r in rows:
+                values[r["accession"]].append(f"{r['statement']}:{r['concept']}={_fmt(r['value'])}")
+                forms[r["accession"]] = r["form"]
+            for row in sample:
+                row["form"] = forms.get(row["accession"])
+                row["values"] = values.get(row["accession"], [])
+        return {"check": check_name, "by_rhs": by_rhs, "by_lhs": by_lhs, "reasons": reasons, "sample": sample}
+    finally:
+        duck.close()
+
+
+def format_dig(report: dict[str, Any]) -> str:
+    if "message" in report:
+        return report["message"]
+    label = CHECK_LABELS.get(report["check"], report["check"])
+    out = [f"{label}", ""]
+    for title, rows in (
+        ("By the line on the right of '=' ", report["by_rhs"]),
+        ("By the first line on the left", report["by_lhs"]),
+    ):
+        out.append(f"{title}(ran / failed):")
+        for r in rows:
+            rate = f"{r['failed'] / r['ran'] * 100:.1f}%" if r["ran"] else "-"
+            out.append(f"  {(r['line'] or '(none)')[:88]:<88} {r['ran']:>9,} {r['failed']:>8,} {rate:>7}")
+        out.append("")
+    if report["reasons"]:
+        out.append("Why: " + " | ".join(f"{r['reason']} {r['n']:,}" for r in report["reasons"]))
+        out.append("")
+    if report["sample"]:
+        out.append(f"{len(report['sample'])} failing filings, at random (computed vs reported):")
+        for s in report["sample"]:
+            who = s.get("name") or f"CIK {s['cik']}"
+            ratio = f"{s['ratio']:.3f}" if s.get("ratio") is not None else "-"
+            out.append(
+                f"  {s['accession']}  {who[:30]:<30} {s.get('form') or '':<6} "
+                f"{_fmt(s['lhs'])} vs {_fmt(s['rhs'])}  (ratio {ratio})  [{s['reason']}]"
+            )
+            out.append(f"      {s['detail']}")
+            if s["values"]:
+                out.append("      " + "  ".join(s["values"]))
     return "\n".join(out)

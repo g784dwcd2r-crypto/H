@@ -219,3 +219,63 @@ def test_the_approximate_eps_check_is_labelled_and_tolerated_at_five_percent(tmp
     assert approx[("eps_basic_approx", "just over the tolerance")] == 1
     text = cr.format_failure_report(rep)
     assert "approximate (inferred numerator, 5 %)" in text  # fits the 52-character label column
+
+
+def test_dig_shows_the_lines_used_the_reasons_and_a_sample_with_the_numbers(tmp_path):
+    st = Storage(str(tmp_path))
+    rows = [
+        {
+            "accession": f"d{i}",
+            "cik": 5,
+            "statement": "IS",
+            "check_name": "income_after_tax",
+            "passed": passed,
+            "lhs": lhs,
+            "rhs": rhs,
+            "difference": lhs - rhs,
+            "source": "fsds",
+            "detail": f"Pretax - Tax = {line}",
+        }
+        for i, (lhs, rhs, passed, line) in enumerate(
+            [
+                (80.0, 80.0, True, "ProfitLoss"),
+                (80.0, 70.0, False, "IncomeLossFromContinuingOperations"),
+                (80.0, 60.0, False, "IncomeLossFromContinuingOperations"),
+                (80.0, 80.0, True, "IncomeLossFromContinuingOperations"),
+            ]
+        )
+    ]
+    st.write_parquet(
+        f"{layout.statement_checks_cik_dir(5)}/c.parquet", pa.Table.from_pylist(rows, schema=CHECKS_SCHEMA)
+    )
+    st.write_parquet(layout.COMPANIES, pa.table({"cik": [5], "name": ["Dig Co"]}))
+    st.write_parquet(
+        f"{layout.statements_cik_dir(5)}/s.parquet",
+        pa.table(
+            {
+                "cik": [5, 5],
+                "accession": ["d1", "d1"],
+                "form": ["10-K", "10-K"],
+                "statement": ["IS", "IS"],
+                "concept": ["ProfitLoss", "NetIncomeLossAttributableToNoncontrollingInterest"],
+                "value": [80.0, 10.0],
+                "is_primary_period": [True, True],
+                "is_parenthetical": [False, False],
+                "segments": ["", ""],
+            }
+        ),
+    )
+    rep = cr.dig(st, "income_after_tax", examples=5)
+    by = {r["line"]: r for r in rep["by_rhs"]}
+    assert (
+        by["IncomeLossFromContinuingOperations"]["ran"] == 3 and by["IncomeLossFromContinuingOperations"]["failed"] == 2
+    )
+    assert by["ProfitLoss"]["failed"] == 0
+    assert rep["by_lhs"][0]["line"] == "Pretax"
+    assert {r["reason"] for r in rep["reasons"]} <= set(cr.REASONS)
+    sample = {s["accession"]: s for s in rep["sample"]}
+    assert set(sample) == {"d1", "d2"} and sample["d1"]["name"] == "Dig Co" and sample["d1"]["form"] == "10-K"
+    assert "IS:ProfitLoss=80" in sample["d1"]["values"]
+    text = cr.format_dig(rep)
+    assert "IncomeLossFromContinuingOperations" in text and "Dig Co" in text and "ProfitLoss=80" in text
+    assert cr.format_dig(cr.dig(Storage(str(tmp_path / "empty")), "x")) == "no statement_checks in the lake"
