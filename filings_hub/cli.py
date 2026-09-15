@@ -567,9 +567,10 @@ def coverage_audit_cmd(
 def check_report_cmd(
     examples: int = typer.Option(20, help="how many worst-offender rows to list"),
     as_json: bool = typer.Option(False, "--json", help="print the raw report as JSON"),
+    csv: str = typer.Option("", help="also write every failing check, with company and reason, to this CSV"),
     verbose: bool = False,
 ) -> None:
-    """Error report over the arithmetic checks: which rule fails, how badly, and for whom.
+    """Error report over the arithmetic checks: which rule fails, how badly, why, and for whom.
 
     Per check: how many ran, passed, failed, and the failure severity spread, plus the companies
     affected and the worst offenders by name. Read-only. Run against a local lake.
@@ -584,6 +585,9 @@ def check_report_cmd(
         typer.echo(json.dumps(report, indent=2, default=str))
     else:
         typer.echo(cr.format_failure_report(report))
+    if csv:
+        n = cr.export_failures(_storage(), csv)
+        typer.echo(f"wrote {n:,} failing checks with reasons to {csv}")
 
 
 @app.command(name="check-explain")

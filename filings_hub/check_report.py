@@ -36,9 +36,54 @@ CHECK_LABELS = {
 
 def _tol_expr() -> str:
     return (
-        f"CASE WHEN check_name LIKE 'eps\\_%' ESCAPE '\\' "
-        f"THEN {EPS_RELATIVE_TOLERANCE} ELSE {RELATIVE_TOLERANCE} END"
+        f"CASE WHEN check_name LIKE 'eps\\_%' ESCAPE '\\' THEN {EPS_RELATIVE_TOLERANCE} ELSE {RELATIVE_TOLERANCE} END"
     )
+
+
+# Why a check failed, read off the two sides alone. Not a diagnosis of the filing, a sorting of the
+# pile: a sign flip or a factor of a thousand is a filer's tagging anomaly to list, not a check to
+# fix; "just over" is a tolerance question; "unexplained" is where the real investigation goes.
+REASONS = (
+    "one side is zero",
+    "sign: the two sides are exact negatives",
+    "scale: off by a factor of 1,000 or 1,000,000",
+    "period: off by a factor of 2 to 4",
+    "just over the tolerance",
+    "unexplained",
+)
+
+
+def _base_sql() -> str:
+    """The failing checks with their gap, tolerance multiple `q`, ratio and reason, as CTE `r`."""
+    return f"""
+        WITH t AS (
+            SELECT check_name, cik, accession, statement, lhs, rhs, passed, detail,
+                   abs(coalesce(difference, lhs - rhs)) AS gap,
+                   greatest(abs(lhs), abs(rhs)) AS mag,
+                   {_tol_expr()} AS tol
+            FROM sc WHERE lhs IS NOT NULL AND rhs IS NOT NULL
+        ),
+        q AS (
+            SELECT *, CASE WHEN mag = 0 OR mag IS NULL THEN NULL ELSE (gap / mag) / tol END AS q,
+                   CASE WHEN lhs = 0 OR rhs = 0 THEN NULL ELSE lhs / rhs END AS ratio
+            FROM t
+        ),
+        r AS (
+            SELECT *, CASE
+                WHEN passed THEN NULL
+                WHEN lhs = 0 OR rhs = 0 THEN '{REASONS[0]}'
+                WHEN abs(lhs + rhs) <= 0.01 * mag THEN '{REASONS[1]}'
+                WHEN abs(ratio - 1000) <= 50 OR abs(ratio - 1e6) <= 5e4
+                  OR abs(ratio - 0.001) <= 5e-5 OR abs(ratio - 1e-6) <= 5e-8 THEN '{REASONS[2]}'
+                WHEN abs(ratio - 2) <= 0.2 OR abs(ratio - 3) <= 0.3 OR abs(ratio - 4) <= 0.4
+                  OR abs(ratio - 0.5) <= 0.05 OR abs(ratio - 0.333) <= 0.03 OR abs(ratio - 0.25) <= 0.03
+                  THEN '{REASONS[3]}'
+                WHEN q < 2 THEN '{REASONS[4]}'
+                ELSE '{REASONS[5]}'
+            END AS reason
+            FROM q
+        )
+    """
 
 
 def failure_report(storage: Storage, examples: int = 20) -> dict[str, Any]:
@@ -48,19 +93,7 @@ def failure_report(storage: Storage, examples: int = 20) -> dict[str, Any]:
             return {"total": 0, "message": "no statement_checks in the lake"}
         have_companies = duck.view("companies", layout.COMPANIES, hive=False)
 
-        base = f"""
-            WITH t AS (
-                SELECT check_name, cik, accession, lhs, rhs, passed,
-                       abs(coalesce(difference, lhs - rhs)) AS gap,
-                       greatest(abs(lhs), abs(rhs)) AS mag,
-                       {_tol_expr()} AS tol
-                FROM sc WHERE lhs IS NOT NULL AND rhs IS NOT NULL
-            ),
-            q AS (
-                SELECT *, CASE WHEN mag = 0 OR mag IS NULL THEN NULL ELSE (gap / mag) / tol END AS q
-                FROM t
-            )
-        """
+        base = _base_sql()
 
         per_check = duck.fetch_dicts(
             base
@@ -72,8 +105,11 @@ def failure_report(storage: Storage, examples: int = 20) -> dict[str, Any]:
                    count(*) FILTER (WHERE NOT passed AND q < 2) AS just_over,
                    count(*) FILTER (WHERE NOT passed AND q >= 2 AND q < 10) AS mid,
                    count(*) FILTER (WHERE NOT passed AND (q >= 10 OR q IS NULL)) AS far
-            FROM q GROUP BY check_name ORDER BY failed DESC
+            FROM r GROUP BY check_name ORDER BY failed DESC
             """
+        )
+        reasons = duck.fetch_dicts(
+            base + "SELECT check_name, reason, count(*) AS n FROM r WHERE NOT passed GROUP BY 1, 2 ORDER BY 1, 3 DESC"
         )
 
         totals = duck.fetch_dicts(
@@ -88,8 +124,8 @@ def failure_report(storage: Storage, examples: int = 20) -> dict[str, Any]:
         worst = duck.fetch_dicts(
             base
             + f"""
-            SELECT q.check_name, q.cik, {name_col} AS name, q.accession, q.lhs, q.rhs, q.q AS q
-            FROM q {name_join}
+            SELECT q.check_name, q.cik, {name_col} AS name, q.accession, q.lhs, q.rhs, q.q AS q, q.reason
+            FROM r q {name_join}
             WHERE NOT q.passed AND q.q IS NOT NULL
             ORDER BY q.q DESC LIMIT {int(examples)}
             """
@@ -101,8 +137,37 @@ def failure_report(storage: Storage, examples: int = 20) -> dict[str, Any]:
             "companies_checked": totals["companies_checked"],
             "companies_with_failure": totals["companies_with_failure"],
             "per_check": per_check,
+            "reasons": reasons,
             "worst": worst,
         }
+    finally:
+        duck.close()
+
+
+def export_failures(storage: Storage, path: str) -> int:
+    """Every failing check, with the company's name and the reason, to a CSV: the named list. Returns
+    the number of rows written."""
+    duck = Duck(storage)
+    try:
+        if not duck.view("sc", f"{layout.STATEMENT_CHECKS}/*/*.parquet"):
+            return 0
+        have_companies = duck.view("companies", layout.COMPANIES, hive=False)
+        name_col = "c.name" if have_companies else "NULL"
+        name_join = "LEFT JOIN companies c ON c.cik = q.cik" if have_companies else ""
+        # the CTEs go inside the copied query: COPY does not take a leading WITH
+        duck.sql(
+            f"""
+            COPY (
+                {_base_sql()}
+                SELECT q.cik, {name_col} AS name, q.accession, q.statement, q.check_name, q.reason,
+                       q.lhs, q.rhs, round(q.q, 2) AS tolerance_multiple, q.detail
+                FROM r q {name_join}
+                WHERE NOT q.passed
+                ORDER BY q.reason, q.check_name, q.cik, q.accession
+            ) TO '{path}' (FORMAT CSV, HEADER)
+            """
+        )
+        return int(duck.fetch_value(_base_sql() + "SELECT count(*) FROM r WHERE NOT passed"))
     finally:
         duck.close()
 
@@ -121,6 +186,9 @@ def format_failure_report(report: dict[str, Any]) -> str:
         "By check (worst first):",
         f"  {'check':<52} {'ran':>9} {'fail':>9} {'fail%':>6}  {'just':>7} {'2-10x':>7} {'>10x':>8}",
     ]
+    by_check: dict[str, list[dict[str, Any]]] = {}
+    for row in report.get("reasons", []):
+        by_check.setdefault(row["check_name"], []).append(row)
     for r in report["per_check"]:
         label = CHECK_LABELS.get(r["check_name"], r["check_name"])
         rate = f"{r['failed'] / r['total'] * 100:.0f}%" if r["total"] else "-"
@@ -128,6 +196,9 @@ def format_failure_report(report: dict[str, Any]) -> str:
             f"  {label:<52.52} {r['total']:>9,} {r['failed']:>9,} {rate:>6}  "
             f"{r['just_over']:>7,} {r['mid']:>7,} {r['far']:>8,}"
         )
+        if r["failed"] and by_check.get(r["check_name"]):
+            parts = [f"{x['reason']} {x['n']:,}" for x in by_check[r["check_name"]]]
+            out.append(f"      why: {' | '.join(parts)}")
     if report["worst"]:
         out.append("")
         out.append(f"Worst {len(report['worst'])} failures (most out of line):")
@@ -137,7 +208,7 @@ def format_failure_report(report: dict[str, Any]) -> str:
             pct = (w["q"] or 0) * tol
             out.append(
                 f"  cik {w['cik']:<8} {who[:28]:<28} {CHECK_LABELS.get(w['check_name'], w['check_name'])[:30]:<30} "
-                f"{w['lhs']:>16,.0f} vs {w['rhs']:>16,.0f}  ({pct * 100:.1f}% off)"
+                f"{w['lhs']:>16,.0f} vs {w['rhs']:>16,.0f}  ({pct * 100:.1f}% off)  [{w.get('reason') or ''}]"
             )
     return "\n".join(out)
 
@@ -165,15 +236,19 @@ def explain(storage: Storage, cik: int, accessions: int = 3) -> dict[str, Any]:
         )
         bad_accessions = list(dict.fromkeys(f["accession"] for f in fails))[:accessions]
         concepts = "', '".join(sorted(CHECK_CONCEPTS))
-        lines = duck.fetch_dicts(
-            f"""
+        lines = (
+            duck.fetch_dicts(
+                f"""
             SELECT accession, statement, concept, value, value_presented, negating, period_end
             FROM st
             WHERE is_primary_period AND coalesce(segments, '') = '' AND concept IN ('{concepts}')
               AND accession IN ('{"', '".join(bad_accessions)}')
             ORDER BY accession, statement, concept
             """
-        ) if bad_accessions else []
+            )
+            if bad_accessions
+            else []
+        )
         return {"cik": cik, "fails": fails, "lines": lines, "shown_accessions": bad_accessions}
     finally:
         duck.close()

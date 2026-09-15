@@ -9,11 +9,11 @@ from filings_hub.lake.storage import Storage
 
 # check_name, statement, lhs, rhs, passed
 ROWS = [
-    ("assets_eq_liabilities_and_equity", "BS", 1_000_000, 1_000_000, True),   # exact pass
-    ("assets_eq_liabilities_and_equity", "BS", 1_000_000, 1_000_010, True),   # tiny pass
+    ("assets_eq_liabilities_and_equity", "BS", 1_000_000, 1_000_000, True),  # exact pass
+    ("assets_eq_liabilities_and_equity", "BS", 1_000_000, 1_000_010, True),  # tiny pass
     ("assets_eq_liabilities_and_equity", "BS", 1_000_000, 1_007_000, False),  # just-over fail (~1.4x)
     ("assets_eq_liabilities_and_equity", "BS", 1_000_000, 1_500_000, False),  # >10x fail (worst)
-    ("gross_profit", "IS", 500, 512, False),                                  # mid fail (~4.7x, 2.3% off)
+    ("gross_profit", "IS", 500, 512, False),  # mid fail (~4.7x, 2.3% off)
 ]
 
 
@@ -34,7 +34,9 @@ def _seed(st: Storage, with_company: bool = True) -> None:
                 "source": "fsds",
             }
         )
-    st.write_parquet(f"{layout.statement_checks_cik_dir(42)}/c.parquet", pa.Table.from_pylist(rows, schema=CHECKS_SCHEMA))
+    st.write_parquet(
+        f"{layout.statement_checks_cik_dir(42)}/c.parquet", pa.Table.from_pylist(rows, schema=CHECKS_SCHEMA)
+    )
     if with_company:
         st.write_parquet(layout.COMPANIES, pa.table({"cik": [42], "name": ["Acme Corp"]}))
 
@@ -98,24 +100,41 @@ def test_explain_shows_value_vs_presented_for_a_company(tmp_path):
     st.write_parquet(
         f"{layout.statement_checks_cik_dir(7)}/c.parquet",
         pa.Table.from_pylist(
-            [{
-                "accession": "z1", "cik": 7, "statement": "BS",
-                "check_name": "assets_eq_liabilities_and_equity", "passed": False,
-                "lhs": -100.0, "rhs": 100.0, "difference": -200.0, "detail": "", "source": "fsds",
-            }],
+            [
+                {
+                    "accession": "z1",
+                    "cik": 7,
+                    "statement": "BS",
+                    "check_name": "assets_eq_liabilities_and_equity",
+                    "passed": False,
+                    "lhs": -100.0,
+                    "rhs": 100.0,
+                    "difference": -200.0,
+                    "detail": "",
+                    "source": "fsds",
+                }
+            ],
             schema=CHECKS_SCHEMA,
         ),
     )
     # the statement lines: Assets filed as -100 but presented as +100 (negating); Liabilities +100
     st.write_parquet(
         f"{layout.statements_cik_dir(7)}/s.parquet",
-        pa.table({
-            "cik": [7, 7], "accession": ["z1", "z1"], "statement": ["BS", "BS"],
-            "concept": ["Assets", "Liabilities"], "value": [-100.0, 100.0],
-            "value_presented": [100.0, 100.0], "negating": [True, False],
-            "is_primary_period": [True, True], "segments": ["", ""],
-            "period_end": [None, None], "line_order": [1, 2],
-        }),
+        pa.table(
+            {
+                "cik": [7, 7],
+                "accession": ["z1", "z1"],
+                "statement": ["BS", "BS"],
+                "concept": ["Assets", "Liabilities"],
+                "value": [-100.0, 100.0],
+                "value_presented": [100.0, 100.0],
+                "negating": [True, False],
+                "is_primary_period": [True, True],
+                "segments": ["", ""],
+                "period_end": [None, None],
+                "line_order": [1, 2],
+            }
+        ),
     )
     rep = cr.explain(st, 7)
     assert len(rep["fails"]) == 1 and rep["fails"][0]["check_name"] == "assets_eq_liabilities_and_equity"
@@ -124,3 +143,66 @@ def test_explain_shows_value_vs_presented_for_a_company(tmp_path):
     assert by_concept["Assets"]["negating"] is True
     text = cr.format_explain(rep)
     assert "Assets" in text and "negating" in text
+
+
+# -- reasons and the named list ---------------------------------------------------------------------
+
+# check_name, lhs, rhs -> the reason the report should give
+REASON_ROWS = [
+    ("gross_profit", 100.0, -100.0, "sign: the two sides are exact negatives"),
+    ("eps_basic", 12.0, 0.012, "scale: off by a factor of 1,000 or 1,000,000"),
+    ("eps_basic", 4.0, 1.0, "period: off by a factor of 2 to 4"),
+    ("gross_profit", 100.0, 0.0, "one side is zero"),
+    ("gross_profit", 1_000_000.0, 1_007_000.0, "just over the tolerance"),
+    ("gross_profit", 1_000_000.0, 1_500_000.0, "unexplained"),
+]
+
+
+def _seed_reasons(st: Storage) -> None:
+    rows = [
+        {
+            "accession": f"r{i}",
+            "cik": 9,
+            "statement": "IS",
+            "check_name": name,
+            "passed": False,
+            "lhs": lhs,
+            "rhs": rhs,
+            "difference": lhs - rhs,
+            "detail": "",
+            "source": "fsds",
+        }
+        for i, (name, lhs, rhs, _) in enumerate(REASON_ROWS)
+    ]
+    st.write_parquet(
+        f"{layout.statement_checks_cik_dir(9)}/c.parquet", pa.Table.from_pylist(rows, schema=CHECKS_SCHEMA)
+    )
+    st.write_parquet(layout.COMPANIES, pa.table({"cik": [9], "name": ["Reason Co"]}))
+
+
+def test_every_failure_gets_a_reason(tmp_path):
+    st = Storage(str(tmp_path))
+    _seed_reasons(st)
+    rep = cr.failure_report(st)
+    got = {(r["check_name"], r["reason"]): r["n"] for r in rep["reasons"]}
+    for name, _, _, reason in REASON_ROWS:
+        assert got.get((name, reason), 0) >= 1, (name, reason, got)
+    assert set(r["reason"] for r in rep["reasons"]) <= set(cr.REASONS)
+    assert all(w["reason"] in cr.REASONS for w in rep["worst"])
+    text = cr.format_failure_report(rep)
+    assert "why:" in text and "sign: the two sides are exact negatives" in text
+
+
+def test_export_writes_the_named_list(tmp_path):
+    import csv
+
+    st = Storage(str(tmp_path))
+    _seed_reasons(st)
+    out = tmp_path / "failures.csv"
+    assert cr.export_failures(st, str(out)) == len(REASON_ROWS)
+    rows = list(csv.DictReader(out.open()))
+    assert len(rows) == len(REASON_ROWS)
+    assert {r["name"] for r in rows} == {"Reason Co"}
+    assert {r["reason"] for r in rows} == {reason for _, _, _, reason in REASON_ROWS}
+    assert set(rows[0]) >= {"cik", "name", "accession", "check_name", "reason", "lhs", "rhs", "tolerance_multiple"}
+    assert cr.export_failures(Storage(str(tmp_path / "empty")), str(tmp_path / "e.csv")) == 0
