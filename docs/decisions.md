@@ -999,3 +999,25 @@ releases, which is a project of step 25's kind and should not start on a guess.
 
 **The rule that must hold if we ever do extract them:** a figure from a press release is never
 presented as carrying the weight of an audited annual report.
+
+## The currency fix, carried through the page and not only the table (2026-09-15)
+
+Everything that verified the currency fix until now counted rows or counted failing checks. The code
+that lays out what a reader actually sees — the grid — had never been run against a two-currency
+filing at all. So the page is now built before and after a filer adds a translated copy of every line,
+and the two must be identical: same lines, same values, one currency throughout.
+
+Both directions were rendered and read rather than only asserted. With the dollar winning, the
+statement is unchanged line for line. With the home currency winning — the dangerous direction, where
+the dollar rows are the ones dropped — the statement reads in that currency throughout, each figure
+exactly the translated one, no line emptied, and the statement still adds up inside itself
+(980 - 525 = 455, 455 - 112 = 343, 343 - 56 = 287).
+
+What this does not prove: that a particular company's page on the real lake is right. The fixture is
+synthetic, so this shows the code lays the page out correctly, which is a different claim. The honest
+status stays "fixed, rebuilt, page path proven, real page not yet opened".
+
+One thing seen while reading it and deliberately left alone: a per-share line still carries the
+company's own printed label ("in dollars per share") beside a renminbi unit. That is the filer's
+wording, and the rule is that a page shows the company's own words; the unit beside it is ours and is
+correct.

@@ -916,3 +916,41 @@ def test_reporting_currency_rule():
     assert rc([("Eps", "CNY/shares"), ("Cost", "CNY"), ("Rev", "USD")]) == "CNY"  # per-share follows its prefix
     assert rc([("Shares", "shares"), ("Ratio", "pure")]) is None  # nothing monetary
     assert S.in_currency("shares", "USD") and S.in_currency("USD/shares", "USD") and not S.in_currency("CNY", "USD")
+
+
+def test_a_convenience_translation_changes_nothing_a_user_reads(lake_copy: Storage):
+    """The page itself, not the statements table: build the company page before and after a filer
+    adds a dollar-translated copy of every line, and require them to be identical — same lines, same
+    values, one currency throughout. The table being right is not the same as the page being right,
+    and until now only the table was tested."""
+    import re
+
+    from filings_hub.db.database import Database
+    from filings_hub.export.grid import build_grid
+
+    money = re.compile(r"^[A-Z]{3}(/shares)?$")
+
+    def page() -> dict:
+        database = Database("", lake_copy)
+        try:
+            return build_grid(database, fx.APPLE, ["Q1 2026"]).to_dict()
+        finally:
+            database.close()
+
+    _build_quarter_with(lake_copy, "2026q1", [])
+    before = page()
+    _build_quarter_with(lake_copy, "2026q1", [_translated(ln, "CNY", 7.0) for ln in _apple_usd_rows("2026q1")])
+    after = page()
+    assert after == before, "the translation changed what the page shows"
+
+    lines = [ln for s in after["statements"] for ln in s["lines"]]
+    assert {ln["unit"] for ln in lines if ln["unit"] and money.match(ln["unit"])} <= {"USD", "USD/shares"}
+    revenue = next(
+        ln
+        for s in after["statements"]
+        if s["code"] == "IS"
+        for ln in s["lines"]
+        if ln["concept"] == "RevenueFromContractWithCustomerExcludingAssessedTax"
+    )
+    assert revenue["values"]["Q1 2026"] == 140_000_000_000.0  # the home-currency figure, not 7x it
+    assert sum(1 for ln in lines if ln["values"].get("Q1 2026") is not None) > 5  # lines were not emptied

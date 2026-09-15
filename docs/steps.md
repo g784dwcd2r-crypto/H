@@ -614,6 +614,18 @@ flowchart LR
 **Done when.** It is habit: no data change is recorded as done without naming the pages that were
 read. The first one owed is the currency fix.
 
+**First instalment paid (2026-09-15), and what is still owed.** The currency fix was carried through
+the page-building code, not just the statements table: a company page is built before and after a
+filer adds a translated copy of every line, and the two must come out identical — same lines, same
+values, one currency. Both directions were rendered and read. Where the dollar wins, the statement is
+unchanged. Where the home currency wins and the dollar rows are the ones dropped, the statement reads
+in that currency throughout, each figure exactly the translated one, nothing blank, and it still adds
+up inside itself (980 - 525 = 455, 455 - 112 = 343, 343 - 56 = 287). That is a permanent test now.
+
+Still owed: the same look on the **real lake**, in a browser. The test uses a synthetic filing, so it
+proves the code lays the page out correctly; it cannot prove a particular company's page is right.
+Two minutes on a Chinese or Singapore filer closes it.
+
 **Size.** Minutes per change. It is a habit, not a build.
 
 ## Step 9. Use the company's own precision
