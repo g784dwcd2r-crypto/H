@@ -859,3 +859,9 @@ check nor an error by the filer.
   real evidence of consistency and the only EPS coverage for most small filers.
 - **The tolerance tool** (step 1) measures the exact tolerances only; the approximate check is a
   design choice, not a measurement, and is excluded from it.
+- **Result (via `recheck`):** 45,310 of 2,063,641 checks fail, 2.2 %, from 2.4 %. EPS 25,463 → 20,228:
+  approximate basic 6,734 and diluted 8,292 (half of those are share counts filed in thousands, a
+  filer anomaly); exact basic 1,689 and diluted 3,513. Exact diluted fails 9 % against basic's 4 %:
+  where a company tags a basic available-to-common line but no diluted one, the basic figure stands
+  in, and under the if-converted method the diluted numerator adds preferred dividends back. A
+  smaller bucket, queued behind income after tax (10,015 unexplained), the largest that remains.
