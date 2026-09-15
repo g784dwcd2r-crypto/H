@@ -1,0 +1,20 @@
+{
+  "key": "ETHEMA",
+  "ticker": "",
+  "cik": 792935,
+  "name": "ETHEMA HEALTH Corp",
+  "form": "10-K",
+  "year": "",
+  "accession": "0001903596-26-000271",
+  "filed_date": "2026-07-01",
+  "covers": "small company that invents its own labels; gross profit reported the other way up",
+  "files": {
+    "instance": "grst_10k_htm.xml.gz",
+    "schema": "grst-20251231.xsd.gz",
+    "labels": "grst-20251231_lab.xml.gz",
+    "presentation": "grst-20251231_pre.xml.gz",
+    "calculation": "grst-20251231_cal.xml.gz",
+    "definition": "grst-20251231_def.xml.gz"
+  },
+  "missing": []
+}

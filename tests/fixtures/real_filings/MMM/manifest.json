@@ -1,0 +1,20 @@
+{
+  "key": "MMM",
+  "ticker": "MMM",
+  "cik": 66740,
+  "name": "3M CO",
+  "form": "10-K",
+  "year": "",
+  "accession": "0000066740-26-000014",
+  "filed_date": "2026-02-03",
+  "covers": "discontinued operations after the 2024 Solventum spin-off",
+  "files": {
+    "instance": "mmm-20251231_htm.xml.gz",
+    "schema": "mmm-20251231.xsd.gz",
+    "labels": "mmm-20251231_lab.xml.gz",
+    "presentation": "mmm-20251231_pre.xml.gz",
+    "calculation": "mmm-20251231_cal.xml.gz",
+    "definition": "mmm-20251231_def.xml.gz"
+  },
+  "missing": []
+}

@@ -1,0 +1,20 @@
+{
+  "key": "KO_2010",
+  "ticker": "KO",
+  "cik": 21344,
+  "name": "COCA COLA CO",
+  "form": "10-K",
+  "year": "2010",
+  "accession": "0001047469-10-001476",
+  "filed_date": "2010-02-26",
+  "covers": "filed in 2010 for fiscal 2009: the first year of mandatory XBRL; before the inline format",
+  "files": {
+    "instance": "ko-20091231.xml.gz",
+    "schema": "ko-20091231.xsd.gz",
+    "labels": "ko-20091231_lab.xml.gz",
+    "presentation": "ko-20091231_pre.xml.gz",
+    "calculation": "ko-20091231_cal.xml.gz",
+    "definition": "ko-20091231_def.xml.gz"
+  },
+  "missing": []
+}

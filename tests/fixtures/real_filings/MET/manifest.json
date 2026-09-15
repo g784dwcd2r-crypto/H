@@ -1,0 +1,20 @@
+{
+  "key": "MET",
+  "ticker": "MET",
+  "cik": 1099219,
+  "name": "METLIFE INC",
+  "form": "10-K",
+  "year": "",
+  "accession": "0001099219-26-000013",
+  "filed_date": "2026-02-19",
+  "covers": "insurer",
+  "files": {
+    "instance": "met-20251231_htm.xml.gz",
+    "schema": "met-20251231.xsd.gz",
+    "labels": "met-20251231_lab.xml.gz",
+    "presentation": "met-20251231_pre.xml.gz",
+    "calculation": "met-20251231_cal.xml.gz",
+    "definition": "met-20251231_def.xml.gz"
+  },
+  "missing": []
+}

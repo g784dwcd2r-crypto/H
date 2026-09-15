@@ -1,0 +1,20 @@
+{
+  "key": "COST",
+  "ticker": "COST",
+  "cik": 909832,
+  "name": "COSTCO WHOLESALE CORP /NEW",
+  "form": "10-K",
+  "year": "",
+  "accession": "0000909832-25-000101",
+  "filed_date": "2025-10-08",
+  "covers": "52/53-week fiscal year ending in late August/September",
+  "files": {
+    "instance": "cost-20250831_htm.xml.gz",
+    "schema": "cost-20250831.xsd.gz",
+    "labels": "cost-20250831_lab.xml.gz",
+    "presentation": "cost-20250831_pre.xml.gz",
+    "calculation": "cost-20250831_cal.xml.gz",
+    "definition": "cost-20250831_def.xml.gz"
+  },
+  "missing": []
+}

@@ -1,0 +1,21 @@
+{
+  "key": "TM",
+  "ticker": "TM",
+  "cik": 1094517,
+  "name": "TOYOTA MOTOR CORP/",
+  "form": "20-F",
+  "year": "",
+  "accession": "0001193125-26-264811",
+  "filed_date": "2026-06-10",
+  "covers": "foreign private issuer filing 20-F under IFRS",
+  "files": {
+    "instance": "d101983d20f_htm.xml.gz",
+    "schema": "tm-20260331.xsd.gz"
+  },
+  "missing": [
+    "labels",
+    "presentation",
+    "calculation",
+    "definition"
+  ]
+}

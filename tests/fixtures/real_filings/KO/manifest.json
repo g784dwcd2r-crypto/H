@@ -1,0 +1,20 @@
+{
+  "key": "KO",
+  "ticker": "KO",
+  "cik": 21344,
+  "name": "COCA COLA CO",
+  "form": "10-K",
+  "year": "",
+  "accession": "0001628280-26-010047",
+  "filed_date": "2026-02-20",
+  "covers": "calendar year end; long-standing filer",
+  "files": {
+    "instance": "ko-20251231_htm.xml.gz",
+    "schema": "ko-20251231.xsd.gz",
+    "labels": "ko-20251231_lab.xml.gz",
+    "presentation": "ko-20251231_pre.xml.gz",
+    "calculation": "ko-20251231_cal.xml.gz",
+    "definition": "ko-20251231_def.xml.gz"
+  },
+  "missing": []
+}

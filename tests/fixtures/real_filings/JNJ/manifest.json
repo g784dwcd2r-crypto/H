@@ -1,0 +1,20 @@
+{
+  "key": "JNJ",
+  "ticker": "JNJ",
+  "cik": 200406,
+  "name": "JOHNSON & JOHNSON",
+  "form": "10-K",
+  "year": "",
+  "accession": "0000200406-26-000016",
+  "filed_date": "2026-02-11",
+  "covers": "healthcare filer with segment detail",
+  "files": {
+    "instance": "jnj-20251228_htm.xml.gz",
+    "schema": "jnj-20251228.xsd.gz",
+    "labels": "jnj-20251228_lab.xml.gz",
+    "presentation": "jnj-20251228_pre.xml.gz",
+    "calculation": "jnj-20251228_cal.xml.gz",
+    "definition": "jnj-20251228_def.xml.gz"
+  },
+  "missing": []
+}

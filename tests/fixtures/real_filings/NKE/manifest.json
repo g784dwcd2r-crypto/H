@@ -1,0 +1,20 @@
+{
+  "key": "NKE",
+  "ticker": "NKE",
+  "cik": 320187,
+  "name": "NIKE, Inc.",
+  "form": "10-K",
+  "year": "",
+  "accession": "0000320187-26-000088",
+  "filed_date": "2026-07-15",
+  "covers": "May fiscal year end",
+  "files": {
+    "instance": "nke-20260531_htm.xml.gz",
+    "schema": "nke-20260531.xsd.gz",
+    "labels": "nke-20260531_lab.xml.gz",
+    "presentation": "nke-20260531_pre.xml.gz",
+    "calculation": "nke-20260531_cal.xml.gz",
+    "definition": "nke-20260531_def.xml.gz"
+  },
+  "missing": []
+}

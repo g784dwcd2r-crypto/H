@@ -1,0 +1,20 @@
+{
+  "key": "TFIN",
+  "ticker": "TFIN",
+  "cik": 1539638,
+  "name": "Triumph Financial, Inc.",
+  "form": "10-Q",
+  "year": "",
+  "accession": "0001539638-26-000029",
+  "filed_date": "2026-07-21",
+  "covers": "bank whose fee income is several lines on one tag told apart only by a dimension: the case the fixture was modelled on",
+  "files": {
+    "instance": "tbk-20260630_htm.xml.gz",
+    "schema": "tbk-20260630.xsd.gz",
+    "labels": "tbk-20260630_lab.xml.gz",
+    "presentation": "tbk-20260630_pre.xml.gz",
+    "calculation": "tbk-20260630_cal.xml.gz",
+    "definition": "tbk-20260630_def.xml.gz"
+  },
+  "missing": []
+}

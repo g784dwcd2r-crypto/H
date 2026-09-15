@@ -1,0 +1,21 @@
+{
+  "key": "PLD",
+  "ticker": "PLD",
+  "cik": 1045609,
+  "name": "Prologis, Inc.",
+  "form": "10-K",
+  "year": "",
+  "accession": "0001193125-26-051453",
+  "filed_date": "2026-02-13",
+  "covers": "REIT",
+  "files": {
+    "instance": "pld-20251231_htm.xml.gz",
+    "schema": "pld-20251231.xsd.gz"
+  },
+  "missing": [
+    "labels",
+    "presentation",
+    "calculation",
+    "definition"
+  ]
+}

@@ -1,0 +1,20 @@
+{
+  "key": "MRNA",
+  "ticker": "MRNA",
+  "cik": 1682852,
+  "name": "Moderna, Inc.",
+  "form": "10-K",
+  "year": "",
+  "accession": "0001682852-26-000033",
+  "filed_date": "2026-02-20",
+  "covers": "biotech: revenue can be absent or negative in some periods",
+  "files": {
+    "instance": "mrna-20251231_htm.xml.gz",
+    "schema": "mrna-20251231.xsd.gz",
+    "labels": "mrna-20251231_lab.xml.gz",
+    "presentation": "mrna-20251231_pre.xml.gz",
+    "calculation": "mrna-20251231_cal.xml.gz",
+    "definition": "mrna-20251231_def.xml.gz"
+  },
+  "missing": []
+}

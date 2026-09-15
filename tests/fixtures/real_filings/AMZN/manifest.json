@@ -1,0 +1,20 @@
+{
+  "key": "AMZN",
+  "ticker": "AMZN",
+  "cik": 1018724,
+  "name": "AMAZON COM INC",
+  "form": "10-K",
+  "year": "",
+  "accession": "0001018724-26-000004",
+  "filed_date": "2026-02-06",
+  "covers": "large filer with a substantial cash flow statement",
+  "files": {
+    "instance": "amzn-20251231_htm.xml.gz",
+    "schema": "amzn-20251231.xsd.gz",
+    "labels": "amzn-20251231_lab.xml.gz",
+    "presentation": "amzn-20251231_pre.xml.gz",
+    "calculation": "amzn-20251231_cal.xml.gz",
+    "definition": "amzn-20251231_def.xml.gz"
+  },
+  "missing": []
+}

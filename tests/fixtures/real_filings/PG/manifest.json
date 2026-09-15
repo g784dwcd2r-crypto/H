@@ -1,0 +1,20 @@
+{
+  "key": "PG",
+  "ticker": "PG",
+  "cik": 80424,
+  "name": "PROCTER & GAMBLE Co",
+  "form": "10-K",
+  "year": "",
+  "accession": "0000080424-26-000103",
+  "filed_date": "2026-08-04",
+  "covers": "June fiscal year end; consumer staples",
+  "files": {
+    "instance": "pg-20260630_htm.xml.gz",
+    "schema": "pg-20260630.xsd.gz",
+    "labels": "pg-20260630_lab.xml.gz",
+    "presentation": "pg-20260630_pre.xml.gz",
+    "calculation": "pg-20260630_cal.xml.gz",
+    "definition": "pg-20260630_def.xml.gz"
+  },
+  "missing": []
+}

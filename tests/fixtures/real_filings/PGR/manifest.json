@@ -1,0 +1,20 @@
+{
+  "key": "PGR",
+  "ticker": "PGR",
+  "cik": 80661,
+  "name": "PROGRESSIVE CORP/OH/",
+  "form": "10-K",
+  "year": "",
+  "accession": "0000080661-26-000086",
+  "filed_date": "2026-03-02",
+  "covers": "insurer with a non-standard income statement",
+  "files": {
+    "instance": "pgr-20251231_htm.xml.gz",
+    "schema": "pgr-20251231.xsd.gz",
+    "labels": "pgr-20251231_lab.xml.gz",
+    "presentation": "pgr-20251231_pre.xml.gz",
+    "calculation": "pgr-20251231_cal.xml.gz",
+    "definition": "pgr-20251231_def.xml.gz"
+  },
+  "missing": []
+}

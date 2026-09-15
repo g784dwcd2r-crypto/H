@@ -1,0 +1,20 @@
+{
+  "key": "AAPL",
+  "ticker": "AAPL",
+  "cik": 320193,
+  "name": "Apple Inc.",
+  "form": "10-K",
+  "year": "",
+  "accession": "0000320193-25-000079",
+  "filed_date": "2025-10-31",
+  "covers": "52/53-week fiscal year ending in September; a very large filer",
+  "files": {
+    "instance": "aapl-20250927_htm.xml.gz",
+    "schema": "aapl-20250927.xsd.gz",
+    "labels": "aapl-20250927_lab.xml.gz",
+    "presentation": "aapl-20250927_pre.xml.gz",
+    "calculation": "aapl-20250927_cal.xml.gz",
+    "definition": "aapl-20250927_def.xml.gz"
+  },
+  "missing": []
+}

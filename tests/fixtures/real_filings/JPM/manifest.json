@@ -1,0 +1,20 @@
+{
+  "key": "JPM",
+  "ticker": "JPM",
+  "cik": 19617,
+  "name": "JPMORGAN CHASE & CO",
+  "form": "10-K",
+  "year": "",
+  "accession": "0001628280-26-008131",
+  "filed_date": "2026-02-13",
+  "covers": "bank: no gross profit line; interest income presentation",
+  "files": {
+    "instance": "jpm-20251231_htm.xml.gz",
+    "schema": "jpm-20251231.xsd.gz",
+    "labels": "jpm-20251231_lab.xml.gz",
+    "presentation": "jpm-20251231_pre.xml.gz",
+    "calculation": "jpm-20251231_cal.xml.gz",
+    "definition": "jpm-20251231_def.xml.gz"
+  },
+  "missing": []
+}

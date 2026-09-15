@@ -1,0 +1,20 @@
+{
+  "key": "GOOGL",
+  "ticker": "GOOGL",
+  "cik": 1652044,
+  "name": "Alphabet Inc.",
+  "form": "10-K",
+  "year": "",
+  "accession": "0001652044-26-000018",
+  "filed_date": "2026-02-05",
+  "covers": "two share classes on one CIK",
+  "files": {
+    "instance": "goog-20251231_htm.xml.gz",
+    "schema": "goog-20251231.xsd.gz",
+    "labels": "goog-20251231_lab.xml.gz",
+    "presentation": "goog-20251231_pre.xml.gz",
+    "calculation": "goog-20251231_cal.xml.gz",
+    "definition": "goog-20251231_def.xml.gz"
+  },
+  "missing": []
+}

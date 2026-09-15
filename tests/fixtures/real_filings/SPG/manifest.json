@@ -1,0 +1,20 @@
+{
+  "key": "SPG",
+  "ticker": "SPG",
+  "cik": 1063761,
+  "name": "SIMON PROPERTY GROUP INC.",
+  "form": "10-K",
+  "year": "",
+  "accession": "0001104659-26-019419",
+  "filed_date": "2026-02-25",
+  "covers": "REIT co-filing a combined 10-K with its operating partnership",
+  "files": {
+    "instance": "spg-20251231x10k_htm.xml.gz",
+    "schema": "spg-20251231.xsd.gz",
+    "labels": "spg-20251231_lab.xml.gz",
+    "presentation": "spg-20251231_pre.xml.gz",
+    "calculation": "spg-20251231_cal.xml.gz",
+    "definition": "spg-20251231_def.xml.gz"
+  },
+  "missing": []
+}

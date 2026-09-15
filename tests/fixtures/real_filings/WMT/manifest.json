@@ -1,0 +1,20 @@
+{
+  "key": "WMT",
+  "ticker": "WMT",
+  "cik": 104169,
+  "name": "Walmart Inc.",
+  "form": "10-K",
+  "year": "",
+  "accession": "0000104169-26-000055",
+  "filed_date": "2026-03-13",
+  "covers": "January fiscal year end; 52/53-week retailer",
+  "files": {
+    "instance": "wmt-20260131_htm.xml.gz",
+    "schema": "wmt-20260131.xsd.gz",
+    "labels": "wmt-20260131_lab.xml.gz",
+    "presentation": "wmt-20260131_pre.xml.gz",
+    "calculation": "wmt-20260131_cal.xml.gz",
+    "definition": "wmt-20260131_def.xml.gz"
+  },
+  "missing": []
+}

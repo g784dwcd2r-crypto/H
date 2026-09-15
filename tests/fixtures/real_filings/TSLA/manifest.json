@@ -1,0 +1,20 @@
+{
+  "key": "TSLA",
+  "ticker": "TSLA",
+  "cik": 1318605,
+  "name": "Tesla, Inc.",
+  "form": "10-K",
+  "year": "",
+  "accession": "0001628280-26-003952",
+  "filed_date": "2026-01-29",
+  "covers": "recent large filer with rapid line-item change",
+  "files": {
+    "instance": "tsla-20251231_htm.xml.gz",
+    "schema": "tsla-20251231.xsd.gz",
+    "labels": "tsla-20251231_lab.xml.gz",
+    "presentation": "tsla-20251231_pre.xml.gz",
+    "calculation": "tsla-20251231_cal.xml.gz",
+    "definition": "tsla-20251231_def.xml.gz"
+  },
+  "missing": []
+}

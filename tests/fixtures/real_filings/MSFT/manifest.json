@@ -1,0 +1,21 @@
+{
+  "key": "MSFT",
+  "ticker": "MSFT",
+  "cik": 789019,
+  "name": "MICROSOFT CORP",
+  "form": "10-K",
+  "year": "",
+  "accession": "0001193125-26-323660",
+  "filed_date": "2026-07-29",
+  "covers": "June fiscal year end",
+  "files": {
+    "instance": "msft-20260630_htm.xml.gz",
+    "schema": "msft-20260630.xsd.gz"
+  },
+  "missing": [
+    "labels",
+    "presentation",
+    "calculation",
+    "definition"
+  ]
+}

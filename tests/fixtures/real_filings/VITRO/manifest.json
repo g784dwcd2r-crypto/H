@@ -1,0 +1,20 @@
+{
+  "key": "VITRO",
+  "ticker": "",
+  "cik": 793171,
+  "name": "Vitro Biopharma, Inc.",
+  "form": "10-K",
+  "year": "",
+  "accession": "0001493152-26-006592",
+  "filed_date": "2026-02-13",
+  "covers": "small company that invents its own labels",
+  "files": {
+    "instance": "form10-k_htm.xml.gz",
+    "schema": "vtro-20251031.xsd.gz",
+    "labels": "vtro-20251031_lab.xml.gz",
+    "presentation": "vtro-20251031_pre.xml.gz",
+    "calculation": "vtro-20251031_cal.xml.gz",
+    "definition": "vtro-20251031_def.xml.gz"
+  },
+  "missing": []
+}
