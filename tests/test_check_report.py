@@ -271,13 +271,18 @@ def test_dig_shows_the_lines_used_the_reasons_and_a_sample_with_the_numbers(tmp_
         by["IncomeLossFromContinuingOperations"]["ran"] == 3 and by["IncomeLossFromContinuingOperations"]["failed"] == 2
     )
     assert by["ProfitLoss"]["failed"] == 0
-    assert rep["by_lhs"][0]["line"] == "Pretax"
+    assert rep["by_lhs"][0]["line"] == "Pretax - Tax"
     assert {r["reason"] for r in rep["reasons"]} <= set(cr.REASONS)
     sample = {s["accession"]: s for s in rep["sample"]}
     assert set(sample) == {"d1", "d2"} and sample["d1"]["name"] == "Dig Co" and sample["d1"]["form"] == "10-K"
     assert "IS:ProfitLoss=80" in sample["d1"]["values"]
+    # d1 is short by 10 and carries a minority-interest line worth exactly 10: the gap has a name.
+    gaps = {g["concept"]: g for g in rep["gap_concepts"]}
+    assert gaps["NetIncomeLossAttributableToNoncontrollingInterest"]["is_gap"] == 1
+    assert gaps["NetIncomeLossAttributableToNoncontrollingInterest"]["failures"] == 2
     text = cr.format_dig(rep)
     assert "IncomeLossFromContinuingOperations" in text and "Dig Co" in text and "ProfitLoss=80" in text
+    assert "What the gap is worth" in text and "NetIncomeLossAttributableToNoncontrollingInterest" in text
     assert cr.format_dig(cr.dig(Storage(str(tmp_path / "empty")), "x")) == "no statement_checks in the lake"
 
 

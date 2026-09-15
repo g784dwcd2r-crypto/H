@@ -297,6 +297,43 @@ def _fmt(v: float | None) -> str:
     return f"{v:,.0f}" if abs(v) >= 1000 else f"{v:.4g}"
 
 
+def _gap_concepts(duck: Duck, base: str, check_name: str) -> list[dict[str, Any]]:
+    """Name the gap: for every failing row, which line in the same filing is worth exactly that much.
+
+    Every cause found so far was a line the check either left out or counted twice, and in both cases
+    the shortfall equals that line (or, when counted twice, half of it). Asking the lake which concept
+    the gap is equal to turns "these numbers disagree" into a name, across all the failures at once
+    rather than the fifteen a sample happens to show.
+    """
+    return duck.fetch_dicts(
+        base
+        + """
+        , fail AS (
+            SELECT accession, lhs - rhs AS gap FROM r
+            WHERE check_name = ? AND NOT passed AND lhs IS NOT NULL AND rhs IS NOT NULL AND lhs <> rhs
+        )
+        , vals AS (
+            SELECT s.accession, s.concept, s.value FROM st s
+            WHERE s.accession IN (SELECT accession FROM fail)
+              AND s.is_primary_period AND NOT s.is_parenthetical AND coalesce(s.segments, '') = ''
+              AND s.value IS NOT NULL AND s.value <> 0
+        )
+        , hits AS (
+            SELECT v.concept,
+                   count(*) FILTER (WHERE abs(v.value - f.gap) <= 0.01 * abs(f.gap)) AS is_gap,
+                   count(*) FILTER (WHERE abs(v.value + f.gap) <= 0.01 * abs(f.gap)) AS is_minus_gap,
+                   count(*) FILTER (WHERE abs(2 * v.value - f.gap) <= 0.01 * abs(f.gap)) AS is_half_gap
+            FROM fail f JOIN vals v ON v.accession = f.accession
+            GROUP BY 1
+        )
+        SELECT concept, is_gap, is_minus_gap, is_half_gap, (SELECT count(*) FROM fail) AS failures
+        FROM hits WHERE is_gap + is_minus_gap + is_half_gap > 0
+        ORDER BY is_gap + is_minus_gap + is_half_gap DESC LIMIT 20
+        """,
+        [check_name],
+    )
+
+
 def dig(storage: Storage, check_name: str, examples: int = 15) -> dict[str, Any]:
     """Everything about one check's failures that finds the next cause, in one pass.
 
@@ -321,7 +358,7 @@ def dig(storage: Storage, check_name: str, examples: int = 15) -> dict[str, Any]
         by_lhs = duck.fetch_dicts(
             base
             + """
-            SELECT split_part(detail, ' ', 1) AS line, count(*) AS ran, count(*) FILTER (WHERE NOT passed) AS failed
+            SELECT split_part(detail, ' = ', 1) AS line, count(*) AS ran, count(*) FILTER (WHERE NOT passed) AS failed
             FROM r WHERE check_name = ? GROUP BY 1 ORDER BY 2 DESC
             """,
             [check_name],
@@ -330,6 +367,8 @@ def dig(storage: Storage, check_name: str, examples: int = 15) -> dict[str, Any]
             base + "SELECT reason, count(*) AS n FROM r WHERE check_name = ? AND NOT passed GROUP BY 1 ORDER BY 2 DESC",
             [check_name],
         )
+        have_st = duck.view("st", f"{layout.STATEMENTS}/*/*.parquet")
+        gap_concepts = _gap_concepts(duck, base, check_name) if have_st else []
         name_col = "c.name" if have_companies else "NULL"
         name_join = "LEFT JOIN companies c ON c.cik = q.cik" if have_companies else ""
         sample = duck.fetch_dicts(
@@ -344,7 +383,7 @@ def dig(storage: Storage, check_name: str, examples: int = 15) -> dict[str, Any]
         )
         for row in sample:
             row["form"], row["values"] = None, []
-        if sample and duck.view("st", f"{layout.STATEMENTS}/*/*.parquet"):
+        if sample and have_st:
             rows = duck.fetch_dicts(
                 f"""
                 SELECT accession, form, statement, concept, value FROM st
@@ -362,7 +401,14 @@ def dig(storage: Storage, check_name: str, examples: int = 15) -> dict[str, Any]
             for row in sample:
                 row["form"] = forms.get(row["accession"])
                 row["values"] = values.get(row["accession"], [])
-        return {"check": check_name, "by_rhs": by_rhs, "by_lhs": by_lhs, "reasons": reasons, "sample": sample}
+        return {
+            "check": check_name,
+            "by_rhs": by_rhs,
+            "by_lhs": by_lhs,
+            "reasons": reasons,
+            "gap_concepts": gap_concepts,
+            "sample": sample,
+        }
     finally:
         duck.close()
 
@@ -374,7 +420,7 @@ def format_dig(report: dict[str, Any]) -> str:
     out = [f"{label}", ""]
     for title, rows in (
         ("By the line on the right of '=' ", report["by_rhs"]),
-        ("By the first line on the left", report["by_lhs"]),
+        ("By the lines on the left of '=' ", report["by_lhs"]),
     ):
         out.append(f"{title}(ran / failed):")
         for r in rows:
@@ -383,6 +429,17 @@ def format_dig(report: dict[str, Any]) -> str:
         out.append("")
     if report["reasons"]:
         out.append("Why: " + " | ".join(f"{r['reason']} {r['n']:,}" for r in report["reasons"]))
+        out.append("")
+    if report.get("gap_concepts"):
+        total = report["gap_concepts"][0]["failures"] or 1
+        out.append("What the gap is worth (share of failures where this line equals it):")
+        out.append(f"  {'line':<64} {'= gap':>8} {'= -gap':>8} {'= gap/2':>8}")
+        for g in report["gap_concepts"]:
+            share = (g["is_gap"] + g["is_minus_gap"] + g["is_half_gap"]) / total * 100
+            out.append(
+                f"  {g['concept'][:64]:<64} {g['is_gap']:>8,} {g['is_minus_gap']:>8,} "
+                f"{g['is_half_gap']:>8,}  {share:>5.1f}%"
+            )
         out.append("")
     if report["sample"]:
         out.append(f"{len(report['sample'])} failing filings, at random (computed vs reported):")
