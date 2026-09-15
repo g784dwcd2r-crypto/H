@@ -78,7 +78,7 @@ flowchart TD
 | Part | Steps | What it is | Blocked by |
 |---|---|---|---|
 | 1. Quick fixes | 1 to 4 | Cheap things worth doing today | Nothing |
-| 2. Read the filings | 5 to 11 | The main project | Step 5 first |
+| 2. Read the filings | 5 to 11 | The main project, and the ceiling on the checks | Step 5 ✅; step 6 next |
 | 3. Checks and reporting | 12 to 15 | Knowing we are right, and saying so | The real subtotal check, step 8 |
 | 4. Organise the universe | 16 to 17 | Grouping and translating | The company list |
 | 5. Notes and disclosures | 18 to 25 | What analysts actually read | Part 2, for the note tables |
@@ -567,7 +567,54 @@ are not working it out. We are reading it.
 that every complaint is worth reading. Note the target is not zero — a check that passes everything is
 just as useless. The goal is that every remaining failure is worth opening.
 
+**What "correct" means, settled (2026-09-15).** Not "no check fails". Some failures are the *filing*
+being wrong — a company that tagged its assets as a negative number — and the check is right to say
+so. The target is **no failure caused by us, and every remaining one named with a reason**:
+`filings-hub check-report --csv` writes every failing check with the company and why (a filer's sign,
+a share count filed in thousands, a period, just over the tolerance, or unexplained). "Unexplained"
+is the only column that should be shrinking. The arithmetic checks went 9.2 % → 2.0 % this way, and
+what is left is roughly 1 to 2 thousand failures that are still ours.
+
+**Why this step is the ceiling.** Gross profit, operating income and part of income after tax fail
+because *our formula* guesses how a company adds up its statement, and companies differ. Tuning the
+guess found real bugs (the EPS numerator, the tax identity) but each round returns less. The filing
+declares its own arithmetic. Reading it replaces the guess, and those failures go away by
+construction rather than by tuning.
+
 **Size.** Medium, once step 7 is done.
+
+## Step 8b. Look at a page before believing a data change
+
+**What it is.** A rule, not a project: after any change to what the statements table holds, open two
+or three real company pages and read them, before the change is called done.
+
+**Why it matters.** Every data change so far was verified by tests and by counting checks. Both are
+necessary and neither shows what a person sees. The currency fix removed about 25,000 rows from a
+single quarter — the right rows, by every measure we had — and nobody has opened a page since. A
+number that is right in the table can still be missing, mislabelled or in the wrong column on the
+page.
+
+**How it works.** Pick the companies the change should have touched and the ones it should not: a
+foreign filer with a dollar translation (Toyota, Royal Bank), a company with subsidiaries, and one
+plain domestic filer as a control. Read the statement as a user would. Then say which pages were
+looked at, in the note that records the change.
+
+```mermaid
+flowchart LR
+    CHANGE["A change to the data"] --> T["Tests pass"]
+    CHANGE --> C["Check counts move<br/>the way we predicted"]
+    T --> BOTH{"Enough?"}
+    C --> BOTH
+    BOTH -->|"No"| PAGE["Open two or three real pages<br/>and read them"]
+    PAGE --> DONE["Now it is done"]
+    style BOTH fill:#fff4e5,stroke:#e65100
+    style DONE fill:#e8f5e9,stroke:#2e7d32
+```
+
+**Done when.** It is habit: no data change is recorded as done without naming the pages that were
+read. The first one owed is the currency fix.
+
+**Size.** Minutes per change. It is a habit, not a build.
 
 ## Step 9. Use the company's own precision
 

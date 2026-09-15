@@ -914,3 +914,22 @@ What the sample also showed and the check leaves alone: a REIT whose joint-ventu
 under a concept we do not watch (Hines); a filer whose minority share carries the inverted sign
 (Odyssey); a foreign filer whose pretax figure is on the parent's basis (iKang). Filer tagging
 oddities, to stay on the named list.
+
+## Where the remaining gaps sit in the plan (2026-09-15)
+
+Four gaps named after two days on the checks, mapped to the steps that already hold them:
+
+- **Tuning our formula where the filing declares its own arithmetic** → **step 8**. Gross profit,
+  operating income and part of income after tax fail because our formula guesses how a company adds
+  up its statement. Each tuning round returns less. Step 8 replaces the guess with the filing's own
+  calculation tree, and those failures go by construction. Blocked on step 7.
+- **Everything still comes from the summary files** → **part 2, steps 6 and 7**. The foundation. Step 7
+  makes the summaries a second opinion rather than the only source; the currency bug was invisible
+  precisely because nothing independent could contradict them.
+- **No one has looked at a page since the data changed** → **new step 8b**, because steps.md had no
+  rule for it. Tests and check counts are necessary and neither shows what a user sees. The currency
+  fix owes the first one.
+- **What "100 % correct" means** → already in **step 8's "done when"**, written before this work
+  started: the target is not zero failures, it is that every remaining failure is worth opening. Now
+  sharpened with the mechanism: no failure caused by us, every other one named with a reason in
+  `check-report --csv`, and "unexplained" the only count that should be shrinking.
