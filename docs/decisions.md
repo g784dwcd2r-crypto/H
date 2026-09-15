@@ -974,3 +974,28 @@ once the equity-method income is added, but tag it only on the cash-flow stateme
 statement, and the income-statement check sees only income-statement values. Worth perhaps 500
 failures; it needs the check to read across statements, which both build paths would have to pass
 through, so it waits rather than being bolted on.
+
+## Foreign filers get their own step, in Part 3 rather than "go wider" (2026-09-15)
+
+Hicham's observation: foreign companies file a full annual report and no quarterly one; their interim
+figures arrive on a 6-K as a press release, which is a document rather than labelled numbers. (The
+form is 6-K, not 8-K — 8-K is the domestic one; today's digs show 6-K filings from Spark Networks,
+Founder Group, Vale and TDCX.)
+
+**Placed in Part 3** — "finish the checks, then tell users what changed" — not Part 8, "go wider".
+Part 8 is about holding *more* companies; this is about the ones we already hold being thinner than
+they look, which is the same family as late filers (step 13) and restatements (step 14): a gap is
+fine, a hidden gap is not.
+
+**It exposes a bug in step 13.** That step flags a company when more than five months pass between
+quarterly reports. A foreign filer never files one, so every one of them would read as permanently
+overdue. The late rule has to know the filer type first.
+
+**Ordered so the unknown is resolved first.** We do not know how many foreign filers we hold, how
+stale each is, or how many 6-Ks we are sitting on, and nothing here can be sized until we do — so the
+count comes first, as a report over data we already hold, alongside the coverage audit from step 4.
+Then the honest label on the page. Only then a decision on extracting numbers from the press
+releases, which is a project of step 25's kind and should not start on a guess.
+
+**The rule that must hold if we ever do extract them:** a figure from a press release is never
+presented as carrying the weight of an audited annual report.

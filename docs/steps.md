@@ -802,6 +802,56 @@ gone quiet.
 
 **Size.** Small. It uses data we already hold.
 
+## Step 13b. Foreign filers file once a year, and our pages do not say so
+
+**What it is.** A company from outside the US files a full annual report and nothing else that we can
+read as data. Its quarterly figures do exist, but they arrive as a press release attached to a 6-K —
+a document, not labelled numbers. So for a foreign company our page can be showing figures up to a
+year old, sitting next to a US company updated three months ago, with nothing telling anyone.
+
+**Why it matters.** This is the same rule as everywhere else in this part: a gap is fine, a hidden gap
+is not. Someone comparing two companies side by side has no way to know one of them is a year behind.
+
+**It also breaks step 13.** That step flags a company when more than five months pass between
+quarterly reports. A foreign filer never files a quarterly report, so every one of them would look
+permanently overdue. The rule has to know which kind of filer it is looking at before it can call
+anything late.
+
+```mermaid
+flowchart TD
+    US["A US company"] --> Q["Files every quarter,<br/>as labelled data"] --> FRESH["Our page is<br/>at most 3 months old"]
+    FX["A foreign company"] --> A["Files once a year,<br/>as labelled data"] --> OLD["Our page can be<br/>a year old"]
+    FX --> SIX["Also files a 6-K each quarter,<br/>but it is a press release:<br/>words, not labelled numbers"]
+    OLD --> SAY["Say so on the page.<br/>A gap is fine. A hidden gap is not"]
+    SIX -.->|"later, and much harder"| READ["Read the numbers out of it"]
+    style FRESH fill:#e8f5e9,stroke:#2e7d32
+    style OLD fill:#fff4e5,stroke:#e65100
+    style SAY fill:#e8f5e9,stroke:#2e7d32
+    style READ fill:#eeeeee,stroke:#999999,stroke-dasharray: 5 5
+```
+
+**How it works, in three parts, in order.**
+
+1. **Count it first.** We do not yet know how many of our companies are foreign filers, how stale each
+   one is, or how many 6-Ks we are sitting on. This is a report over data we already hold — the form
+   type says everything — and it belongs with the coverage audit from step 4. Nothing else here can be
+   sized until it exists.
+2. **Teach step 13 the difference, and say it on the page.** A foreign filer is not late for having no
+   quarterly report; it is late by a different clock. And the page says plainly how old the figures
+   are and why.
+3. **Then decide about the press releases.** Pulling numbers out of a 6-K is a separate project of the
+   same kind as step 25: unstructured text, every company laying it out differently, and some
+   reporting half-yearly rather than quarterly. Worth doing, not worth starting before the count says
+   how much it buys us.
+
+**The trap to avoid.** Never presenting a figure from a press release as though it carried the same
+weight as an audited annual report. If we ever publish one, it is labelled as what it is.
+
+**Done when.** ▢ The count exists. ▢ Step 13 stops calling foreign filers late. ▢ A foreign company's
+page says how current its figures are. ▢ A decision is recorded on the press releases, either way.
+
+**Size.** Parts 1 and 2 are small and use data we hold. Part 3 is large and is a separate project.
+
 ## Step 14. Spot restatements and say so
 
 **What it is.** Sometimes a company revises figures it already published. This year's report shows
