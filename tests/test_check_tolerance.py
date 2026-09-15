@@ -10,15 +10,15 @@ from filings_hub.lake.storage import Storage
 # Each row: (check_name, lhs, rhs, passed). difference is lhs - rhs. Gaps are chosen so each lands in
 # a known band. Standard tolerance is 0.5 %, so q = (gap / max|side|) / 0.005; EPS uses 1 %.
 ROWS = [
-    ("assets_eq_liabilities_and_equity", 1_000_000, 1_000_000, True),   # gap 0        -> exact
-    ("assets_eq_liabilities_and_equity", 1_000_000, 1_000_010, True),   # q ~ 0.002    -> <0.2
-    ("assets_eq_liabilities_and_equity", 1_000_000, 1_002_000, True),   # q ~ 0.40     -> 0.2-0.6
-    ("assets_eq_liabilities_and_equity", 1_000_000, 1_003_500, True),   # q ~ 0.70     -> 0.6-0.8
-    ("assets_eq_liabilities_and_equity", 1_000_000, 1_004_500, True),   # q ~ 0.90     -> near-miss
-    ("assets_eq_liabilities_and_equity", 100, 100.5, True),             # small numbers -> floor
+    ("assets_eq_liabilities_and_equity", 1_000_000, 1_000_000, True),  # gap 0        -> exact
+    ("assets_eq_liabilities_and_equity", 1_000_000, 1_000_010, True),  # q ~ 0.002    -> <0.2
+    ("assets_eq_liabilities_and_equity", 1_000_000, 1_002_000, True),  # q ~ 0.40     -> 0.2-0.6
+    ("assets_eq_liabilities_and_equity", 1_000_000, 1_003_500, True),  # q ~ 0.70     -> 0.6-0.8
+    ("assets_eq_liabilities_and_equity", 1_000_000, 1_004_500, True),  # q ~ 0.90     -> near-miss
+    ("assets_eq_liabilities_and_equity", 100, 100.5, True),  # small numbers -> floor
     ("assets_eq_liabilities_and_equity", 1_000_000, 1_007_000, False),  # q ~ 1.39     -> just-over
     ("assets_eq_liabilities_and_equity", 1_000_000, 1_500_000, False),  # q ~ 66       -> >10x
-    ("eps_basic", 2.00, 2.018, True),                                   # q ~ 0.89     -> near-miss (eps)
+    ("eps_basic", 2.00, 2.018, True),  # q ~ 0.89     -> near-miss (eps)
 ]
 
 
@@ -101,3 +101,31 @@ def test_runs_on_the_real_built_lake(built_lake):
     assert rep["total"] > 0
     assert rep["standard"]["passes"] + rep["standard"]["fails"] <= rep["total"]
     assert isinstance(rep["verdict"], str) and rep["verdict"]
+
+
+def test_the_approximate_eps_checks_are_not_measured(tmp_path):
+    """The 5 % on an inferred numerator is a design choice, not a tolerance to measure."""
+    st = Storage(str(tmp_path))
+    _seed(st)
+    before = ct.tolerance_report(st)
+    st.write_parquet(
+        f"{layout.statement_checks_cik_dir(77)}/approx.parquet",
+        pa.Table.from_pylist(
+            [
+                {
+                    "accession": "x1",
+                    "cik": 77,
+                    "statement": "IS",
+                    "check_name": "eps_basic_approx",
+                    "passed": False,
+                    "lhs": 1.0,
+                    "rhs": 1.08,
+                    "difference": -0.08,
+                    "detail": "",
+                    "source": "fsds",
+                }
+            ],
+            schema=CHECKS_SCHEMA,
+        ),
+    )
+    assert ct.tolerance_report(st) == before

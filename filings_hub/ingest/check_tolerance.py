@@ -78,7 +78,9 @@ def _rows(duck: Duck) -> list[dict[str, Any]]:
                 greatest(abs(lhs), abs(rhs)) AS mag,
                 abs(rhs) AS rhs_mag
             FROM sc
-            WHERE lhs IS NOT NULL AND rhs IS NOT NULL
+            -- the approximate EPS checks (numerator inferred, 5 %) are a design choice, not a
+            -- tolerance to measure: only the exact checks are banded here
+            WHERE lhs IS NOT NULL AND rhs IS NOT NULL AND check_name NOT LIKE '%\\_approx' ESCAPE '\\'
         ),
         t AS (
             SELECT
@@ -182,8 +184,10 @@ def format_report(report: dict[str, Any]) -> str:
             flag = "  <- near miss" if band == "near-miss" and n else ""
             lines.append(f"    q {band:>10}: {n:>10,}  {share}{flag}")
         fb = r["fail_bands"]
-        lines.append(f"  fails by how far past the line: just-over {fb['just-over']:,}  "
-                     f"2-10x {fb['2-10x']:,}  >10x {fb['>10x']:,}")
+        lines.append(
+            f"  fails by how far past the line: just-over {fb['just-over']:,}  "
+            f"2-10x {fb['2-10x']:,}  >10x {fb['>10x']:,}"
+        )
         lines.append("")
     lines.append(report["verdict"])
     return "\n".join(lines)

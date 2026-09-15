@@ -260,7 +260,7 @@ def test_eps_is_per_share_of_the_parents_earnings_not_the_consolidated_total():
         "WeightedAverageNumberOfSharesOutstandingBasic": 100,
         "EarningsPerShareBasic": 10.0,  # 1,000 / 100, as the company reports it
     }
-    eps = one(C.check_income_statement(v), "eps_basic")
+    eps = one(C.check_income_statement(v), "eps_basic_approx")
     assert eps.passed and eps.lhs == 10.0 and eps.detail.startswith("NetIncomeLoss /")
     # the consolidated total would have said 12.00 and failed
     assert 1_200 / 100 == 12.0 and not C._eps_close(12.0, 10.0)
@@ -273,13 +273,13 @@ def test_eps_bridges_the_consolidated_total_by_the_minoritys_share_when_that_is_
         "WeightedAverageNumberOfSharesOutstandingBasic": 100,
         "EarningsPerShareBasic": 10.0,
     }
-    eps = one(C.check_income_statement(v), "eps_basic")
+    eps = one(C.check_income_statement(v), "eps_basic_approx")
     assert eps.passed and eps.lhs == 10.0
     assert eps.detail.startswith("ProfitLoss - NetIncomeLossAttributableToNoncontrollingInterest /")
     # with no minority line, the total is the parent's and is used as before
     del v["NetIncomeLossAttributableToNoncontrollingInterest"]
     v["EarningsPerShareBasic"] = 12.0
-    assert one(C.check_income_statement(v), "eps_basic").passed
+    assert one(C.check_income_statement(v), "eps_basic_approx").passed
 
 
 def test_the_tax_identity_still_prefers_the_consolidated_total():
@@ -320,3 +320,25 @@ def test_diluted_eps_takes_the_diluted_numerator_when_the_company_tags_both():
         r["eps_diluted"].detail.startswith("NetIncomeLossAvailableToCommonStockholdersBasic /")
         and not r["eps_diluted"].passed
     )
+
+
+def test_eps_is_exact_with_the_companys_numerator_and_approximate_without_it():
+    """Two-class allocations and preferred dividends live in the EPS note, not on the statement. With
+    the company's own numerator the check is exact (1 %); with net income standing in it is
+    approximate (5 %), named so, and says so."""
+    # a 3 % gap: the company allocated 3 % of earnings to unvested shares with dividend rights
+    inferred = {
+        "NetIncomeLoss": 1_000,
+        "WeightedAverageNumberOfSharesOutstandingBasic": 100,
+        "EarningsPerShareBasic": 9.7,
+    }
+    r = one(C.check_income_statement(inferred), "eps_basic_approx")
+    assert r.passed and r.detail.endswith("(numerator inferred)")
+    assert "eps_basic" not in names(C.check_income_statement(inferred))
+    # the same gap with the company's own numerator tagged is a real break
+    tagged = {**inferred, "NetIncomeLossAvailableToCommonStockholdersBasic": 1_000}
+    r = one(C.check_income_statement(tagged), "eps_basic")
+    assert not r.passed and "inferred" not in r.detail
+    assert "eps_basic_approx" not in names(C.check_income_statement(tagged))
+    # past 5 %, the approximate check still fails: a wrong share count is not an allocation
+    assert not one(C.check_income_statement({**inferred, "EarningsPerShareBasic": 9.0}), "eps_basic_approx").passed

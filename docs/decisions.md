@@ -833,3 +833,29 @@ share — the 50 % "other" and 29 % "within 5 %" buckets of the ratio table, tog
   EPS fell by 33,212: diluted 30,750 → 15,010, basic 28,176 → 10,704. Diluted now fails 40 % more
   often than basic, so what remains has a diluted-specific component to measure next; income after
   tax (12,134) is the second-largest bucket.
+
+## EPS with an inferred numerator is an approximate check, and says so (2026-09-15)
+
+After the numerator fixes, 25,700 EPS failures remained and 70 % of them were "unexplained": the
+computed figure 1 to 20 % away from the reported one. Measured across all of them: only 21 % showed
+any adjustment on the income statement that could account for the gap. Fifteen rows looked at in
+full settled it. Profitable companies came out 1 to 6 % *above* the reported EPS, with net income
+present, no minority share, no share classes, no discontinued operations: the fingerprint of the
+two-class method, where earnings allocated to unvested shares with dividend rights (routinely 1 to
+4 %) come out before EPS is computed. Loss-making small companies came out *below*: preferred
+dividends and accretion added to the loss. Both adjustments live in the EPS note, not on the face of
+the income statement, so a check that reads the statement cannot see them. Neither is a bug in the
+check nor an error by the filer.
+
+- **The rule.** When the company tagged its own EPS numerator (earnings available to common), the
+  check is exact: 1 % or one cent, and a failure is real. When it did not, net income stands in for
+  the numerator and the check is *approximate*: named `eps_basic_approx` / `eps_diluted_approx`,
+  tolerance 5 %, labelled as approximate wherever it appears. Five percent covers the two-class
+  allocation and small preferred dividends and still catches a wrong share count, a scale, a sign
+  or a period; a gap past it is genuinely unverifiable from the statement and stays listed.
+- **Rejected: loosening the EPS tolerance.** It would have hidden real errors on the two-thirds of
+  filings whose numerator we do have. The split keeps the exact check exact.
+- **Rejected: skipping EPS when the numerator is inferred.** 317,000 such checks, 94 % passing, are
+  real evidence of consistency and the only EPS coverage for most small filers.
+- **The tolerance tool** (step 1) measures the exact tolerances only; the approximate check is a
+  design choice, not a measurement, and is excluded from it.

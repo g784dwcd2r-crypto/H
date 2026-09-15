@@ -155,6 +155,8 @@ REASON_ROWS = [
     ("gross_profit", 100.0, 0.0, "one side is zero"),
     ("gross_profit", 1_000_000.0, 1_007_000.0, "just over the tolerance"),
     ("gross_profit", 1_000_000.0, 1_500_000.0, "unexplained"),
+    # 8 % off: 1.5x the approximate check's 5 % (just over); it would be 8x the exact check's 1 %
+    ("eps_basic_approx", 1.0, 1.08, "just over the tolerance"),
 ]
 
 
@@ -206,3 +208,14 @@ def test_export_writes_the_named_list(tmp_path):
     assert {r["reason"] for r in rows} == {reason for _, _, _, reason in REASON_ROWS}
     assert set(rows[0]) >= {"cik", "name", "accession", "check_name", "reason", "lhs", "rhs", "tolerance_multiple"}
     assert cr.export_failures(Storage(str(tmp_path / "empty")), str(tmp_path / "e.csv")) == 0
+
+
+def test_the_approximate_eps_check_is_labelled_and_tolerated_at_five_percent(tmp_path):
+    st = Storage(str(tmp_path))
+    _seed_reasons(st)
+    rep = cr.failure_report(st)
+    assert "approximate" in cr.CHECK_LABELS["eps_basic_approx"]
+    approx = {(r["check_name"], r["reason"]): r["n"] for r in rep["reasons"]}
+    assert approx[("eps_basic_approx", "just over the tolerance")] == 1
+    text = cr.format_failure_report(rep)
+    assert "approximate (inferred numerator, 5 %)" in text  # fits the 52-character label column

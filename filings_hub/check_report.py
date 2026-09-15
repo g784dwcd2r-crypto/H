@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from filings_hub.ingest.checks import EPS_RELATIVE_TOLERANCE, RELATIVE_TOLERANCE
+from filings_hub.ingest.checks import EPS_APPROX_RELATIVE_TOLERANCE, EPS_RELATIVE_TOLERANCE, RELATIVE_TOLERANCE
 from filings_hub.lake import layout
 from filings_hub.lake.duck import Duck
 from filings_hub.lake.storage import Storage
@@ -27,8 +27,11 @@ CHECK_LABELS = {
     "assets_eq_liabilities_plus_equity": "Balance sheet balances (older layout)",
     "gross_profit": "Gross profit (Revenue - Cost = Gross profit)",
     "income_after_tax": "Income after tax (Pretax - Tax = Continuing income)",
-    "eps_basic": "Earnings per share, basic",
-    "eps_diluted": "Earnings per share, diluted",
+    # kept under 52 characters, the width of the report's label column
+    "eps_basic": "EPS basic (company's own numerator)",
+    "eps_diluted": "EPS diluted (company's own numerator)",
+    "eps_basic_approx": "EPS basic, approximate (inferred numerator, 5 %)",
+    "eps_diluted_approx": "EPS diluted, approximate (inferred numerator, 5 %)",
     "net_income_is_equals_cf": "Net income agrees: income statement = cash flow",
     "ending_cash_cf_equals_bs": "Ending cash agrees: cash flow = balance sheet",
 }
@@ -36,7 +39,9 @@ CHECK_LABELS = {
 
 def _tol_expr() -> str:
     return (
-        f"CASE WHEN check_name LIKE 'eps\\_%' ESCAPE '\\' THEN {EPS_RELATIVE_TOLERANCE} ELSE {RELATIVE_TOLERANCE} END"
+        f"CASE WHEN check_name LIKE '%\\_approx' ESCAPE '\\' THEN {EPS_APPROX_RELATIVE_TOLERANCE} "
+        f"WHEN check_name LIKE 'eps\\_%' ESCAPE '\\' THEN {EPS_RELATIVE_TOLERANCE} "
+        f"ELSE {RELATIVE_TOLERANCE} END"
     )
 
 
@@ -204,7 +209,13 @@ def format_failure_report(report: dict[str, Any]) -> str:
         out.append(f"Worst {len(report['worst'])} failures (most out of line):")
         for w in report["worst"]:
             who = w.get("name") or f"CIK {w['cik']}"
-            tol = EPS_RELATIVE_TOLERANCE if w["check_name"].startswith("eps") else RELATIVE_TOLERANCE
+            tol = (
+                EPS_APPROX_RELATIVE_TOLERANCE
+                if w["check_name"].endswith("_approx")
+                else EPS_RELATIVE_TOLERANCE
+                if w["check_name"].startswith("eps")
+                else RELATIVE_TOLERANCE
+            )
             pct = (w["q"] or 0) * tol
             out.append(
                 f"  cik {w['cik']:<8} {who[:28]:<28} {CHECK_LABELS.get(w['check_name'], w['check_name'])[:30]:<30} "

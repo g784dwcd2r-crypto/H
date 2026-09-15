@@ -225,6 +225,14 @@ ABSOLUTE_TOLERANCE = 1.0
 CROSS_STATEMENT = "XS"  # `statement` value for a check that spans statements rather than sitting on one
 EPS_ABSOLUTE_TOLERANCE = 0.01  # EPS is printed to the cent, so a cent of rounding is not a break
 EPS_RELATIVE_TOLERANCE = 0.01
+# When the company did not tag its own EPS numerator, net income stands in for it. The company's
+# numerator then differs by what its EPS note does: the two-class allocation to unvested shares with
+# dividend rights (1-4 % of earnings, routinely) and preferred dividends and accretion on a loss.
+# Those live in the note, not on the income statement, so the check cannot see them; measured on a
+# sample, 79 % of such near-misses had no trace on the statement. An inferred numerator can vouch to
+# about 5 %, which still catches a wrong share count, a scale, a sign or a period; it cannot vouch to
+# the cent, and the check says so in its name.
+EPS_APPROX_RELATIVE_TOLERANCE = 0.05
 
 
 @dataclass(frozen=True)
@@ -340,8 +348,8 @@ def _check_income_after_tax(v: dict[str, float]) -> list[CheckResult]:
     return [_result("IS", "income_after_tax", lhs, total[1], " ".join(parts) + f" = {total[0]}")]
 
 
-def _eps_close(lhs: float, rhs: float) -> bool:
-    return abs(lhs - rhs) <= max(EPS_ABSOLUTE_TOLERANCE, EPS_RELATIVE_TOLERANCE * abs(rhs))
+def _eps_close(lhs: float, rhs: float, relative: float = EPS_RELATIVE_TOLERANCE) -> bool:
+    return abs(lhs - rhs) <= max(EPS_ABSOLUTE_TOLERANCE, relative * abs(rhs))
 
 
 def _check_eps(v: dict[str, float]) -> list[CheckResult]:
@@ -359,6 +367,7 @@ def _check_eps(v: dict[str, float]) -> list[CheckResult]:
             continue
         own = EPS_NUMERATOR_CONCEPTS if kind == "basic" else tuple(reversed(EPS_NUMERATOR_CONCEPTS))
         numerator = _first(v, own)
+        inferred = numerator is None  # the company's own numerator is not tagged: net income stands in
         if numerator is None:
             if _first(v, PREFERRED_DIVIDEND_CONCEPTS):
                 continue  # preferred dividends come out first and we cannot see how much
@@ -376,11 +385,11 @@ def _check_eps(v: dict[str, float]) -> list[CheckResult]:
         out.append(
             CheckResult(
                 "IS",
-                f"eps_{kind}",
-                _eps_close(computed, eps),
+                f"eps_{kind}_approx" if inferred else f"eps_{kind}",
+                _eps_close(computed, eps, EPS_APPROX_RELATIVE_TOLERANCE if inferred else EPS_RELATIVE_TOLERANCE),
                 computed,
                 eps,
-                f"{numerator[0]} / {shares_concept} = {eps_concept}",
+                f"{numerator[0]} / {shares_concept} = {eps_concept}" + (" (numerator inferred)" if inferred else ""),
             )
         )
     return out
