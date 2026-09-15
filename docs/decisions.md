@@ -747,6 +747,10 @@ statement rows, which would mean rewriting the statements table, the expensive p
 internal loop. `check-report` reads `statement_checks` and is current at once; the published pass
 rate catches up on the next build, and the command says so.
 
+**Proven on the real lake (2026-09-15):** after the currency fix, rebuilding one quarter the slow way and
+re-running the report gave the identical result to `recheck`'s, to the row (84,008 of 2,063,641, every
+per-check line equal). The earlier 14-row drift was the currency ties, and is gone.
+
 ## Two currencies on one line: a statement is kept in its reporting currency (2026-09-15)
 
 Found by the one-quarter proof of `recheck`: the recomputed checks differed from the build's on
