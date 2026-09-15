@@ -755,6 +755,9 @@ values on the same line at the same date, and the SEC's number table can only do
 *units*: a foreign filer prints its statements in its home currency with a "convenience
 translation" into dollars beside them, and the data sets carry both (net income in HK$ and in US$,
 7.8x apart; cash in renminbi and dollars, 7.0x; cost of revenue in yen and dollars, 159x).
+Measured on the lake: all 3,502 differed by unit and none by anything else — renminbi/dollar 2,222,
+then Hong Kong, Singapore, Taiwan, Malaysia, yen, peso, rupee, and the per-share variants — across
+167 filings in the quarter, about 2 % of its filers.
 
 Left in, three things went wrong, in order of seriousness: the company page showed whichever row was
 scanned first, line by line, so a renminbi revenue could sit above a dollar cost; a check compared a
