@@ -517,6 +517,11 @@ fetched and committed (13 MB gzipped). ✅ `reader-check` reads all 26 cleanly, 
 embedded-linkbase fix. ✅ The presence test is live: the 26 are permanent, and the suite goes red the
 moment any of them is removed or stops reading.
 
+**Naming the candidates (2026-09-15).** `filings-hub two-currency-filings` lists the companies whose
+filings report the same line twice in two currencies, with the exchange rate the two versions imply,
+so step 8b and the reader set both pick from evidence rather than blind. Hicham asked for three names
+to look at and this is what produces them.
+
 **One filing the set is still missing (2026-09-15).** None of the 26 has a convenience translation:
 Toyota's 20-F is entirely in yen, and Royal Bank of Canada's 40-F is Canadian dollars apart from
 eight figures, each attached to a specific debt issue or share class, which are notes about

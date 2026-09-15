@@ -1,5 +1,7 @@
 """The per-check error report: which rule fails, how badly, and for whom."""
 
+from datetime import date
+
 import pyarrow as pa
 
 from filings_hub import check_report as cr
@@ -149,7 +151,11 @@ def test_explain_shows_value_vs_presented_for_a_company(tmp_path):
 
 # check_name, lhs, rhs -> the reason the report should give
 REASON_ROWS = [
-    ("gross_profit", 100.0, -100.0, "sign: the two sides are exact negatives"),
+    # Two shapes of sign gap, told apart by which side is negative. Where the company reports the
+    # negative one, it has said "loss" and printed the amount positive underneath, which is the
+    # filing being clear rather than wrong; where it reports the positive one, a line is inverted.
+    ("eps_basic", 0.61, -0.61, "sign: a loss reported as a positive amount"),
+    ("gross_profit", -100.0, 100.0, "sign: the two sides are exact negatives"),
     ("eps_basic", 12.0, 0.012, "scale: off by a factor of 1,000 or 1,000,000"),
     ("eps_basic", 4.0, 1.0, "period: off by a factor of 2 to 4"),
     ("gross_profit", 100.0, 0.0, "one side is zero"),
@@ -313,3 +319,53 @@ def test_export_xlsx_is_readable_by_a_reviewer(tmp_path):
     assert {r[5] for r in body} == {reason for _, _, _, reason in REASON_ROWS}
     assert any("Gross profit" in str(r[4]) for r in body)  # the plain-language name, not gross_profit
     assert cr.export_failures_xlsx(Storage(str(tmp_path / "empty")), str(tmp_path / "e.xlsx")) == 0
+
+
+def test_two_currency_filings_names_the_filers_that_print_both(tmp_path):
+    """A convenience translation is one concept, one date, one filing, carrying two currencies."""
+    st = Storage(str(tmp_path))
+    rows = [
+        # A Chinese filer printing renminbi and a dollar translation of the same two lines.
+        ("Revenues", "CNY", 700_000_000.0),
+        ("Revenues", "USD", 100_000_000.0),
+        ("NetIncomeLoss", "CNY", 70_000_000.0),
+        ("NetIncomeLoss", "USD", 10_000_000.0),
+    ]
+    st.write_parquet(
+        f"{layout.facts_cik_dir(7)}/f.parquet",
+        pa.table(
+            {
+                "cik": [7] * len(rows),
+                "accession": ["a1"] * len(rows),
+                "concept": [c for c, _, _ in rows],
+                "unit": [u for _, u, _ in rows],
+                "period_end": [date(2025, 12, 31)] * len(rows),
+                "value": [v for _, _, v in rows],
+            }
+        ),
+    )
+    # A dollar-only filer, which must not appear.
+    st.write_parquet(
+        f"{layout.facts_cik_dir(8)}/f.parquet",
+        pa.table(
+            {
+                "cik": [8],
+                "accession": ["b1"],
+                "concept": ["Revenues"],
+                "unit": ["USD"],
+                "period_end": [date(2025, 12, 31)],
+                "value": [5.0],
+            }
+        ),
+    )
+    st.write_parquet(layout.COMPANIES, pa.table({"cik": [7, 8], "name": ["Yangtze Co", "Domestic Inc"]}))
+
+    rows_out = cr.two_currency_filings(st)
+    assert [r["cik"] for r in rows_out] == [7]
+    only = rows_out[0]
+    assert only["name"] == "Yangtze Co" and only["filings"] == 1
+    assert only["currencies"] == "CNY, USD"
+    assert only["implied_rate"] == 7.0  # both lines imply the same rate, which is the giveaway
+    text = cr.format_two_currency_filings(rows_out)
+    assert "Yangtze Co" in text and "Domestic Inc" not in text
+    assert cr.format_two_currency_filings([]).startswith("No filing")

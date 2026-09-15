@@ -9,7 +9,7 @@ Where it did not add up, we went looking for why. Most of the time the fault was
 
 ## What I still need from you
 
-Three of the original five are answered, and checking one of them turned up two new questions. Here
+Four of the original five are answered, and checking one of them turned up two new questions. Here
 is everything in one place, so you do not have to re-read the document to find out what is left.
 
 | | The question | Status |
@@ -18,7 +18,7 @@ is everything in one place, so you do not have to re-read the document to find o
 | **b** | Does the tax check use the group's total? | **Answered: yes,** and you corrected my reasoning |
 | **c** | Is 5% the right allowance when we have to guess the top number? | **Open. This is the big one.** |
 | **d** | Should a statement keep whichever currency most of its lines use? | **Answered:** the presentation decides. See below for what I found when I checked whether we can read it. |
-| **e** | Are we right to list a filing's own tagging errors rather than repair them? | Open |
+| **e** | Are we right to list a filing's own tagging errors rather than repair them? | **Answered: yes,** and you corrected one of my examples |
 | **f** | **New, from your currency answer.** A company printed two currency columns. We show one. Right? | **Open** |
 | **g** | **New.** Which company should we use as the test case for that? | **Open** |
 | | Open one real foreign company's page and read it | Not done. Needs a person, nothing to decide. |
@@ -58,10 +58,10 @@ Four real bugs, now fixed:
 
 # Part 1: the decisions
 
-**(a), (b) and (d) are answered, and I have kept them here with your answers in them**, because the
-reasoning is the part worth keeping. (c) and (e) are still open, and (f) and (g) are new: they came
-out of checking your answer to (d), and (f) is the one where two of your own rules point in different
-directions.
+**(a), (b), (d) and (e) are answered, and I have kept them here with your answers in them**, because
+the reasoning is the part worth keeping. **(c) is the only one of the original five still open**, and
+it is the one worth the most. (f) and (g) are new: they came out of checking your answer to (d), and
+(f) is the one where two of your own rules point in different directions.
 
 ## a. Earnings per share uses the parent's profit, not the whole group's
 
@@ -252,7 +252,7 @@ Three examples, all real:
 | Company | What we compute | What they report | What happened |
 |---|---|---|---|
 | AAR Corp | −251,412 | −$0.25 | Share count tagged a million times too small |
-| Tenax Therapeutics | +$0.61 | −$0.61 | The sign is flipped: a profit tagged where there is a loss |
+| Tenax Therapeutics | +$0.61 | −$0.61 | Not an error. The heading says "Net loss", so the amount under it is positive. See (e). |
 | Avon Products | $0.05 | $0.00 | A line tagged as zero when it is not zero |
 
 The most common by far is the share count. The typical one of these reads **26,218** when the company
@@ -261,7 +261,39 @@ means **26,218,000**. They filed it in thousands and forgot to say so.
 **We could quietly correct these.** We decided not to. If we "fix" it, we are showing a number the
 company never filed, and nobody downstream can tell. So we list it and leave it alone.
 
-> **Please confirm:** you agree that is the right posture.
+> **Answered: yes, and what they report always wins.** *"So if what you compute is different, it
+> means one of three things in most cases: 1. They recorded numbers in thousands or millions, and
+> therefore it needs to be multiplied. 2. They record costs as a 'negative' number. 3. The line item
+> they report implies a negative number. For instance 'Net loss'. They then put in a positive number
+> because the description already describes it is a loss."* (Hicham, 15 Sep)
+
+**I had Tenax in the wrong column, and your third case is why.**
+
+I listed them under "the filing is wrong". You looked at the actual page and they are not. Their 2012
+income statement prints **Net loss $15,712,410** and, underneath it, **net loss per share $(0.61)**.
+A reader cannot misunderstand that. The heading carries the sign, so the amount below it is printed
+positive, exactly as you describe.
+
+What our check saw was 15,712,410 ÷ 25,928,263 = **+0.61**, against a reported **−0.61**. So the
+disagreement is not between us and the company. It is between the company's own tagged amount and
+the company's own tagged per-share figure, and the page itself is perfectly clear.
+
+So the check is still right to raise it, because two tags in one filing genuinely contradict each
+other. What was wrong was the word we put next to it. **The reason column now tells your third case
+apart from a line that is simply inverted:**
+
+| What the report now says | What it means |
+|---|---|
+| `sign: a loss reported as a positive amount` | Your case 3. The heading says loss, the number under it is positive. The company is right. |
+| `sign: the two sides are exact negatives` | A line genuinely the wrong way up, like Texas Pacific's negative total assets |
+
+Your first two cases were already separated out: thousands and millions come through as
+`scale: off by a factor of 1,000 or 1,000,000`, and a cost recorded negative lands in the second row
+above.
+
+**And the posture itself stands.** We list, we never repair. Which your own sentence is the best
+argument for: *they can't lie, otherwise they go to jail.* If we quietly rewrote a number, we would
+be replacing something a company is legally accountable for with something nobody is.
 
 ---
 
@@ -280,6 +312,22 @@ across 167 filings. They are mostly 20-F and 6-K filers.
 
 **Not Toyota.** You checked, and you were right: their 20-F is entirely in yen. That was a bad
 example on our side.
+
+**Three names, and how to get them.** You asked for three at random and said you would look. Run
+this and take any three off the list:
+
+```
+LAKE_ROOT=data filings-hub two-currency-filings
+```
+
+It names the companies whose filings report the same line twice in two currencies, which is exactly
+the case in question, ordered by how many lines they double up. It also prints the exchange rate the
+two versions of each line imply, so you can see at a glance which pairing you are looking at: about
+7.0 is renminbi, 7.8 is Hong Kong dollars, 150 or so is yen.
+
+You are right that these are not names you would otherwise touch. That is rather the point of asking
+you: if a page of one of them is wrong, you will see it in a way that no count of failing checks
+will, and other people will be looking at them even if we would not.
 
 **What you are looking for:**
 

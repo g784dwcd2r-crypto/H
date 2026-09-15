@@ -54,6 +54,12 @@ def _tol_expr() -> str:
 # fix; "just over" is a tolerance question; "unexplained" is where the real investigation goes.
 REASONS = (
     "one side is zero",
+    # Hicham's third case, and he is right that the company is not at fault: a heading that already
+    # says "Net loss" carries the sign, so the amount underneath it is printed positive. Tenax
+    # Therapeutics prints a net loss of 15,712,410 and its own earnings per share as (0.61). The page
+    # is unambiguous to a reader; it is the tagged sign that disagrees with the company's own
+    # per-share figure. Worth telling apart from a line that is simply inverted.
+    "sign: a loss reported as a positive amount",
     "sign: the two sides are exact negatives",
     "scale: off by a factor of 1,000 or 1,000,000",
     "period: off by a factor of 2 to 4",
@@ -81,14 +87,15 @@ def _base_sql() -> str:
             SELECT *, CASE
                 WHEN passed THEN NULL
                 WHEN lhs = 0 OR rhs = 0 THEN '{REASONS[0]}'
-                WHEN abs(lhs + rhs) <= 0.01 * mag THEN '{REASONS[1]}'
+                WHEN abs(lhs + rhs) <= 0.01 * mag AND rhs < 0 THEN '{REASONS[1]}'
+                WHEN abs(lhs + rhs) <= 0.01 * mag THEN '{REASONS[2]}'
                 WHEN abs(ratio - 1000) <= 50 OR abs(ratio - 1e6) <= 5e4
-                  OR abs(ratio - 0.001) <= 5e-5 OR abs(ratio - 1e-6) <= 5e-8 THEN '{REASONS[2]}'
+                  OR abs(ratio - 0.001) <= 5e-5 OR abs(ratio - 1e-6) <= 5e-8 THEN '{REASONS[3]}'
                 WHEN abs(ratio - 2) <= 0.2 OR abs(ratio - 3) <= 0.3 OR abs(ratio - 4) <= 0.4
                   OR abs(ratio - 0.5) <= 0.05 OR abs(ratio - 0.333) <= 0.03 OR abs(ratio - 0.25) <= 0.03
-                  THEN '{REASONS[3]}'
-                WHEN q < 2 THEN '{REASONS[4]}'
-                ELSE '{REASONS[5]}'
+                  THEN '{REASONS[4]}'
+                WHEN q < 2 THEN '{REASONS[5]}'
+                ELSE '{REASONS[6]}'
             END AS reason
             FROM q
         )
@@ -455,6 +462,75 @@ def format_dig(report: dict[str, Any]) -> str:
             out.append(f"      {s['detail']}")
             if s["values"]:
                 out.append("      " + "  ".join(s["values"]))
+    return "\n".join(out)
+
+
+def two_currency_filings(storage: Storage, limit: int = 10) -> list[dict[str, Any]]:
+    """Companies whose filings print their accounts twice, in their own currency and in dollars.
+
+    Step 8b needs a real page of one of these opened and read, and the reader set needs one as a
+    permanent test, and in both cases picking blind is the wrong way to choose. A convenience
+    translation shows up in the facts as one concept, one date, one filing, carrying two different
+    currency units, so the lake can name the companies rather than us guessing at them.
+    """
+    duck = Duck(storage)
+    try:
+        if not duck.view("fx", f"{layout.FACTS}/*/*.parquet"):
+            return []
+        have_companies = duck.view("companies", layout.COMPANIES, hive=False)
+        name_col = "c.name" if have_companies else "NULL"
+        name_join = "LEFT JOIN companies c ON c.cik = q.cik" if have_companies else ""
+        return duck.fetch_dicts(
+            f"""
+            WITH money AS (
+                SELECT cik, accession, concept, period_end, value,
+                       regexp_extract(unit, '^([A-Z]{{3}})', 1) AS ccy
+                FROM fx
+                WHERE value IS NOT NULL AND regexp_matches(unit, '^[A-Z]{{3}}$')
+            ),
+            doubled AS (
+                SELECT cik, accession, concept, period_end,
+                       count(DISTINCT ccy) AS currencies,
+                       max(abs(value)) / nullif(min(abs(value)), 0) AS rate
+                FROM money GROUP BY 1, 2, 3, 4
+                HAVING count(DISTINCT ccy) > 1
+            ),
+            q AS (
+                SELECT d.cik,
+                       count(DISTINCT d.accession) AS filings,
+                       count(*) AS doubled_lines,
+                       round(median(d.rate), 1) AS implied_rate,
+                       string_agg(DISTINCT m.ccy, ', ' ORDER BY m.ccy) AS currencies
+                FROM doubled d JOIN money m
+                  ON m.cik = d.cik AND m.accession = d.accession
+                 AND m.concept = d.concept AND m.period_end = d.period_end
+                GROUP BY 1
+            )
+            SELECT q.cik, {name_col} AS name, q.filings, q.doubled_lines, q.implied_rate, q.currencies
+            FROM q {name_join}
+            ORDER BY q.doubled_lines DESC
+            LIMIT {int(limit)}
+            """
+        )
+    finally:
+        duck.close()
+
+
+def format_two_currency_filings(rows: list[dict[str, Any]]) -> str:
+    if not rows:
+        return "No filing in the lake reports the same line in two currencies."
+    out = [
+        "Companies that print their accounts in two currencies.",
+        "The rate is what the two versions of the same line imply, which is the exchange rate they used.",
+        "",
+        f"  {'company':<44} {'CIK':>9} {'filings':>8} {'lines':>7} {'rate':>7}  currencies",
+    ]
+    for r in rows:
+        who = (r["name"] or "")[:44]
+        out.append(
+            f"  {who:<44} {r['cik']:>9} {r['filings']:>8,} {r['doubled_lines']:>7,} "
+            f"{r['implied_rate'] or 0:>7.1f}  {r['currencies']}"
+        )
     return "\n".join(out)
 
 

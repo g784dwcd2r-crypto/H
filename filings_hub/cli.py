@@ -608,6 +608,19 @@ def check_dig_cmd(
     typer.echo(cr.format_dig(cr.dig(_storage(), check_name, examples=examples)))
 
 
+@app.command(name="two-currency-filings")
+def two_currency_filings_cmd(
+    limit: int = typer.Option(10, help="companies to list"),
+    verbose: bool = False,
+) -> None:
+    """Name the companies that print their accounts in both their own currency and dollars, so a real
+    one can be opened and read (step 8b) and added to the reader set, rather than picked blind."""
+    _setup_logging(verbose)
+    from filings_hub import check_report as cr
+
+    typer.echo(cr.format_two_currency_filings(cr.two_currency_filings(_storage(), limit=limit)))
+
+
 @app.command(name="check-explain")
 def check_explain_cmd(
     cik: int = typer.Argument(..., help="company CIK to explain"),
