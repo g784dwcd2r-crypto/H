@@ -145,6 +145,10 @@ ceiling, and steps 6 and 7 lift it.
 stored data (step 8b), and `checks_passed` on the statement rows — which feeds the coverage report
 and `verify` — is stale until the next full `statements` build.
 
+**And a gap the work itself exposed:** every bug we found was invisible to the checks we had, because
+all of them ask "does this add up" and none asks "is this statement coherent". Step 12b adds the
+three that would have caught them, starting with the one that guards the bug that reached the page.
+
 ---
 
 # Part 1. Four quick fixes
@@ -865,6 +869,59 @@ paragraph, but start there.
 or did not apply.
 
 **Size.** Medium.
+
+## Step 12b. The checks that would have caught the bugs we shipped
+
+**What it is.** Three checks that ask whether a statement is *coherent*, rather than whether it adds
+up. They exist because every bug we found in two days of check work was invisible to the checks we
+had, and one of them reached a reader's page.
+
+**Why this is a different kind of check.** Everything in step 12 and before asks an arithmetic
+question: do these lines sum to that total. That only catches a problem when the problem happens to
+break a sum. A statement that mixes two currencies, or mixes a nine-month figure with a three-month
+one, is broken whether or not any particular total reconciles, and none of our checks would say so.
+The currency bug proved it: it sat in the data long enough to reach the page, and what eventually
+caught it was a build being non-deterministic, which is luck rather than method.
+
+```mermaid
+flowchart TD
+    A["<b>What we check today</b><br/>Do these lines add to that total?"] --> A2["Catches a break<br/>only when it breaks a sum"]
+    B["<b>What step 12b adds</b><br/>Is this statement internally coherent?"] --> B2["Catches a statement that is wrong<br/>even when every total reconciles"]
+    style A2 fill:#fff4e5,stroke:#e65100
+    style B2 fill:#e8f5e9,stroke:#2e7d32
+```
+
+**The three.**
+
+*One currency per statement.* Every monetary line on a statement should report in the same currency.
+We fixed the cause in September 2025, and there is still nothing that would notice if it came back.
+This is the cheapest check in the whole plan and it guards the only bug so far that a reader could
+see.
+
+*One period per statement.* Every duration line on a statement should cover the same span. This one
+is interesting rather than obvious, and the order of work matters: **diagnose before building.** The
+`period: out by a factor of 2 to 4` bucket is 2,205 failures whose shape says a year-to-date figure
+met a quarterly one, and yet both build paths already intend to prevent exactly that. Each pins a
+line to `qtrs = primary_qtrs`, the shortest duration the statement reports at its own period end. So
+either that guard is not holding, or those 2,205 have a different cause and the shape is misleading
+us. Find out which before writing anything, because this is precisely the situation that produced
+60,000 new failures in September when we fixed a cause we had not measured.
+
+*A check may read the whole filing, not one statement.* Today the income-statement check only sees
+income-statement values, which is why about 500 filings fail when the company tags its equity-method
+income on the cash flow statement alone. The figure is in the filing. We just cannot reach it from
+where the check stands. This one is a change to how checks are handed their inputs, in both build
+paths, which is why it was deferred rather than bolted on: it is plumbing, not a new rule.
+
+**Worth remembering.** A coherence check earns its place by failing loudly on a change we made
+ourselves. If one of these never fires, that is a good sign about the data and says nothing about the
+check, so each one needs a test that deliberately breaks a statement and proves the check notices.
+
+**Done when.** All three run over every company, the first two find nothing on a clean build, and a
+deliberately mixed statement fails each of them in the test suite.
+
+**Size.** Small for the first, small for the second once it is diagnosed, medium for the third
+because it changes how both build paths assemble a check's inputs.
 
 ## Step 13. Late filers and companies that went quiet
 
