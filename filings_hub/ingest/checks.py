@@ -87,6 +87,9 @@ PRETAX_CONCEPTS = (
     "IncomeLossFromContinuingOperationsBeforeIncomeTaxesMinorityInterestAndIncomeLossFromEquityMethodInvestments",
     "IncomeLossFromContinuingOperationsBeforeIncomeTaxesDomestic",
 )
+# The domestic component of pretax income has a foreign counterpart; the two sum to the total. Taken
+# alone, the domestic tag failed three times as often as any other pretax line.
+FOREIGN_PRETAX_CONCEPTS = ("IncomeLossFromContinuingOperationsBeforeIncomeTaxesForeign",)
 TAX_CONCEPTS = ("IncomeTaxExpenseBenefit", "IncomeTaxExpenseContinuingOperations")
 # Income from continuing operations as its own line: what pretax income minus tax equals. The
 # consolidated figure first, because pretax income is consolidated (the minority's share is in it).
@@ -206,6 +209,7 @@ CHECK_CONCEPTS = frozenset(
         *REVENUE_CONCEPTS,
         *COST_OF_REVENUE_CONCEPTS,
         *PRETAX_CONCEPTS,
+        *FOREIGN_PRETAX_CONCEPTS,
         *TAX_CONCEPTS,
         *CONTINUING_CONCEPTS,
         *EPS_FALLBACK_NUMERATOR_CONCEPTS,
@@ -334,20 +338,31 @@ def _check_income_after_tax(v: dict[str, float]) -> list[CheckResult]:
     short by the minority's share on some filings, but is the consolidated figure on others (equal to
     `ProfitLoss` to the dollar); a bridge that always added the minority's share failed 69 % of the
     time. The pretax tag whose name says equity-method income is excluded is used, six filings in
-    eight, for a subtotal that includes it; an add-back that trusted the name double-counted.
+    eight, for a subtotal that includes it; an add-back that trusted the name double-counted. A filer
+    reporting discontinued operations may still tag a pretax figure that carries them, so the bottom
+    line stands as a candidate beside the bottom line less discontinued operations. And a filer may
+    tag the total under `ProfitLoss`, under `NetIncomeLoss`, or put its earnings available to common
+    in one and the consolidated total in the other, so both are offered.
 
     So the check does what an analyst does: it asks whether pretax minus tax equals any legitimate
-    after-tax line, in a fixed preference order, with and without the equity-method add-back, and
-    records which held. A wrong tax figure or a wrong bottom line still fails every candidate; only
-    the tag ambiguity is absorbed. A failure is reported against the preferred pair.
+    after-tax line, in a fixed preference order, and records which held. A wrong tax figure or a wrong
+    bottom line still fails every candidate; only the tag ambiguity is absorbed. A failure is reported
+    against the preferred pair.
     """
     pretax, tax = _first(v, PRETAX_CONCEPTS), _first(v, TAX_CONCEPTS)
     if not (pretax and tax):
         return []
-    base = pretax[1] - tax[1]
-    lhs_options: list[tuple[float, str]] = [(base, f"{pretax[0]} - {tax[0]}")]
-    if "IncomeLossFromEquityMethodInvestments" in pretax[0] and (eq := _first(v, EQUITY_METHOD_CONCEPTS)):
-        lhs_options.append((base + eq[1], f"{pretax[0]} - {tax[0]} + {eq[0]}"))
+    bases: list[tuple[float, str]] = [(pretax[1], pretax[0])]
+    if pretax[0].endswith("Domestic") and (foreign := _first(v, FOREIGN_PRETAX_CONCEPTS)):
+        # the domestic component is not the total; the plain reading stays, for a filer who tagged
+        # the whole of pretax income under the domestic name
+        bases.insert(0, (pretax[1] + foreign[1], f"{pretax[0]} + {foreign[0]}"))
+    eq = _first(v, EQUITY_METHOD_CONCEPTS) if "IncomeLossFromEquityMethodInvestments" in pretax[0] else None
+    lhs_options: list[tuple[float, str]] = []
+    for amount, name in bases:
+        lhs_options.append((amount - tax[1], f"{name} - {tax[0]}"))
+        if eq:
+            lhs_options.append((amount - tax[1] + eq[1], f"{name} - {tax[0]} + {eq[0]}"))
 
     rhs_options: list[tuple[float, str]] = []
     for concept in CONTINUING_ONLY_CONCEPTS:
@@ -357,12 +372,13 @@ def _check_income_after_tax(v: dict[str, float]) -> list[CheckResult]:
         rhs_options.append(
             (v["IncomeLossFromContinuingOperations"] + nci[1], f"IncomeLossFromContinuingOperations + {nci[0]}")
         )
-    if total := _first(v, TOTAL_INCOME_CONCEPTS):
-        # the bottom line: discontinued operations sit below the tax line and come off it first
-        if disc := _first(v, DISCONTINUED_CONCEPTS):
-            rhs_options.append((total[1] - disc[1], f"{total[0]} - {disc[0]}"))
-        else:
-            rhs_options.append((total[1], total[0]))
+    disc = _first(v, DISCONTINUED_CONCEPTS)
+    for concept in TOTAL_INCOME_CONCEPTS:
+        if v.get(concept) is None:
+            continue
+        if disc:  # discontinued operations sit below the tax line and come off the bottom line first
+            rhs_options.append((v[concept] - disc[1], f"{concept} - {disc[0]}"))
+        rhs_options.append((v[concept], concept))
     if not rhs_options:
         return []
 
@@ -423,34 +439,34 @@ def _check_eps(v: dict[str, float]) -> list[CheckResult]:
 
 
 def check_cash_flow(v: dict[str, float]) -> list[CheckResult]:
+    """The three activities must sum to the net change in cash the filing states.
+
+    Whether the exchange-rate effect is inside that stated total cannot be read off the tag. The IFRS
+    `IncreaseDecreaseInCashAndCashEquivalents`, whose name promises it is, failed 19 % of the time
+    against 0.6 % for its before-the-effect sibling, and every sampled filing that tags the effect
+    separately states the total *before* it, showing the effect on its own line underneath: Spark
+    Networks, Valspar, Vale and TDCX all close to the dollar without it and miss by exactly the effect
+    with it. So both readings are tried, the one the tag's name promises first.
+    """
     out: list[CheckResult] = []
     ops, inv, fin = _first(v, OPERATING_CF), _first(v, INVESTING_CF), _first(v, FINANCING_CF)
     if not (ops and inv and fin):
         return out
     activities = ops[1] + inv[1] + fin[1]
-    fx = _first(v, FX_CONCEPTS)
-    if incl := _first(v, NET_CHANGE_IN_CASH_INCL_FX):
-        lhs = activities + (fx[1] if fx else 0.0)
-        out.append(
-            _result(
-                "CF",
-                "net_change_in_cash",
-                lhs,
-                incl[1],
-                f"ops + investing + financing{' + fx' if fx else ''} = {incl[0]}",
-            )
-        )
-    elif excl := _first(v, NET_CHANGE_IN_CASH_EXCL_FX):
-        out.append(
-            _result(
-                "CF",
-                "net_change_in_cash",
-                activities,
-                excl[1],
-                f"ops + investing + financing = {excl[0]}",
-            )
-        )
-    return out
+    incl = _first(v, NET_CHANGE_IN_CASH_INCL_FX)
+    target = incl or _first(v, NET_CHANGE_IN_CASH_EXCL_FX)
+    if target is None:
+        return out
+    without_fx = (activities, "ops + investing + financing")
+    options = [without_fx]
+    if fx := _first(v, FX_CONCEPTS):
+        with_fx = (activities + fx[1], "ops + investing + financing + fx")
+        options = [with_fx, without_fx] if incl else [without_fx, with_fx]
+    for lhs, lhs_name in options:
+        if _close(lhs, target[1]):
+            return [_result("CF", "net_change_in_cash", lhs, target[1], f"{lhs_name} = {target[0]}")]
+    lhs, lhs_name = options[0]
+    return [_result("CF", "net_change_in_cash", lhs, target[1], f"{lhs_name} = {target[0]}")]
 
 
 def check_across_statements(by_statement: dict[str, dict[str, float]]) -> list[CheckResult]:

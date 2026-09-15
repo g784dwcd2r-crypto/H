@@ -402,3 +402,84 @@ def test_the_tax_identity_does_not_trust_tag_names_and_records_which_reading_hel
     r = one(C.check_income_statement(broken), "income_after_tax")
     assert not r.passed and r.lhs == 48_000_000 and r.rhs == 41_000_000
     assert r.detail.endswith("= IncomeLossFromContinuingOperations") and "+ IncomeLossFromEquityMethod" not in r.detail
+
+
+def test_the_net_change_in_cash_reads_the_exchange_rate_effect_both_ways():
+    """Filers that tag the exchange-rate effect separately state the net change BEFORE it, whatever
+    the tag's name promises. Numbers from the real filings that showed it."""
+    # Valspar: ops + investing + financing = -23,495, exactly the tagged period increase/decrease;
+    # adding the -13,682 effect misses by exactly that
+    valspar = {
+        "NetCashProvidedByUsedInOperatingActivities": 398_504_000,
+        "NetCashProvidedByUsedInInvestingActivities": -313_960_000,
+        "NetCashProvidedByUsedInFinancingActivities": -108_039_000,
+        "EffectOfExchangeRateOnCashAndCashEquivalents": -13_682_000,
+        "CashAndCashEquivalentsPeriodIncreaseDecrease": -23_495_000,
+    }
+    r = one(C.check_cash_flow(valspar), "net_change_in_cash")
+    assert r.passed and r.lhs == -23_495_000 and "+ fx" not in r.detail
+    # TDCX, the IFRS tag whose name says the effect is inside it: same story
+    tdcx = {
+        "CashFlowsFromUsedInOperatingActivities": 103_825_000,
+        "CashFlowsFromUsedInInvestingActivities": -44_139_000,
+        "CashFlowsFromUsedInFinancingActivities": 199_644_000,
+        "EffectOfExchangeRateChangesOnCashAndCashEquivalents": -5_990_000,
+        "IncreaseDecreaseInCashAndCashEquivalents": 259_330_000,
+    }
+    assert one(C.check_cash_flow(tdcx), "net_change_in_cash").passed
+    # a filer who does include it still passes, on the reading its tag promises
+    including = {
+        "NetCashProvidedByUsedInOperatingActivities": 100.0,
+        "NetCashProvidedByUsedInInvestingActivities": -40.0,
+        "NetCashProvidedByUsedInFinancingActivities": 10.0,
+        "EffectOfExchangeRateOnCashAndCashEquivalents": -5.0,
+        "CashAndCashEquivalentsPeriodIncreaseDecrease": 65.0,
+    }
+    r = one(C.check_cash_flow(including), "net_change_in_cash")
+    assert r.passed and r.lhs == 65.0 and "+ fx" in r.detail
+    # a genuinely wrong total matches neither reading
+    assert not one(
+        C.check_cash_flow({**including, "CashAndCashEquivalentsPeriodIncreaseDecrease": 90.0}), "net_change_in_cash"
+    ).passed
+
+
+def test_the_tax_identity_offers_the_bottom_line_with_and_without_discontinued_operations():
+    """China Jo-Jo: the pretax figure already carries the discontinued result, so the bottom line as
+    it stands is what closes, not the bottom line less discontinued operations."""
+    v = {
+        "IncomeLossFromContinuingOperationsBeforeIncomeTaxesExtraordinaryItemsNoncontrollingInterest": -6_441_419,
+        "IncomeTaxExpenseBenefit": 16_258,
+        "IncomeLossFromDiscontinuedOperationsNetOfTax": 644_308,
+        "ProfitLoss": -6_457_677,
+        "NetIncomeLoss": -5_813_369,
+    }
+    r = one(C.check_income_statement(v), "income_after_tax")
+    assert r.passed and r.rhs == -6_457_677 and r.detail.endswith("= ProfitLoss")
+
+
+def test_the_tax_identity_offers_both_bottom_line_tags():
+    """Texas Capital tagged ProfitLoss after preferred dividends and NetIncomeLoss as the total; the
+    identity closes on the second, so both are candidates."""
+    v = {
+        "IncomeLossFromContinuingOperationsBeforeIncomeTaxesMinorityInterestAndIncomeLossFromEquityMethodInvestments": 65_375_000,
+        "IncomeTaxExpenseBenefit": 22_833_000,
+        "ProfitLoss": 40_104_000,
+        "NetIncomeLoss": 42_542_000,
+        "PreferredStockDividendsIncomeStatementImpact": 2_438_000,
+    }
+    r = one(C.check_income_statement(v), "income_after_tax")
+    assert r.passed and r.rhs == 42_542_000 and r.detail.endswith("= NetIncomeLoss")
+
+
+def test_the_tax_identity_completes_the_domestic_pretax_line_with_its_foreign_half():
+    v = {
+        "IncomeLossFromContinuingOperationsBeforeIncomeTaxesDomestic": 300.0,
+        "IncomeLossFromContinuingOperationsBeforeIncomeTaxesForeign": 200.0,
+        "IncomeTaxExpenseBenefit": 100.0,
+        "NetIncomeLoss": 400.0,
+    }
+    r = one(C.check_income_statement(v), "income_after_tax")
+    assert r.passed and r.lhs == 400.0 and "Foreign" in r.detail
+    # a filer who tagged the whole of pretax income under the domestic name still closes
+    alone = {**v, "IncomeLossFromContinuingOperationsBeforeIncomeTaxesForeign": 0.0, "NetIncomeLoss": 200.0}
+    assert one(C.check_income_statement(alone), "income_after_tax").passed

@@ -933,3 +933,44 @@ Four gaps named after two days on the checks, mapped to the steps that already h
   started: the target is not zero failures, it is that every remaining failure is worth opening. Now
   sharpened with the mechanism: no failure caused by us, every other one named with a reason in
   `check-report --csv`, and "unexplained" the only count that should be shrinking.
+
+## The exchange-rate effect sits outside the stated net change in cash (2026-09-15)
+
+`check-dig net_change_in_cash`: the IFRS `IncreaseDecreaseInCashAndCashEquivalents`, whose name says
+the exchange-rate effect is inside it, failed 19.2 % of the time against 0.6 % for its
+before-the-effect sibling. Seven of fifteen sampled filings were one pattern, exact to the dollar:
+the three activities sum to the stated net change, and adding the effect misses by exactly the
+effect. Spark Networks -273, Valspar -23,495, Vale -4,792, TDCX 259,330, and three more. Filers show
+the effect on its own line underneath the subtotal, in US GAAP and IFRS alike.
+
+Both readings are now tried, the one the tag's name promises first. A filer who does include the
+effect still passes on its own reading; a total that matches neither still fails.
+
+## Three smaller gaps in the tax identity (2026-09-15)
+
+The same dig, after the previous fix took income after tax from 12,134 failures to 4,815 and every
+main line to 1.2-3.4 % (the minority bridge went from 69 % failing to 0 of 123):
+
+- **The domestic pretax line is not the total.** `...BeforeIncomeTaxesDomestic` failed 6.6 %, three
+  times any other pretax line. It is the domestic component; the foreign half is its own tag and the
+  two sum to pretax income. Both readings are offered, because a filer may tag the whole under the
+  domestic name.
+- **The bottom line stands as a candidate beside the bottom line less discontinued operations.**
+  China Jo-Jo's pretax figure already carries the discontinued result, so `ProfitLoss` as it stands
+  closed to the dollar while `ProfitLoss - discontinued` missed by 644,308.
+- **Both bottom-line tags are offered.** Texas Capital tagged `ProfitLoss` after preferred dividends
+  (40,104) and `NetIncomeLoss` as the consolidated total (42,542); the identity closes on the second.
+  Only the first tag found was tried before.
+
+**The trade-off, stated plainly.** Each candidate makes the check more permissive, and the identity
+now has up to eight right-hand candidates against two or three left-hand readings. That is deliberate:
+every candidate is an arithmetically legitimate reading of the filing, a wrong tax figure or bottom
+line still matches none of them, and the alternative — one fixed reading — produced thousands of
+failures that were our misreading rather than the filer's error. A test holds the line: a filing whose
+tax figure is wrong still fails.
+
+**Known and deferred.** Two of fifteen sampled filings (9F, American Vanguard) close to the dollar
+once the equity-method income is added, but tag it only on the cash-flow statement, not the income
+statement, and the income-statement check sees only income-statement values. Worth perhaps 500
+failures; it needs the check to read across statements, which both build paths would have to pass
+through, so it waits rather than being bolted on.
