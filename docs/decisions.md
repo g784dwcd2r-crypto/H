@@ -709,6 +709,33 @@ company's own printed label, "in dollars per share", next to a renminbi unit. Th
 wording and our rule is that the page shows the company's words. The unit beside it is ours, and it
 is correct.
 
+**Hicham's answer, and what it changes (2026-09-15).** He confirmed the rule but told me what it is
+subordinate to: "always in the way that the company presents its numbers. If there is a way to check
+what the presented currency is, then that is the rule. If the proxy is 'most lines used' then we can
+go with that as a rule of thumb. But let the presentation of the numbers decide."
+
+So I went to find out whether there is a way. Three things came out of it.
+
+The unit is not the thing we are guessing at. Every figure carries its own currency code, so we
+always know what currency a number is in. The only open question is which of two columns the company
+printed on the face of the statement, which is narrower than I had been treating it.
+
+Our vote is already closer to his answer than the wording suggested, because it counts only the lines
+that appear in the SEC's presentation table rather than every figure in the filing. "Most lines used"
+already means "most of the lines the company printed".
+
+And the summary files cannot close the rest of the gap: they record both columns and have no field
+saying which was primary. The filing does carry it. So this becomes one more thing steps 6 and 7 fix
+rather than a rule to settle by argument, and until then the vote stands as the rule of thumb he
+allowed for.
+
+I could not demonstrate the direct signal, because we do not hold a filing that has one. Of our two
+foreign test filings, Toyota reports 2,533 figures and every one is in yen, and Royal Bank of Canada
+reports 6,145 in Canadian dollars with only eight in other currencies, each of them attached to a
+particular debt issue or class of share, which makes them notes about foreign-currency instruments
+rather than a translated copy of the accounts. **The case that caused our only reader-visible bug is
+not in the set we test against.** That is now in step 5's list.
+
 ---
 
 # Part 6: the arithmetic checks

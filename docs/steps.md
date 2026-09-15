@@ -517,6 +517,14 @@ fetched and committed (13 MB gzipped). ✅ `reader-check` reads all 26 cleanly, 
 embedded-linkbase fix. ✅ The presence test is live: the 26 are permanent, and the suite goes red the
 moment any of them is removed or stops reading.
 
+**One filing the set is still missing (2026-09-15).** None of the 26 has a convenience translation:
+Toyota's 20-F is entirely in yen, and Royal Bank of Canada's 40-F is Canadian dollars apart from
+eight figures, each attached to a specific debt issue or share class, which are notes about
+foreign-currency instruments rather than a translated copy of the accounts. So the case that produced
+the only reader-visible bug we have had is not in the set we test against. Add a Chinese, Hong Kong
+or Singapore filer that prints a dollar translation beside its home currency, and the set will cover
+it.
+
 ## Step 6. Download and keep every filing
 
 **What it is.** Fetch the actual document for every filing we take numbers from, and store our own
@@ -594,6 +602,13 @@ about reproducing what was published. We count how many filings this affects fir
 disappears from the pages where we now hold the filing.
 
 **Size.** Large.
+
+**Read which currency the company presented (2026-09-15).** Hicham's rule on currency is that the
+presentation decides, and the summary files cannot tell us: they carry both a foreign filer's home
+currency and its dollar translation, with no field saying which one was on the face of the statement.
+So we vote on it, which is a rule of thumb he accepted as a stand-in. The filing itself does carry
+the answer, so reading it here replaces the vote with the thing itself. Worth doing while the
+statement is being built rather than as a later pass, because it decides which figure the line takes.
 
 ## Step 8. Prove the numbers add up
 

@@ -9,7 +9,7 @@ Where it did not add up, we went looking for why. Most of the time the fault was
 
 ## What I still need from you
 
-Two of the five are answered. Here is the whole list in one place, so you do not have to re-read
+Three of the five are answered. Here is the whole list in one place, so you do not have to re-read
 the document to find out what is left.
 
 | | The question | Status |
@@ -17,7 +17,7 @@ the document to find out what is left.
 | **a** | Does earnings per share use the parent's share? | **Answered: yes** |
 | **b** | Does the tax check use the group's total? | **Answered: yes,** and you corrected my reasoning |
 | **c** | Is 5% the right allowance when we have to guess the top number? | **Open. This is the big one.** |
-| **d** | Should a statement keep whichever currency most of its lines use? | Open |
+| **d** | Should a statement keep whichever currency most of its lines use? | **Answered:** the presentation decides. See below for what I found when I checked whether we can read it. |
 | **e** | Are we right to list a filing's own tagging errors rather than repair them? | Open |
 | | Open one real foreign company's page and read it | Not done. Needs a person, nothing to decide. |
 
@@ -56,8 +56,8 @@ Four real bugs, now fixed:
 
 # Part 1: the five decisions
 
-**(a) and (b) are answered, and I have kept them here with your answers in them**, because the
-reasoning is the part worth keeping. (c), (d) and (e) are still open.
+**(a), (b) and (d) are answered, and I have kept them here with your answers in them**, because the
+reasoning is the part worth keeping. (c) and (e) are still open.
 
 ## a. Earnings per share uses the parent's profit, not the whole group's
 
@@ -159,10 +159,44 @@ The two lines are about seven times apart for no reason other than that they are
 filer with a dollar translation stays in renminbi. A dollar filer with a euro translation stays in
 dollars. If it is a dead tie, the dollar wins.
 
-> **Please confirm: is "whichever most lines use" the rule you want?** The alternative is to always
-> prefer the company's home currency. They give the same answer nearly every time. They disagree only
-> when a company tagged its translation more thoroughly than its original, and then our rule picks
-> the translation.
+> **Answered: let the presentation decide.** *"Always in the way that the company presents its
+> numbers. If there is a way to check what the presented currency is, then that is the rule. If the
+> proxy is 'most lines used' then we can go with that as a rule of thumb. But let the presentation of
+> the numbers decide."* (Hicham, 15 Sep)
+
+**So I went and checked whether there is a way, and the answer is: not from where we are standing
+today, but yes from the filing itself.**
+
+Two things came out of it that are worth knowing.
+
+*The unit is not a proxy.* Every number in a filing carries its own currency code, so we are never
+guessing what currency a figure is in. The only thing we are guessing at is **which of two columns
+the company put on the face of the statement** when it printed both. That is a narrower question than
+I had been treating it as.
+
+*Our rule is already closer to your answer than it sounds.* The vote does not count every number in
+the filing. It only counts the lines the company actually presented on a statement, because the count
+runs over the SEC's presentation table. So "most lines used" already means "most of the lines the
+company printed", which is most of the way to what you asked for.
+
+*What it still cannot do.* The SEC's summary files record both columns and never say which one was
+primary. There is no field for it. So on that source the vote is the best available answer, and it is
+wrong precisely in the case you would expect: a company that tagged its translation more completely
+than its original.
+
+*The filing does carry it,* which makes this one more thing that steps 6 and 7 fix rather than a rule
+we have to settle by argument.
+
+**One thing I could not verify, and it is a gap worth closing.** We keep 26 real filings as permanent
+tests, and I checked the two foreign ones. Toyota files 2,533 figures and every single one is in yen,
+so there is nothing to choose between. Royal Bank of Canada files 6,145 in Canadian dollars, and its
+only foreign-currency figures are six in US dollars, one in yen and one in sterling, every one of
+which is attached to a specific debt issue or class of share. Those are notes about foreign-currency
+instruments, not a translated copy of the accounts.
+
+So **neither of our test filings actually has a convenience translation**, which means the case that
+caused our only reader-visible bug is not in the set we test against. I have added getting one to the
+plan.
 
 ## e. When the filing itself is wrong, we say so, we do not fix it
 
