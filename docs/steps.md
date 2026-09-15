@@ -1551,6 +1551,14 @@ there are ~394,000 of them (see step 11), so a publish runs for hours — over t
 September. `rclone` or `s5cmd`, told to move many files at once, do the same job far faster. The real
 fix is step 11, which cuts the file count; until then, use the faster tool.
 
+**Changing a check: `filings-hub recheck`, not `statements --all`.** The arithmetic checks are
+computed when the statements are built, so a change to a check used to mean rebuilding every
+quarter, about 46 minutes, three times in two days. `recheck` recomputes them from the statements
+already in the lake, through the same code, in minutes, and `check-report` then shows exactly what a
+full rebuild would. The one thing it does not refresh is the pass/fail flag stored on the statement
+rows themselves (which feeds the periods table, the coverage numbers and `verify`); that catches up
+on the next full build, and the command says so.
+
 **Ad-hoc queries against the remote lake: pass the read-only flag.** Opening the data for a quick
 question the plain way makes the query engine open the entire lake before it answers anything, which
 can take hours over the network. The serving site avoids this with a setting that reads each company

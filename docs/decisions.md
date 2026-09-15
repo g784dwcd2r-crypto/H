@@ -731,3 +731,18 @@ The rebuild re-ran the checks with both halves of the 2026-09-14 fix, and the re
 - **Lesson kept.** The diagnosis came from the worst-offender list, where sign flips dominate
   because a flip is the largest *possible* error, not the most *common* one. The query that measured
   the pattern across all failures came second and contradicted it; it should have come first.
+
+## A check change no longer costs a rebuild: `recheck` (2026-09-15)
+
+Three full rebuilds in two days for checks-only changes, about 46 minutes each. The checks are
+computed at build time from the staged rows, and the statements table holds exactly those rows, so
+they can be recomputed from the lake: one pass to pull the rows a check can read, then the same
+`_checks_from_staged` per quarter and per provisional filing, written under the builders' own file
+names so a later quarter rebuild still supersedes them.
+
+Locked in by a test that runs it on a built lake and requires the checks to come out identical, row
+for row, and another that changes the pass rule and requires every verdict to move while every
+operand stays — it recomputes, it does not copy. Deliberately not refreshed: `checks_passed` on the
+statement rows, which would mean rewriting the statements table, the expensive part, for an
+internal loop. `check-report` reads `statement_checks` and is current at once; the published pass
+rate catches up on the next build, and the command says so.

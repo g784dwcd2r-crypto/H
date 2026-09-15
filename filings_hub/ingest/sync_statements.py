@@ -12,6 +12,7 @@ kind as a template for line order/labels, and taxonomy hints for anything new.
 from __future__ import annotations
 
 import logging
+import re
 from collections import defaultdict
 from datetime import date
 from typing import Any
@@ -939,3 +940,86 @@ def fill_all_fallbacks(storage: Storage, ciks: list[int] | None = None) -> int:
         return total
     finally:
         duck.close()
+
+
+_QUARTER = re.compile(r"^\d{4}q[1-4]$")
+_ACCESSION = re.compile(r"^\d{10}-\d{2}-\d{6}$")
+
+
+def recheck(storage: Storage, duck: Duck | None = None) -> dict[str, int]:
+    """Recompute every arithmetic check from the statements already in the lake, in place.
+
+    The checks are computed when statements are built, from the staged rows; the statements table
+    holds exactly those rows. So a change to a check (checks.py) or to how its inputs are picked can
+    be measured by recomputing from the lake, in minutes, instead of rebuilding every quarter. This
+    is the same code as the build: `_checks_from_staged` over the same primary-period rows, per FSDS
+    quarter and per provisional filing, and the files are written under the builders' own names
+    (`fsds_<quarter>_<uuid>`, `fallback_<accession>`) so a later quarter rebuild still supersedes
+    them. `check-report` afterwards shows what a full rebuild would.
+
+    Not refreshed: `checks_passed` on the statement rows, and with it the periods table, the coverage
+    numbers and `verify`'s pass rate. Those are denormalised at build time and rewriting the
+    statements table is the expensive part; they catch up on the next `statements` build.
+    """
+    own = duck is None
+    duck = duck or Duck(storage)
+    out = {"fsds_quarters": 0, "fsds_checks": 0, "fallback_filings": 0, "fallback_checks": 0}
+    try:
+        if not duck.view("st", f"{layout.STATEMENTS}/*/*.parquet"):
+            return out
+        # one pass over the statements: only the rows a check can read (the pivot's own filters)
+        duck.sql(
+            f"""
+            CREATE OR REPLACE TEMP TABLE chk_rows AS
+            SELECT accession, cik, statement, concept, value, period_end_rounded, is_primary_period,
+                   is_parenthetical, coalesce(segments, '') AS segments, source, fsds_quarter
+            FROM st
+            WHERE is_primary_period AND NOT is_parenthetical AND value IS NOT NULL
+              AND coalesce(segments, '') = '' AND statement IN ('BS', 'IS', 'CF')
+              AND concept IN ({_sql_list(sorted(chk.CHECK_CONCEPTS))})
+            """
+        )
+        storage.mkdirs(layout.STATEMENT_CHECKS)
+
+        # FSDS: every quarter's checks are replaced, including a quarter that now yields none
+        _delete_glob(storage, f"{layout.STATEMENT_CHECKS}/*/fsds_*.parquet")
+        for q in duck.fetch_column("SELECT DISTINCT fsds_quarter FROM chk_rows WHERE source = 'fsds' ORDER BY 1"):
+            if not q or not _QUARTER.match(q):
+                raise RuntimeError(f"unexpected fsds_quarter {q!r} on statements rows")
+            duck.sql(
+                f"CREATE OR REPLACE VIEW stg AS SELECT * FROM chk_rows WHERE source = 'fsds' AND fsds_quarter = '{q}'"
+            )
+            checks = _checks_from_staged(duck, "fsds")
+            if checks.num_rows:
+                duck.register("chk", checks)
+                duck.sql(
+                    f"""
+                    COPY (SELECT * FROM chk ORDER BY cik, accession, statement, check_name)
+                    TO '{duck.path(layout.STATEMENT_CHECKS)}'
+                    (FORMAT PARQUET, COMPRESSION ZSTD, PARTITION_BY (cik), APPEND,
+                     FILENAME_PATTERN 'fsds_{q}_{{uuid}}')
+                    """
+                )
+                duck.unregister("chk")
+            out["fsds_quarters"] += 1
+            out["fsds_checks"] += checks.num_rows
+
+        # provisional filings: one file each, replaced even when the filing now yields no check
+        duck.sql("CREATE OR REPLACE VIEW stg AS SELECT * FROM chk_rows WHERE source = 'facts_fallback'")
+        by_filing: dict[tuple[int, str], list[dict[str, Any]]] = defaultdict(list)
+        for r in _checks_from_staged(duck, "facts_fallback").to_pylist():
+            by_filing[(r["cik"], r["accession"])].append(r)
+        for cik, acc in duck.fetch_all("SELECT DISTINCT cik, accession FROM st WHERE source = 'facts_fallback'"):
+            if not _ACCESSION.match(acc):
+                raise RuntimeError(f"unexpected accession {acc!r} on statements rows")
+            path = f"{layout.statement_checks_cik_dir(cik)}/fallback_{acc}.parquet"
+            storage.delete(path)
+            rows = by_filing.get((int(cik), acc), [])
+            if rows:
+                storage.write_parquet(path, pa.Table.from_pylist(rows, schema=CHECKS_SCHEMA))
+            out["fallback_filings"] += 1
+            out["fallback_checks"] += len(rows)
+        return out
+    finally:
+        if own:
+            duck.close()

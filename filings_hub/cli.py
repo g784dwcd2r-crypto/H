@@ -667,3 +667,28 @@ def reader_check_cmd(
     typer.echo(rf.format_report(reports))
     if any(not r.ok for r in reports):
         raise typer.Exit(1)
+
+
+@app.command(name="recheck")
+def recheck_cmd(verbose: bool = False) -> None:
+    """Recompute every arithmetic check from the statements already in the lake, in minutes.
+
+    The same code as the build, so `check-report` afterwards shows exactly what a full rebuild
+    would. Not refreshed: the checks_passed flag on the statement rows (periods, coverage, verify),
+    which catches up on the next `statements` build.
+    """
+    _setup_logging(verbose)
+    import time
+
+    from filings_hub.ingest import sync_statements
+
+    step = time.monotonic()
+    n = sync_statements.recheck(_storage())
+    typer.echo(
+        f"rechecked {n['fsds_quarters']} quarter(s): {n['fsds_checks']:,} checks; "
+        f"{n['fallback_filings']:,} provisional filing(s): {n['fallback_checks']:,} checks "
+        f"({time.monotonic() - step:.0f}s)"
+    )
+    typer.echo(
+        "checks_passed on the statement rows (periods, coverage, verify) refreshes on the next `statements` build"
+    )
