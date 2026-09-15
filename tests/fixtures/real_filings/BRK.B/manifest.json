@@ -1,0 +1,21 @@
+{
+  "key": "BRK.B",
+  "ticker": "BRK.B",
+  "cik": 1067983,
+  "name": "BERKSHIRE HATHAWAY INC",
+  "form": "10-K",
+  "year": "",
+  "accession": "0001193125-26-083899",
+  "filed_date": "2026-03-02",
+  "covers": "holding company with an insurance segment and a very long balance sheet; dotted ticker",
+  "files": {
+    "instance": "brka-20251231_htm.xml.gz",
+    "schema": "brka-20251231.xsd.gz"
+  },
+  "missing": [
+    "labels",
+    "presentation",
+    "calculation",
+    "definition"
+  ]
+}
