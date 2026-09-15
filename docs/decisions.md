@@ -647,3 +647,32 @@ For a normal filing nothing changes (`value_presented == value`, one value per p
 checks stay passing; only the negated lines and the double-reported instants are corrected. Locked in
 by tests: a negated-but-balanced sheet now passes, cash uses the ending figure, and a real imbalance
 still fails. The true failure rate will be visible after a statements rebuild re-runs the checks.
+
+## Step 5 built: the reader gets its twenty real filings (2026-09-15)
+
+Every test of the XBRL reader used a filing we wrote ourselves. Step 5 is the fix: about twenty
+awkward real filings, read by the real pipeline, kept as tests that cannot break silently.
+
+- **Which filings.** `filings_hub/data/reader_set.csv`, 26 rows. We did not invent a second list: it
+  is the golden set the acceptance criteria already watch, plus the five kinds of case step 5 names
+  that the golden set lacked (the fee-income bank the fixture was modelled on, a
+  discontinued-operations filer, a 20-F filer, a first-year-of-XBRL filing, small companies with
+  invented labels). Each row says why it is there. The two micro-caps are given by CIK, taken from
+  our own check report, because a micro-cap's ticker is not stable.
+- **Resolved offline.** A row becomes a filing from our own `tickers` and `filings` tables — the
+  current owner of a reused ticker (step 2), the latest XBRL filing of that form — never a guess or a
+  lookup on the SEC. `year` picks a filing from a given year, for the 2010 one.
+- **Fetched where the SEC is reachable.** The build environment's network policy does not allow
+  sec.gov, so `filings-hub reader-fetch` runs on the Mac once; the five XBRL files per filing are
+  committed gzipped (about a tenth of their size) with a manifest, marked binary for git. After that
+  nothing needs the network. Rejected: fetching inside the test — a test that needs the SEC is a test
+  that fails when the SEC is slow.
+- **Report everything, stop at nothing.** `reader-check` runs every stage (labels, presentation,
+  calculation, definition, roles, one presentation tree per statement, the instance) and records each
+  failure against its stage, plus the warnings the reader tolerates (a presentation cycle it broke),
+  rather than raising at the first. That is how twenty filings become a list of what to fix.
+- **Never silent.** One test per fixture, and one test that fails if any filing in the set has no
+  fixture. Rejected: skipping when fixtures are absent — that is exactly the silent failure the step
+  exists to prevent. Until the Mac fetch is committed that test is a *strict expected failure*: it
+  still runs and must fail, so the gap shows in every run, and the moment the fixtures land it
+  becomes a hard failure until the marker is removed. Nothing is skipped and nothing is quiet.

@@ -604,3 +604,66 @@ def check_explain_cmd(
         typer.echo(json.dumps(report, indent=2, default=str))
     else:
         typer.echo(cr.format_explain(report))
+
+
+@app.command(name="reader-fetch")
+def reader_fetch_cmd(
+    out: str = typer.Option("tests/fixtures/real_filings", help="where the fixtures go"),
+    reader_set: str = typer.Option("", "--set", help="CSV of filings to fetch; default: the bundled reader set"),
+    only: list[str] = typer.Option([], "--only", help="fetch just these keys"),
+    verbose: bool = False,
+) -> None:
+    """Step 5: fetch the reader set's XBRL file sets from EDGAR into gzipped test fixtures.
+
+    Each row is resolved to an accession offline, from the lake's own tickers and filings tables,
+    then its five XBRL files are downloaded. Run it where EDGAR is reachable; needs SEC_USER_AGENT.
+    """
+    _setup_logging(verbose)
+    import json
+    from pathlib import Path
+
+    from filings_hub.config import get_settings
+    from filings_hub.ingest.edgar_client import EdgarClient
+    from filings_hub.testing import real_filings as rf
+
+    rows = rf.load_reader_set(Path(reader_set) if reader_set else None)
+    if only:
+        rows = [r for r in rows if r["key"] in set(only)]
+    resolved = rf.resolve_reader_set(_storage(), rows)
+    out_dir, failed = Path(out), 0
+    with EdgarClient(get_settings().sec_user_agent) as client:
+        for r in resolved:
+            if r["error"]:
+                failed += 1
+                typer.echo(f"  {r['key']:<10} SKIP  {r['error']}")
+                continue
+            target = rf.fetch_fixture(client, out_dir, r)
+            n = len(json.loads((target / rf.MANIFEST).read_text())["files"])
+            typer.echo(f"  {r['key']:<10} {r['accession']}  {n} files  {r['name'] or ''}")
+    typer.echo(f"fetched {len(resolved) - failed} of {len(resolved)} into {out_dir}")
+    if failed:
+        raise typer.Exit(1)
+
+
+@app.command(name="reader-check")
+def reader_check_cmd(
+    fixtures: str = typer.Option("tests/fixtures/real_filings", help="fixture directory"),
+    verbose: bool = False,
+) -> None:
+    """Step 5: run the XBRL reader over every fetched real filing and report what breaks."""
+    _setup_logging(verbose)
+    from pathlib import Path
+
+    from filings_hub.testing import real_filings as rf
+
+    dirs = rf.fixture_dirs(Path(fixtures))
+    if not dirs:
+        typer.echo(f"no fixtures under {fixtures}; run `filings-hub reader-fetch` where EDGAR is reachable", err=True)
+        raise typer.Exit(2)
+    reports = []
+    for d in dirs:
+        manifest, files = rf.load_fixture(d)
+        reports.append(rf.read_filing(files, key=manifest["key"], accession=manifest.get("accession")))
+    typer.echo(rf.format_report(reports))
+    if any(not r.ok for r in reports):
+        raise typer.Exit(1)

@@ -395,6 +395,49 @@ again silently.
 
 **Size.** About a day. A few hundred downloads.
 
+**✅ Built (2026-09-15); ▢ the twenty are being fetched.** Three pieces, all in
+`filings_hub/testing/real_filings.py`:
+
+- **The list.** `filings_hub/data/reader_set.csv`: 26 filings, each with the reason it is awkward.
+  It is the golden set the acceptance criteria already watch (Apple's 52/53-week year, a bank with
+  no gross profit line, two insurers, a REIT that co-files with its partnership, two share classes on
+  one CIK, a biotech with negative revenue, a 40-F filer) plus the cases this step names that the
+  golden set lacked: the fee-income bank the synthetic fixture was modelled on (Triumph), a
+  discontinued-operations filer (3M after the Solventum spin-off), a 20-F filer (Toyota), a filing
+  from the first year of mandatory XBRL (Coca-Cola, filed 2010), and two small companies that invent
+  their own labels.
+- **The fetch.** `filings-hub reader-fetch` turns each row into a filing *offline*, from our own
+  `tickers` and `filings` tables (the current owner of a reused ticker, step 2; the latest XBRL filing
+  of that form, or the latest filed in a given year), then downloads that filing's five XBRL files
+  from the SEC into `tests/fixtures/real_filings/<key>/`, gzipped, with a manifest. It never guesses
+  a filename: the filing's own index page says what it bundles.
+- **The harness.** `filings-hub reader-check` runs the whole reader over every fetched filing —
+  the words, the order, the maths, the statements, the facts — and writes down *everything* that
+  breaks rather than stopping at the first thing. `tests/test_real_filings.py` runs the same over
+  every fixture, and one test must fail while the fixtures are missing and must pass once they
+  exist, so the twenty can never silently stop being tested.
+
+**One thing to know.** The SEC's site is not reachable from the environment the code is built in
+(an organisation network rule), so the download runs on the Mac, once, and the files are committed.
+After that, the check runs anywhere, forever, without the network.
+
+```mermaid
+flowchart LR
+    LIST["reader_set.csv<br/>26 filings, each with<br/>why it is awkward"] --> FETCH["reader-fetch, on the Mac<br/>resolve offline from our tables,<br/>download the five files, gzip"]
+    FETCH --> FIX["tests/fixtures/real_filings/<br/>committed once"]
+    FIX --> CHECK["reader-check, anywhere<br/>run the whole reader,<br/>write down everything that breaks"]
+    CHECK --> REPAIR["Fix the reader.<br/>Re-run until clean"]
+    FIX --> TEST["pytest, forever<br/>one test per filing,<br/>one test that they exist"]
+    style FIX fill:#e8f5e9,stroke:#2e7d32
+    style TEST fill:#e8f5e9,stroke:#2e7d32
+    style REPAIR fill:#fff4e5,stroke:#e65100
+```
+
+**Done when.** ✅ The list, the fetch and the harness are built and tested against the synthetic
+filing. ▢ `filings-hub reader-fetch` has run on the Mac and the fixtures are committed. ▢
+`reader-check` reads all 26 cleanly, with whatever the reader needed fixed to get there. ▢ The
+presence test is green, which is the moment they become permanent.
+
 ## Step 6. Download and keep every filing
 
 **What it is.** Fetch the actual document for every filing we take numbers from, and store our own
