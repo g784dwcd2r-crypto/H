@@ -10,5 +10,6 @@ htmlcov/
 .env
 *.xlsx
 !tests/fixtures/*.xlsx
+!reports/*.xlsx  # snapshots shared with reviewers; see reports/README.md
 notebooks/.ipynb_checkpoints/
 dist/
