@@ -853,6 +853,14 @@ for reasons that live in the notes. That check is named `..._approx` and tolerat
 one stays at 1 %. The retained-earnings roll-forward will meet the same problem — the movements that
 are not tagged — and should split the same way rather than loosening one tolerance for everyone.
 
+*Ask who the number is answering to.* Hicham's rule, from the day he confirmed the EPS and tax calls
+(`decisions.md`). It predicts this check before we write it: retained earnings is the parent's
+shareholders' accumulated claim, and the minority's interest sits on its own line in equity, so the
+roll-forward takes **net income attributable to the parent**, not the consolidated total. Taking the
+consolidated figure would fail by exactly the minority's share on every company with a subsidiary,
+which is the same bug we have now fixed twice. Verify it on real filings rather than trusting this
+paragraph, but start there.
+
 **Done when.** Both run over every company, and we can say for each one how often it passed, failed,
 or did not apply.
 

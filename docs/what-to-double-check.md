@@ -7,6 +7,35 @@ Where it did not add up, we went looking for why. Most of the time the fault was
 
 ---
 
+## What I still need from you
+
+Two of the five are answered. Here is the whole list in one place, so you do not have to re-read
+the document to find out what is left.
+
+| | The question | Status |
+|---|---|---|
+| **a** | Does earnings per share use the parent's share? | **Answered: yes** |
+| **b** | Does the tax check use the group's total? | **Answered: yes,** and you corrected my reasoning |
+| **c** | Is 5% the right allowance when we have to guess the top number? | **Open. This is the big one.** |
+| **d** | Should a statement keep whichever currency most of its lines use? | Open |
+| **e** | Are we right to list a filing's own tagging errors rather than repair them? | Open |
+| | Open one real foreign company's page and read it | Not done. Needs a person, nothing to decide. |
+
+Your answer to (b) was worth more than your answer to (a), because you did not just confirm it, you
+told me my reasoning was wrong. I had written that the two checks "want opposite figures". You
+pointed out that they are not opposites at all, they are two concepts facing two different people:
+the state, which taxes the company as a whole and does not care who owns which subsidiary, and a
+shareholder, whose claim is on the parent alone.
+
+That is a rule I can apply to the next check. What I had written was not, it was just two answers
+that happened to differ. I have replaced it everywhere, including in the code comments, and written
+it up in `decisions.md` as the way to decide this class of question in future: **ask who the number
+is answering to.**
+
+Nothing in the code changed, because both checks were already taking the right figure.
+
+---
+
 ## Where things stand
 
 Out of **2,063,641** checks, **35,328 fail**. That is **1.7%**. It used to be 9.2%.
@@ -27,8 +56,8 @@ Four real bugs, now fixed:
 
 # Part 1: the five decisions
 
-**(a) and (b) are answered.** They are kept here with the answers, because the reasoning is the
-part worth keeping. Three are still open.
+**(a) and (b) are answered, and I have kept them here with your answers in them**, because the
+reasoning is the part worth keeping. (c), (d) and (e) are still open.
 
 ## a. Earnings per share uses the parent's profit, not the whole group's
 

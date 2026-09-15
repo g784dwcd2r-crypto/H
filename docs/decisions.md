@@ -157,6 +157,15 @@ Nothing in the code changed as a result of this, because the checks were already
 figure in both places. It was the comment above them and the document explaining them that were
 wrong.
 
+The reason I am confident this framing is better than mine is that it predicts something. We have not
+built the retained-earnings roll-forward yet, and the rule already tells me which figure it takes:
+retained earnings is what the parent's shareholders have accumulated, and the minority's interest
+sits on its own line in equity, so the roll-forward takes net income attributable to the parent
+rather than the consolidated total. If it took the consolidated figure it would fail by exactly the
+minority's share on every company with a subsidiary, which is the same bug we have now fixed twice in
+two different places. That is written into step 12 to be checked against real filings when we get
+there, rather than believed on the strength of the argument.
+
 ---
 
 # Part 2: what the product is
