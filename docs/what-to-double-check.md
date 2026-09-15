@@ -2,14 +2,8 @@
 
 **For Hicham.**
 
-We re-did the arithmetic inside every filing, using only the company's own numbers. Where it did not
-add up, we went looking for why. Most of the time the fault was ours and we fixed it.
-
-But some of the fixes needed an *accounting* decision, and we made those decisions ourselves. A test
-can tell us the code does what we told it to do. No test can tell us we told it the right thing.
-That is what this asks you for.
-
-Nothing here is on fire. It is: **we decided something on your behalf — tell us if we decided wrong.**
+We re-did the arithmetic inside every filing, using only the company's own numbers. 
+Where it did not add up, we went looking for why. Most of the time the fault was ours and we fixed it.
 
 ---
 
@@ -23,10 +17,10 @@ Four real bugs, now fixed:
 
 | | What was wrong | Did anyone reading the site see it? |
 |---|---|---|
-| 1 | The cash check compared cash at the *start* of the year against cash at the *end* | No — checking only |
+| 1 | The cash check compared cash at the *start* of the year against cash at the *end* | to be checked |
 | 2 | For foreign companies we kept both currencies, so one statement could mix them | **Yes** |
-| 3 | Earnings per share used the whole group's profit instead of the parent's share | No — checking only |
-| 4 | Where a company lists the currency effect on cash separately, we counted it twice | No — checking only |
+| 3 | Earnings per share used the whole group's profit instead of the parent's share | to be checked |
+| 4 | Where a company lists the currency effect on cash separately, we counted it twice | to be checked |
 
 Only **number 2** ever changed a number a reader could see. That is why it is the one thing below
 that needs a real person to go and look.
