@@ -34,6 +34,8 @@ CHECK_LABELS = {
     "eps_diluted": "EPS diluted (company's own numerator)",
     "eps_basic_approx": "EPS basic, approximate (inferred numerator, 5 %)",
     "eps_diluted_approx": "EPS diluted, approximate (inferred numerator, 5 %)",
+    "operating_income": "Operating income (Gross profit - Opex = Operating)",
+    "net_change_in_cash": "Cash movement adds up (Ops + Investing + Financing)",
     "net_income_is_equals_cf": "Net income agrees: income statement = cash flow",
     "ending_cash_cf_equals_bs": "Ending cash agrees: cash flow = balance sheet",
 }
@@ -506,15 +508,16 @@ def export_failures_xlsx(storage: Storage, path: str) -> int:
     summary["A3"] = "Not every failure is ours: a filer's own tagging error is listed, never silently corrected."
 
     at = 5
-    for title, data in (
+    for title, headers, data in (
         (
             "By check",
+            ("check", "failed", "ran"),
             [
                 (CHECK_LABELS.get(r["check_name"], r["check_name"]), r["failed"], r["total"])
                 for r in report["per_check"]
             ],
         ),
-        ("By reason", None),
+        ("By reason", ("reason", "failures", "of all failures"), None),
     ):
         summary.cell(at, 1, title).font = Font(bold=True)
         at += 1
@@ -523,7 +526,7 @@ def export_failures_xlsx(storage: Storage, path: str) -> int:
             for row in rows:
                 counts[row["reason"]] = counts.get(row["reason"], 0) + 1
             data = [(k, v, report["failed"]) for k, v in sorted(counts.items(), key=lambda kv: -kv[1])]
-        for cell, value in zip("ABC", ("", "failed", "of which ran"), strict=True):
+        for cell, value in zip("ABC", headers, strict=True):
             summary[f"{cell}{at}"] = value
             summary[f"{cell}{at}"].font = head
             summary[f"{cell}{at}"].fill = fill
