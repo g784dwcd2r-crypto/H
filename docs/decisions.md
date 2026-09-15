@@ -1,221 +1,321 @@
-# Decisions and deferred choices
+# Decisions
 
-Short notes on choices made and choices parked, so nobody re-litigates them by accident.
+Every choice we made, and every choice we parked, written down so nobody argues it again by
+accident. Newest thinking is at the bottom of each part.
 
-## Parked: business-email-only sign-up
+If you only read one part, read **Part 1**. Those are the rules everything else follows.
 
-The sign-up form can reject free-mail addresses (Gmail, Outlook, Yahoo and the like) with
-"please enter a valid business email address", the way AlphaSense does. The check is built and
-tested, and it is **switched off by default** (`SIGNUP_BUSINESS_EMAIL_ONLY=false`) because the
-owner's own address is Gmail and is needed for testing.
+| Part | What is in it |
+|---|---|
+| [1. The rules we never break](#part-1-the-rules-we-never-break) | Five rules that decide every other question |
+| [2. What the product is](#part-2-what-the-product-is) | The name, who is in it, what a page shows |
+| [3. What we keep](#part-3-what-we-keep) | Which data we store and why |
+| [4. Making it fast enough to use](#part-4-making-it-fast-enough-to-use) | The site would not load. Here is what was wrong. |
+| [5. How a statement gets built](#part-5-how-a-statement-gets-built) | Turning filings into the table you see |
+| [6. The arithmetic checks](#part-6-the-arithmetic-checks) | Two days of finding out our own maths was wrong |
+| [7. What we are waiting on](#part-7-what-we-are-waiting-on) | Parked, not forgotten |
 
-**Revisit once the domain name is purchased.** Then set `SIGNUP_BUSINESS_EMAIL_ONLY=true` in the
-API's environment on Render (the `filings-hub-lake` environment group, or the API service's own
-variables) and the form starts refusing free-mail domains. The list of free-mail domains lives in
-`filings_hub/accounts.py` (`FREE_MAIL_DOMAINS`).
+---
 
-## Also waiting on the domain and an email relay
+# Part 1: the rules we never break
 
-- Sign-up and sign-in emails need an SMTP relay (`SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`,
-  `SMTP_PASSWORD`) and `SITE_URL` pointing at the public site; until then the pages say email is
-  not configured and visitors keep their choices in the browser.
-- Accounts on the free Render layout need the read-write R2 token on the API (the read-only one
-  cannot store users).
+## Show what the company printed (2026-09-14)
 
-## Product name: Disclosure (2026-09-13)
+Hicham's rule. **A statement page reproduces what the company printed.**
 
-The product is called **Disclosure**. Everything a person sees says so: the site, page titles, sign-in and digest emails, the workbook's creator field. The Python package (`filings_hub`), the `filings-hub` command, the lake prefix and the Render service names stay as they are: renaming them would move live URLs and secrets for no user-visible gain. Revisit when the domain is bought and the services are recreated under it.
+If the company printed one line, we show one line. If it printed three, we show three. We never
+merge lines, never split them, and never invent a total the company did not report.
 
-## Ownership: three flows, never mixed (2026-09-13)
+Anything we work out ourselves is a separate view, and it looks separate. Our own table can show
+total revenue with a button that opens the parts underneath. That is analysis. It is not
+reproduction, and a reader can tell which is which.
 
-Ownership data is three different things and the product keeps them apart everywhere: separate tables in the lake, separate sections on the company page, separate alerts, separate API responses and exports. Nothing ever lists a director's Form 4 next to a fund's 13F.
+**Why this rule and not another one.** It makes every disagreement checkable. If our page and the
+filing differ, we are wrong. There is nothing to argue about.
 
-1. **Insiders.** Forms 3, 4 and 5: officers, directors, 10 % holders. The unit is the transaction (who, bought or sold, how many, at what price, open-market or exercise or gift). Daily.
-2. **Outside holders.** Form 13F: managers above $100M, quarterly, 45 days late. The unit is the change since the previous quarter (new, added, trimmed, exited). Only the large managers are ever visible; the page says "reported holders", never "owners".
-3. **Activists and blocks.** Schedule 13D (13G for passive). The unit is the event, with the letter to the board attached and readable. Rare, high value.
+What it costs us: to copy a presentation we have to know the presentation. The SEC's summary files
+name a tag once per line and do not say how many lines there really were. So faithful copying may
+need the original filing rather than the summary. That question runs through a lot of what follows.
 
-Order of work: the live flow in the current XML formats first (each new filing parsed the day it arrives and shown on the company page and in the morning view); presentation second, once real data flows; backfill last and only as far back as it helps show a change. The information value is movement going forward, not the level at first record.
+## Two layers: what you see, and what we join on underneath (2026-09-14)
 
-Europe is per-country and comes later, after a separate brief.
+Hicham's framing. It turns several separate decisions into one shape.
 
-### Insider rows say who the person is and how big the move was
+```mermaid
+flowchart TD
+    subgraph L1["Layer 1: the display layer"]
+        A["The company's own words<br/>line names, segment names, KPI names"]
+    end
+    subgraph L2["Layer 2: the Disclosure Unifying Layer"]
+        B["A map underneath saying<br/>which different words mean the same thing"]
+    end
+    A -->|"shown to the reader"| R["The page"]
+    B -->|"never shown instead of layer 1"| Q["Search, compare, compute"]
+    style L1 fill:#e8f5e9,stroke:#2e7d32
+    style L2 fill:#e3f2fd,stroke:#1565c0
+```
 
-A name alone is not information: someone looking at a company for the first time cannot tell whether John McGovern matters. Every insider row carries, from the Form 4 itself: the role (officer title, director, 10 % holder); the direction and kind of transaction (open-market buy or sale, option exercise, grant, gift, tax withholding: a grant is not a buy and an exercise-and-sell is not conviction); the size relative to the person's holding, from the "owned after" field; whether it was a pre-arranged 10b5-1 plan; and the company context (how many insiders moved the same way in the period, so a cluster of directors buying stands out). The row reads as a sentence: "John McGovern, Chief Financial Officer, sold 40,000 shares (12 % of his holding) at $52.10 under a pre-arranged plan."
+**Layer 1 is never touched.** We do not tidy up how a company presents its numbers.
 
-Presentation: one **card per person**, not a table row. Full name on top, position in the company underneath, then the move as a sentence (kind, size, price, share of holding, plan flag), a **sparkline of the person's holding over time** built from the "owned after" field of each of their filings (it fills in from the day collection starts and gains depth when insider history is backfilled), and small chips for context ("3 insiders bought this month", "10b5-1 plan", "director"). Cards live in their own Insiders section, newest first, with buys-only and sales-only filters and a link to the filing behind each card.
+**Layer 2 is a map held underneath.** It says which different names mean the same thing. It exists
+so we can search and compare. It is never shown in place of the company's own words.
 
-Clicking a card expands it in place and reveals the documents beneath it: the Form 4 (or 3 or 5) behind the move, opened in the reader, and the person's earlier filings for this company, newest first. The card is the summary; the filings are one click below it, never a separate table. The same pattern holds for outside holders (card per manager, the 13F beneath) and activists (card per event, the 13D and its letter beneath). One table with everything in it is the thing this design exists to avoid.
+The example that explains it: a restaurant chain grows in two ways, more money per restaurant and
+more restaurants. The first is called *Comps* or *Same Store Sales* in the US, and *Like for Like*
+in the UK. Someone asking "what are the like for likes in the UK versus the US" is asking one
+question in three vocabularies. Layer 2 is what makes that answerable. Layer 1 is what keeps each
+company's own page honest.
 
-## The remote lake is read per company, never listed (2026-09-13)
-
-The first real lake on R2 (27M filings, 125M facts, statements for 46k companies) exposed the layout's cost: listing a folder costs about a second per thousand objects, the statements folder alone is millions of objects, and the API listed it at startup, every ten minutes and on every request. Startup never finished and the live site showed no data.
-
-Rule: on object storage the API never lists a per-company table as a whole. Existence is one request; per-company tables are read from the company's own partition; the small whole-universe tables are copied locally; `filings` (by year) is read through row-group statistics, so the loaders write it sorted by company in 50k-row groups and `filings-hub compact` fixes a lake built before that. Whole-lake summaries answer from local tables only and say so. DuckDB gets a memory cap on small instances. Measured against the live lake: startup about two minutes (copying 45MB of small tables), search 0.3s, a company page 4–8s cold, statements 2–5s, repeat reads under 0.1s.
-
-Not fixed yet, in order of value: the daily refresh on GitHub Actions still globs the statements folder (hours over R2) and needs the same treatment; a company's statements are 70 small files (one per quarter) and a per-company compaction to one file would cut a cold read to under a second; the API's read-only token means fetched documents cannot be kept between restarts.
-
-## Next 15.5.25 stalls navigations that were not prefetched (2026-09-13)
-
-Measured against a production build: a link navigation with no prefetched
-cache entry (keyboard Enter on a focused link, a script click, touch, or a
-click before the hover prefetch lands) does nothing 20–30% of the time. The
-RSC request completes and the page chunk loads, but React never commits the
-transition and the URL never changes; there is no error. Hovering first,
-which prefetches, never fails. This is vercel/next.js#98305; the router path
-that deadlocks no longer exists in Next 16.
-
-It is what makes `ci / web` flaky (the usability pagination step and the
-ownership mobile step both navigate by keyboard), and it affects real
-keyboard and touch users. Decision: upgrade the web app to Next 16 in its own
-PR rather than retry or loosen the browser tests. Until then a red `ci / web`
-that names one of those steps is this bug, not the change under test.
-
-Done the same day: the web app runs Next 16.3.5 on React 19.3 (`middleware.ts`
-became `proxy.ts`, as the framework now requires; `next lint` no longer exists).
-Against a production build, thirty scripted clicks with no prefetch stalled zero
-times where 15.5.25 stalled about one in four, and every browser suite passed.
-
-## The API opens its port before it reads a single filings footer (2026-09-13)
-
-The first deploy of the per-company layout still never came up. Two reasons, both measured
-against the live lake from a sandbox: binding a multi-file table reads the footer of every
-file (about a second each over object storage), and start-up bound `filings` (126 files)
-plus the four raw FSDS tables (278 files) before the port opened. Then the warm-up counted
-`filings WHERE cik = 0`, which on an uncompacted lake reads every row group, while holding
-the one serving lock, so `/health` waited behind it and the platform never saw the service
-healthy.
-
-Rules: the serving API binds neither `filings` nor the FSDS tables at start-up. `warm()`
-binds `filings` on its own DuckDB connection (connections share the catalog and the parquet
-metadata cache) and counts it, which is answered from footers alone; until it finishes the
-table reads as empty. The FSDS tables are ingestion's and are never bound when serving.
-`/health` never waits on the lake: it gives the serving lock a second and otherwise reports
-`busy`. Ingestion keeps binding everything up front.
-
-The other cost was per file, not per table: DuckDB asks fsspec for a file's size and
-modification time about seven times per file it reads, and with no listing cache each was a
-HEAD request (0.2s through the sandbox proxy; a company's seventy statement files took 84s).
-The DuckDB filesystem now keeps directory listings for a minute, which answers those lookups
-from the listing the glob already fetched: the same seventy files read in 7.8s cold and 1s
-warm, and the 126-file filings table binds and counts in 18s. `Storage` writes and deletes drop
-the listing they touch, so a process still sees its own writes at once; another process's new
-partition is seen within a minute. Per-company statement compaction (one file per company
-instead of one per filing) remains the next step for the company page.
-
-## FSDS: every row and every column is kept (2026-09-14)
-
-The loader used to project a fixed column list and drop `num` rows that carry a `segments` (or
-`dimh`) value, on the reasoning that statements only use line totals. That silently left out the
-segment, geography and per-investment breakdowns the SEC publishes, and eleven address columns of
-`sub`. The rule is now: nothing the SEC publishes is dropped. Typed core columns stay typed, every
-other column passes through as text (so a column the SEC adds later lands without a code change),
-and `num` gains a `dimensional` flag computed from `segments` / `dimh`. The statements builder
-filters on `NOT coalesce(dimensional, false)`, so quarters loaded before the flag existed (which
-hold totals only) still build. Loading all rows roughly doubles the `num` tables; the raw zips live
-only where the backfill ran, so the reload of all quarters (`filings-hub fsds --all`) runs on the
-Mac and `fsds/` is synced up afterwards. Statements need no rebuild.
-
-## FSDS lines the SEC quotes around a tab are re-joined, not rejected (2026-09-14)
-
-The SEC's data-set files are tab-separated and unquoted, so the loader reads them with quoting
-off and records any line it cannot place as a reject rather than guess. Four quarters carried
-152 such lines, all schedule-of-investments rows of Business Development Companies whose
-investment name held a tab: the SEC's writer had wrapped that one value in double quotes. Read
-with quoting off, the line had one field too many. The loader now runs a byte-level pass before
-any encoding decision: a data line wider than the header whose extra fields are explained by one
-double-quoted run is re-joined (tabs as spaces, quotes stripped) and counted as `repaired_rows`
-in the load log; anything else still lands in the rejects. `filings-hub fsds <quarter>...` reloads
-chosen quarters from the raw zips, which live only where the backfill ran (the raw prefix is not
-part of the R2 lake), so the reload runs on the Mac and the four quarters' `fsds/num` partitions
-and `fsds/load_log` are synced up afterwards.
-
-## Submissions header: every field on the companies table (2026-09-14)
-
-`parse_company_header` used to keep seventeen fields of the SEC's submissions document and drop the
-rest: both full addresses (business and mailing), the owner organisation, LEI, description, investor
-website, flags, the insider-transaction markers and the from/to dates on former names. The raw JSON
-only lives where the backfill ran, so for anyone reading the lake those fields did not exist. The
-header schema now carries every top-level field, addresses flattened as `business_*` / `mailing_*`,
-the former-names list verbatim as JSON, and `header_extra`: a JSON object of any top-level key the
-parser has no column for, so a field the SEC adds later lands on the next refresh without a code
-change. The companies table copies every header column through (`HEADER_PASSTHROUGH`), Postgres
-gains them in migration 0018, and `filings` gains `core_type` (the SEC's grouping of a form with its
-amendments). Per-filing keys the loader does not store are logged once per process rather than
-stored: the filings table is 27M rows, and a new per-filing field is a schema decision. Existing
-lake rows read back with the new columns null until the next refresh (headers) or backfill
-(filings history).
+Segment naming, the concept dictionary and the industry classification are all layer 2.
 
 ## A wrong check is worse than no check (2026-09-14)
 
-`income_after_tax` compared pretax income minus tax against whatever bottom-line concept came
-first, which fell through to `ProfitLoss`. Citigroup passed 64 % and Morgan Stanley 64 %, not
-because their filings are wrong but because the check was: pretax minus tax is income from
-CONTINUING operations, and both report discontinued operations after tax below that line, while
-their pretax concept's own name (`...MinorityInterestAndIncomeLossFromEquityMethodInvestments`)
-says the share of associates' profit is excluded from the subtotal. The check now bridges both
-before comparing, and prefers a reported continuing-operations line when the filing has one.
+We check that filings add up. A check that is itself wrong is worse than having no check, because it
+makes good data look broken and teaches everyone to ignore the warnings.
 
-Two checks added on the same principle. `eps_basic` / `eps_diluted` recompute earnings per share
-from the company's own weighted-average share count, and refuse to run when preferred dividends
-are present without an available-to-common numerator, because the numerator would be a guess.
-`net_income_is_equals_cf` and `ending_cash_cf_equals_bs` compare the SAME concept on two
-statements, never two concepts that sound alike, so a filing carrying cash-with-restricted-cash on
-one statement and cash-without on the other is not reported as a break. Cross-statement results are
-stored with `statement = 'XS'`.
+This came from a real case. Our income tax check compared "profit before tax minus tax" against
+whatever bottom line it found first. Citigroup passed 64% of the time. Morgan Stanley passed 64%.
+Their filings were fine. Our check was wrong: it did not know that discontinued operations sit below
+that line.
 
-## Unless the user says otherwise, keep to the company's presentation (2026-09-14)
+Two other checks were built on the same principle:
 
-Hicham's rule, and it governs every display decision below it: **a statement page reproduces what
-the company printed.** If a line was presented as one line, it is one line. If it was presented as
-three, it is three. We never merge, never split, never invent a total the company did not report.
+* **Earnings per share** refuses to run when preferred dividends are present and the company has not
+  said what the top number was. A guess is not a check.
+* **Cross statement checks** compare the *same* item on two statements, never two items that merely
+  sound alike. A filing that counts restricted cash on one statement and not on the other is not a
+  broken filing.
 
-The corollary: anything we compute is a separate view, visibly ours. Our own table may show total
-revenue with a control that opens the parts underneath; that is analysis, not reproduction, and the
-reader can tell which is which. Breakdowns open in a side panel rather than being folded into the
-statement.
+## If we show a number, we hold the filing it came from (2026-09-14)
 
-Why this is the right rule for an integrity product: it makes every disagreement checkable. If our
-page and the filing differ, we are wrong. There is no judgement call to defend.
+The whole product rests on being able to show where a number came from. A link to sec.gov is not
+evidence we control. Links rot, the SEC reorganises, filings are occasionally withdrawn.
 
-What it demands of the pipeline: to reproduce a presentation we must know it. The data sets' `pre`
-table names a tag once per statement line with no dimension attached, so where a company printed
-several lines that share one tag and differ only by dimension, `pre` alone may not tell us how many
-lines there were or which value belongs to which. Whether it does is an open question being
-measured; if it does not, faithful reproduction requires reading the original filing rather than
-the summary files.
+So we store the filings themselves, for all 433,717 filings we take numbers from. Roughly 1.3 TB,
+about 20 dollars a month, about twelve hours of downloading.
 
-## Segments: the company's words on the page, a type tag underneath (2026-09-14)
+**Extended on 2026-09-14 (evening): store every exhibit too.** Not just the main document, not just
+the debt agreements. Every attachment, every form, all the way back. Same reason: if we point at a
+filing as evidence, we hold the whole filing, not the part we happened to want.
 
-Hicham settled the segment-naming question, and not the way it was framed. The page keeps the
-company's own wording, because an analyst takes those words into a call with management and a
-made-up division name is useless there. What gets standardised is not the name but the **kind** of
-segmentation, held internally per company per axis. Four kinds cover roughly 90 % of cases:
+One number to work out before starting: every exhibit is several times the 1.3 TB the main documents
+take. Storage is cheap, but the figure should be known before the download starts, not discovered
+halfway through.
 
-1. geography
-2. product
-3. sub-company
-4. customer
+## The checks are for us, not for the reader (2026-09-14)
 
-So a company carries tags like `Apple: geography` and `Apple: product`, because Apple reports revenue
-by region and separately discloses unit sales by product. The platform can then offer segmentation
-views without ever renaming what the company said.
+Hicham: what matters to a user is that the filings are there and are easy to understand. Our
+arithmetic checks are an engineering signal. They decide what we are willing to publish and tell us
+where to look. They do not appear on the page as badges, scores or warning triangles.
 
-Why this is much cheaper than the alternative: mapping member names would have meant reviewing
-roughly 14,000 invented names (5,373 on the business-segments axis, 8,790 on product/service).
-Classifying the kind of segmentation is per company per axis, and the SEC's axis names already give
-three of the four almost free: `Geographical` is geography, `ProductOrService` is product,
-`LegalEntity` and `ConsolidatedEntities` are sub-company. The work is the `BusinessSegments` axis
-(158,080 facts, 5,373 members in one quarter), whose meaning varies by company: for Apple it is
-geography, for others it is product or division.
+## Ask who the number answers to (2026-09-15)
 
-Edge cases outside the four kinds are deferred. Hicham's instruction: we will meet them, there are
-not many, do not design for them now.
+A group of companies reports two profit figures, and two of our checks use different ones. Earnings
+per share uses the parent's share. Profit before tax minus tax uses the whole group's total. Hicham
+confirmed both.
 
-## The equity statement waits; five disclosures come first (2026-09-14)
+We had written down the wrong reason. We said the two checks "want opposite figures", as if earnings
+per share were an exception to the tax rule. That is not a rule. It is two answers that happen to
+differ, and it tells you nothing about the next case.
 
-Hicham: the statement of changes in equity is a real statement but "nowhere close to importance" as
-the balance sheet, income statement and cash flow. It should exist eventually. Ahead of it, in his
-order, the disclosures analysts actually reach for:
+Hicham's reason is the real one:
+
+```mermaid
+flowchart TD
+    N["Which profit figure does this check need?"]
+    N --> Q{"Who is the number<br/>answering to?"}
+    Q -->|"The state"| T["Tax is owed by the whole company.<br/>The state does not care who owns<br/>which subsidiary.<br/><b>Use the group's total.</b>"]
+    Q -->|"A shareholder"| S["A share is a claim on the parent alone.<br/>The minority's slice of a subsidiary<br/>is not theirs.<br/><b>Use the parent's share.</b>"]
+    style T fill:#e3f2fd,stroke:#1565c0
+    style S fill:#e8f5e9,stroke:#2e7d32
+```
+
+Ask who the number answers to, and the right figure follows. That generalises to the next check of
+this shape. "Earnings per share is the reverse of the tax one" does not.
+
+No code changed. The checks already took the right figure in both places. The comment above them and
+the document explaining them did not.
+
+---
+
+# Part 2: what the product is
+
+## It is called Disclosure (2026-09-13)
+
+Everything a person sees says **Disclosure**: the site, page titles, sign-in emails, the creator
+field inside an exported workbook.
+
+The names inside the code stay as they are (`filings_hub`, the `filings-hub` command, the storage
+prefix, the server names). Renaming them would move live web addresses and passwords for no gain
+that anyone can see. Revisit when the domain name is bought.
+
+## Foreign companies that file with the SEC are in (2026-09-14)
+
+Companies based abroad that file a 20-F or 40-F are not "international filers" and are not a
+question of scope. They file under US rules, they are listed in the US, and an investor can buy
+them. So they are in.
+
+We hold 2,020 of them, 1,363 listed, 1,208 on NYSE or Nasdaq, from 2009 onward.
+
+## Real coverage of other countries needs a new source each time (2026-09-14)
+
+Our data is SEC only. So today "Europe" and "Canada" means the foreign companies that file with the
+SEC. Real coverage means a new source per country, not a longer list of companies.
+
+The order is not the obvious one:
+
+| Region | Difficulty | Why |
+|---|---|---|
+| Europe | **Easiest** | Annual reports are filed as inline XBRL, the same format our reader already handles. It is a question of getting the files, not reading them. |
+| Canada | Harder than it looks | Filings go through SEDAR+, and Canada never widely required XBRL. Likely means working with documents, not tagged data. |
+| Australia and New Zealand | Like Canada | Same shape as Canada, not like Europe. |
+
+One thing to do now: the company list should carry an identifier that works across countries, such
+as ISIN or LEI. A ticker does not. We already store LEI where the SEC gives it.
+
+## Foreign companies are thinner than they look (2026-09-15)
+
+Hicham's observation. A foreign company files a full annual report and no quarterly one. Its interim
+figures arrive on a **6-K**, which is a press release, so it is a document rather than labelled
+numbers. (6-K, not 8-K. 8-K is the domestic form.)
+
+This is not a "cover more companies" problem. It is a "the companies we already cover are thinner
+than they look" problem, which is the same family as late filers and restatements. **A gap is fine.
+A hidden gap is not.**
+
+**It also breaks something we had already built.** Our late-filer rule flags a company when more than
+five months pass between quarterly reports. A foreign company never files one, so every single one
+would show as permanently overdue. The rule has to know the filer type first.
+
+Order of work, so the unknown gets resolved first: count how many foreign filers we hold and how
+stale each one is. Then put an honest label on the page. Only then decide whether to pull numbers
+out of the press releases.
+
+**The rule if we ever do that:** a figure taken from a press release is never presented as carrying
+the weight of an audited annual report.
+
+## Ownership is three different things, never mixed (2026-09-13)
+
+```mermaid
+flowchart TD
+    O["Who owns this company?"]
+    O --> I["<b>1. Insiders</b><br/>Forms 3, 4, 5<br/>Officers, directors, 10% holders<br/>Daily"]
+    O --> H["<b>2. Outside holders</b><br/>Form 13F<br/>Managers above $100M<br/>Quarterly, 45 days late"]
+    O --> A["<b>3. Activists and blocks</b><br/>Schedule 13D and 13G<br/>Rare, high value"]
+    style I fill:#e8f5e9,stroke:#2e7d32
+    style H fill:#e3f2fd,stroke:#1565c0
+    style A fill:#fff4e5,stroke:#e65100
+```
+
+These are kept apart everywhere: separate tables, separate sections on the page, separate alerts,
+separate exports. Nothing ever shows a director's Form 4 next to a fund's 13F.
+
+Only the large managers are ever visible in 13F data, so the page says "reported holders", never
+"owners".
+
+**Order of work:** the live flow first, so each new filing is parsed the day it arrives. Presentation
+second, once real data is moving. Backfill last. The value is in the movement going forward, not in
+the level on the first day. **Collect all the history** when we do backfill, not a chosen number of
+years, because a person's behaviour over many years is the point.
+
+### An insider row has to say who the person is and how big the move was
+
+A name on its own is not information. Someone looking at a company for the first time cannot tell
+whether John McGovern matters.
+
+So every insider row carries, taken from the form itself: the person's role; what kind of transaction
+it was (a grant is not a purchase, and exercising options and selling immediately is not conviction);
+how big it was relative to what they already held; whether it was a pre-arranged plan; and how many
+other insiders moved the same way.
+
+The row reads as a sentence:
+
+> "John McGovern, Chief Financial Officer, sold 40,000 shares (12% of his holding) at $52.10 under a
+> pre-arranged plan."
+
+**One card per person, not a table row.** Name on top, job underneath, the move as a sentence, a
+small chart of that person's holding over time, and little chips for context ("3 insiders bought
+this month", "director"). Clicking the card opens the filing underneath it.
+
+The same shape for the other two: a card per manager, a card per event. One big table with everything
+in it is the thing this design exists to avoid.
+
+## Segments keep the company's words, with a type tag underneath (2026-09-14)
+
+Hicham settled this, and not the way it was asked. The page keeps the company's own wording, because
+an analyst takes those words into a call with management and an invented division name is useless
+there.
+
+What gets standardised is not the name but the **kind** of split. Four kinds cover about 90% of
+cases: **geography, product, sub-company, customer.**
+
+So Apple carries `Apple: geography` and `Apple: product`, because it reports revenue by region and
+separately discloses units by product. We can offer these views without ever renaming what the
+company said.
+
+**Why this is much cheaper.** Mapping the names would have meant reviewing about 14,000 invented
+names. Classifying the *kind* is one decision per company per axis, and the SEC's own axis names give
+three of the four almost free.
+
+Odd cases outside the four kinds are deferred. Hicham: we will meet them, there are not many, do not
+design for them now.
+
+## Industry groups come from how analysts cover a name (2026-09-14)
+
+Commercial schemes classify a company by what it sells. We turn that around. We start from how
+analysts actually cover a name, make those the groups, and place companies into them afterwards.
+
+```
+Industrials > Transportation > Trucking > Brokers
+Industrials > Transportation > Trucking > LTL Carriers
+Industrials > Transportation > Trucking > TL Carriers
+Industrials > Transportation > Trucking > 3PL
+```
+
+**Why this is worth something.** An LTL carrier and a TL carrier both sell freight movement, so a
+scheme based on products puts them together. But they have different cost structures, different
+cycles, different questions and different analysts. You cannot work that out from the financials.
+Nobody can rebuild it from public data. It is judgement, and it is ours.
+
+It also fixes the licensing position. GICS is licensed, so we cannot use it. SIC is not a research
+map. Something we write ourselves, we own.
+
+**Two changes from Mbarek, both accepted.**
+
+*Depth varies.* Four levels fits Transportation. It will not fit everywhere. So we store a tree with
+a pointer to the parent, not four fixed columns.
+
+*One main group, plus other memberships.* A diversified transport company belongs in both trucking
+and brokerage. An analyst needs to tell a focused operator from a big company with a small arm. So a
+membership records whether it is the main one, and how big the exposure is.
+
+| Table | Holds |
+|---|---|
+| `classification` | node, its parent, level, name, a definition sentence, other names for search |
+| `company_classification` | company to node, main or not, exposure, who assigned it and when |
+| `companies` | unchanged. SIC stays exactly as the SEC gives it. |
+
+The definition sentence matters. It is how someone reviews an assignment later, and it forces "3PL"
+to mean one thing instead of covering anything logistics-shaped.
+
+**Transportation first.** Write the groups, write a definition for each, place a few dozen companies
+we know. The obvious test is whether the expected peers come back. The better test: write down the
+hard companies *before* placing them, then see if the structure handles them. Any scheme handles the
+easy ones.
+
+**Two warnings.** Do not merge this with the coverage tiers: tiers measure whether our data is
+complete, this helps people navigate, and one field doing both does neither well. And the hard calls
+are human, and someone has to keep reviewing them as companies change.
+
+**Hicham is doing the groups (2026-09-14, evening).** The method is settled. The groups themselves and
+the difficult placements are his. We can suggest placements from the filings.
+
+## The fourth statement waits; five disclosures come first (2026-09-14)
+
+Hicham: the statement of changes in equity is a real statement, but it is "nowhere close to" the
+importance of the balance sheet, income statement and cash flow. It should exist eventually.
+
+Ahead of it, in his order, the things analysts actually reach for:
 
 1. Segmentation
 2. Debt schedule
@@ -223,846 +323,711 @@ order, the disclosures analysts actually reach for:
 4. Acquisitions
 5. KPIs
 
-This reorders the plan after the three core statements are correct: the next work is these five, not
-the fourth statement.
+## Debt gets its own page, and maturities become real years (2026-09-14)
 
-## Pre-2009 history: map a company's own dictionary backwards (2026-09-14)
+Hicham wants debt structure as a page in its own right, not a line on a statement.
 
-No XBRL tags exist before about 2009, only HTML tables with English labels. Generic parsing means
-guessing across thousands of label variations, which is the thing we spent 2026-09-14 removing.
+Filings describe when debt is due in two ways: relative ("due within one year", "year two") or
+absolute ("2027"). Both mean the same thing. **We resolve both to the actual year.**
 
-The approach instead: a company's statement barely changes year to year, so for any company that
-filed with tags in 2009 or later we already know its own wording. Apply that company's dictionary
-backwards to its own older filings. No cross-company guessing; a company is matched only to itself.
-`_template_for` in `sync_statements.py` already does this for filings the data sets do not cover, so
-this extends existing machinery rather than inventing new.
+For a filing ending 2025-12-31: "within 12 months" is 2026, "year two" is 2027, "year three" is 2028.
 
-It only works for companies still filing after 2009. Hicham: fine, nobody analyses Blockbuster or
-Toys R Us. Dead filers become a separate later project, a "companies no longer with us" explorer.
+Two reasons, both his. An analyst thinks in years, not offsets. And a time series only works on
+absolute years: debt due in 2028, tracked across filings, rising is bad and falling is good. That
+comparison is impossible if every filing's "year three" means a different year.
 
-Scope: listed companies, annual reports, 2001 onwards (pre-2001 is plain text rather than tables,
-and stops being worth it). Roughly 75,000 documents, under a day to fetch, and a few weeks of work
-overall, most of it verification rather than parsing. Remaining hard parts: reading the "in
-thousands / in millions" header correctly, bracketed negatives, and companies that changed layout
-mid-period.
+**The trap.** The year is relative to the company's own financial year end, not the calendar. A June
+year end means "year two" is financial year 2027, which runs from mid-2026 to mid-2027. Labelling it
+2027 without saying "financial year" would be wrong. It is the same class of mistake as reading a
+table as thousands when it is millions: silent, and it makes the number useless.
 
-Values derived this way are read from a table, not filed as tags. They must be labelled as derived
-wherever they appear, so a reader always knows which numbers are reproductions and which are
-readings. Sequenced last, after the three core statements and the five disclosures.
+## KPIs are left alone for now (2026-09-14)
 
-## Data quality is an internal check, not a user-facing feature (2026-09-14)
+59,755 company-invented tags in a single quarter, in nearly every filing. The work is not mapping
+names, it is understanding definitions, and that is its own project.
 
-Hicham: the arithmetic checks are ours, not the reader's. What matters to a user is that the filings
-are there and that everything is easy to understand. So `statement_checks` stays an engineering and
-operations signal: it gates what we publish and tells us where to look, and it does not appear on the
-page as badges, scores or warnings.
+Deferred deliberately, not forgotten. It becomes important when we go beyond the US, because that is
+when the same idea starts carrying different words by country.
 
-Related, same conversation: foreign-domiciled filers (20-F, 40-F) are not "international filers" and
-are not a scope question. They file under US regulation, they are listed in the US, an investor can
-buy them, so they are in. The lake already holds 2,020 such companies, 1,363 listed, 1,208 on
-NYSE/Nasdaq, from 2009 onward. Whether their statements build as cleanly as domestic ones is an
-internal coverage measurement, not a question for him.
+---
 
-## Two layers: the display layer and the Disclosure Unifying Layer (2026-09-14)
+# Part 3: what we keep
 
-Hicham's framing, and it generalises every naming decision made today into one architecture.
+## Nothing the SEC publishes gets dropped (2026-09-14)
 
-**Layer 1, display.** Never touch or tamper with how a company presents its financials or its KPIs.
-This is the principle already recorded above, now stated as a layer rather than a rule about
-statements: it governs line items, segment names and KPI names alike.
+The loader used to keep a fixed list of columns, and used to throw away rows that carried a breakdown
+(by segment, by geography, by investment) on the reasoning that statements only use totals.
 
-**Layer 2, the Disclosure Unifying Layer.** A mapping held underneath, never shown in place of the
-company's words, that says which different names mean the same thing. It exists for compute and
-query, not for display.
+That quietly lost the breakdowns the SEC publishes, and eleven address columns.
 
-The worked example: a restaurant grows two ways, more revenue per existing restaurant and more
-restaurants. The first is called Comps or Same Store Sales in the US, and Like for Like in the UK and
-Europe. A user asking "what are the like-for-likes of restaurants in the UK versus the US" is asking
-one question across three words. Layer 2 is what makes that answerable; layer 1 is what keeps each
-company's page honest.
+**The rule now: nothing the SEC publishes is dropped.** Important columns stay properly typed. Every
+other column passes through as text, so a column the SEC adds next year lands without anyone changing
+code.
 
-This is the same shape as the segmentation decision (company wording on the page, segmentation kind
-tagged underneath) and the concept dictionary (tag plus dimension as the key). They are all layer 2.
+Keeping everything roughly doubles the size of the numbers table. Worth it.
 
-**KPIs: leave as they are for now.** 59,755 company-invented tags in one quarter, in nearly every
-filing. The work is not mapping names, it is understanding definitions, and that is its own data
-engineering task. Deferred deliberately, not forgotten. It becomes load-bearing when we expand
-beyond the US, because that is when the same concept starts carrying different words by country.
+## Lines the SEC broke by accident are repaired, not thrown away (2026-09-14)
 
-## Debt: its own page, and maturities resolved to real years (2026-09-14)
+The SEC's data files separate fields with tabs and do not normally quote anything. So we read them
+with quoting turned off, and anything we cannot place is recorded as a reject rather than guessed at.
 
-**Its own page.** Hicham wants debt structure as a page in its own right, not a line on a statement.
+Four quarters had 152 such lines. All of them were investment rows where the *name of the investment*
+contained a tab, and the SEC's writer had wrapped that one value in quotes. Read with quoting off,
+the line had one field too many.
 
-**Buckets become years.** Filings express maturities two ways: relative ("due within one year",
-"year two") or absolute ("2027"). Both mean the same thing and we resolve both to the actual year.
-For a filing with period end 2025-12-31, "within 12 months" is 2026, "year two" is 2027, "year
-three" is 2028.
+The loader now does a check before deciding anything: if a line is too wide, and the extra fields are
+exactly explained by one quoted run, it is re-joined and counted as repaired. Anything else still
+goes to the rejects. We repair what we can prove, and we never guess.
 
-Two reasons, both his: an analyst thinks in years, not offsets; and a time series only works on
-absolute years. Debt due in 2028, tracked across successive filings, rising is bad and falling is
-good. That comparison is impossible if each filing's "year three" means a different year.
+## Every field of the company header is kept (2026-09-14)
 
-Consistent with the two layers: the company's own wording stays on the page, the resolved year is
-the layer-2 value that makes query and time series work.
+We used to keep seventeen fields from the SEC's company document and drop the rest: both addresses,
+the owning organisation, the LEI, the description, the investor website, the flags, the dates on
+former names.
 
-**The trap to get right.** The resolution is relative to the filing's own fiscal year end, not the
-calendar. A June year end means "year two" is fiscal 2027, spanning mid-2026 to mid-2027, and
-labelling it 2027 without saying "fiscal" would be wrong. Same class of mistake as reading a table
-as thousands when it is millions: silent, and it makes the number useless.
+The raw files only exist on the machine that ran the backfill, so for anyone reading our data those
+fields simply did not exist.
 
-## Store the filing documents; index the attachments, store them later (2026-09-14)
+Now every top-level field is kept, plus a catch-all field holding anything we have no column for, so
+a field the SEC adds later arrives on the next refresh without a code change. The database change is
+migration `0018`; the reused-ticker column below is `0020`.
 
-Hicham settled the exhibit question on trust rather than cost. The primary documents get stored now,
-for all 433,717 filings we take numbers from, because the whole product rests on being able to show
-the source of a number. A link to sec.gov is not evidence we control: links rot, the SEC
-restructures, filings are occasionally withdrawn, and their availability is not ours to guarantee. If
-we claim a number is what the company filed, we must hold the thing the company filed.
+Rows already stored read back with the new columns empty until the next refresh. One thing we log
+rather than store: a per-filing field we have no column for. The filings table is 27 million rows, so
+adding a column to it is a decision, not a default.
 
-It is also the cheap half: roughly 1.3 TB, about 20 dollars a month, and about twelve hours of
-fetching at the SEC's rate limit.
+## Five separate problems all have the same answer (2026-09-14)
 
-Attachments are deferred but indexed. Links to a filing's primary document are free today, because
-the submissions data carries the filename and we already store the URL on every filing row. Knowing
-what attachments exist requires one small request per filing, no download; doing that for the 433,717
-gives a complete inventory in a few hours and stores nothing. The content follows when the compute
-layer needs it, starting with the debt agreements.
-
-Deferring costs no rework: the reader already looks in our storage first and falls back to fetching
-live from the SEC, so filling the store later changes no code, it only makes pages faster. Filings
-are immutable, so there is no window to miss.
-
-## A statement line is a concept plus its dimension (2026-09-14)
-
-The builder took undimensioned values only, so a tag a company reported *only* broken out vanished
-from the statement entirely. Measured on the reloaded lake: 46,672 presented lines in one quarter,
-6.5 % of all lines, across 91 % of filings. On NYSE and Nasdaq, 32 % of filings lost income-statement
-or cash-flow lines, Berkshire Hathaway among them.
-
-The rule now: a line takes the **total** where the filing reports one; where it reports only the
-breakdown, each member becomes its own line. `statements` gains a `segments` column carrying the
-axis=member text, and a line's identity is concept plus segments. Two members under one presented tag
-are two ordered lines, not one.
-
-The company's own presentation label is left exactly as it is. The member sits in its own column, so
-the display decision (how to render "Fee income" broken into three products) stays with the page and
-nothing is renamed in the data. Faithful labels for those lines need the original filing, because the
-data sets' `pre` table names the tag once, with one label, and never mentions the members.
-
-Checks compare totals only (`segments = ''`). Without that guard, Erie Indemnity's Class A earnings
-per share of 3.23 could be divided by Class B's 2,542 shares. Same failure as the Citigroup one fixed
-this morning: a check that does not know what it is comparing.
-
-## Five open problems converge on one thing: read the original filing (2026-09-14)
-
-Verified on the rebuilt lake: 2026q2 carries 694,242 dimensioned statement lines across 5,733
-companies. Triumph Financial's April filing is in that quarter and has its fee lines back. But its
-July filing does not, because the SEC's data sets lag a quarter or two, so the newest filing for any
-company is built the fallback way from company facts, which publishes undimensioned facts only.
+We verified something uncomfortable. The SEC's summary files lag by a quarter or two, so the newest
+filing for any company is built a different, thinner way. Triumph Financial's April filing has its
+fee breakdown. Its July filing does not.
 
 That gap cannot be closed with anything we currently download. Nor can four other things:
 
-| Open problem | Why the data sets cannot solve it |
+| The problem | Why the summary files cannot solve it |
 |---|---|
-| The newest quarter has no breakdown lines | The data sets have not published it yet |
-| Faithful line labels for a broken-out tag | `pre` names the tag once, with one label, and never mentions the members |
-| Proving a statement adds up | The calculation tree is dropped from the data sets; our parent guess is positional and unreliable |
-| The debt maturity schedule | 2 of 4,802 annual filings tag it; the rest is a table in the notes |
-| Holding the source of every number | Hicham's trust rule: if we took the data, we take the source |
+| The newest quarter has no breakdown lines | The SEC has not published it yet |
+| Correct labels for a broken-out line | The summary names the tag once, with one label, and never mentions the parts |
+| Proving a statement adds up | The filing's own arithmetic is dropped from the summary. Our guess is based on position and is unreliable. |
+| The debt maturity schedule | 2 filings out of 4,802 tag it. The rest is a table in the notes. |
+| Holding the source of every number | The trust rule: if we took the data, we take the source |
 
-All five are answered by the same source: the filing itself. Inline XBRL carries the presentation,
-the labels, the dimensions, the calculation tree and the note tables, and fetching it is what
-storing the document already requires. So this is one project, not five, and it moves the data sets
-from primary source to cross-check — a strengthening, since two independently built sources that
-agree is real evidence, unlike the company-facts reconciliation that shared our blind spot.
+```mermaid
+flowchart LR
+    P1["Newest quarter<br/>has no breakdowns"] --> S["<b>Read the original filing</b>"]
+    P2["Correct labels"] --> S
+    P3["Proving it adds up"] --> S
+    P4["Debt maturities"] --> S
+    P5["Holding the source"] --> S
+    S --> R["Inline XBRL carries all five:<br/>presentation, labels, breakdowns,<br/>the arithmetic, and the note tables"]
+    style S fill:#fff4e5,stroke:#e65100
+    style R fill:#e8f5e9,stroke:#2e7d32
+```
 
-Meanwhile the gap is already disclosed rather than hidden: provisional periods carry a chip on the
-company page and the statements grid, and the Excel export labels them "provisional (built from XBRL
-facts; FSDS not yet published)". That stays until filings are read directly.
+So this is **one project, not five**. And it moves the SEC's summary files from being our only source
+to being a second opinion. That is a strengthening: two sources built independently that agree is
+real evidence.
 
-## Market data is parked until legal advice (2026-09-14)
+Meanwhile the gap is shown, not hidden. Periods built the thin way carry a label on the page, and the
+Excel export says "provisional (built from XBRL facts; the SEC summary is not published yet)".
 
-Hicham asked for end-of-day price and market capitalisation. The data side is nearly solved: shares
-outstanding are already in the lake from the filings, including the per-class split that market cap
-needs for multi-class companies (Alphabet: Class A 5,824m, Class B 836m, Class C 5,456m, summing to
-the reported 12,116m). Only the price is missing, and a price feed is about 20 euros a month with
-the whole world included, roughly 21 API calls a month using a bulk endpoint, and pennies of
-storage.
+## History before 2009: use each company's own dictionary, backwards (2026-09-14)
 
-None of that is the deciding factor. The deciding factor is whether the vendor's agreement lets us
-show their price to a paying subscriber, and that is a question for a lawyer, not for us.
+No tagged data exists before about 2009, only HTML tables with English labels. Parsing those
+generically means guessing across thousands of label variations, which is exactly the kind of
+guessing we spent a day removing.
 
-So the whole market-data workstream is parked. No vendor is engaged, no key is obtained, and no
-price data enters the lake until section 2 of `legal-questions.md` is answered.
+The approach instead: a company's statement barely changes from year to year. So for any company that
+filed with tags in 2009 or later, **we already know its own wording**. Apply that company's own
+dictionary backwards to its own older filings. No cross-company guessing. A company is only ever
+matched to itself.
 
-Two things settled on the way, which stand whatever the lawyer says:
+It only works for companies still filing after 2009. Hicham: fine, nobody analyses Blockbuster. Dead
+companies become a separate project later.
 
-- **We buy prices only, never fundamentals.** Vendors compile financial statements by scraping
-  announcements, news feeds and investor-relations pages. That is a copy of a copy, and it is the
-  same reason we declined a FactSet login: if a vendor's number and the filing disagree, the filing
-  is right, and we would have no way to show which is which. Filings we own end to end; prices we
-  rent because we cannot add value to a closing price.
-- **Building a price feed ourselves is a licensing project, not an engineering one.** The code is a
-  file a day. The hard parts are the exchange agreements, which are what the vendor actually sells,
-  and corporate-action adjustment, which is where the bugs live. At 20 euros a month the arithmetic
-  is not close.
+Scope: listed companies, annual reports, 2001 onwards. Before 2001 it is plain text rather than
+tables and stops being worth it. Roughly 75,000 documents, under a day to fetch.
 
-Also noted for the lawyer: the UK retains the EU database right and the US has no equivalent, so
-extracting data from someone else's compilation is a bigger risk here than it would be in the US.
-That makes the scraping route worse for a UK company, not better.
+**Anything read this way is labelled as read, not filed.** These values come from a table, not from a
+tag. A reader must always know which numbers are reproductions and which are readings.
 
-## Classify by how analysts cover a name, not by what a company sells (2026-09-14)
+The remaining hard parts: getting the "in thousands / in millions" header right, negative numbers
+written in brackets, and companies that changed their layout mid-period.
 
-Commercial schemes classify a company by what it sells. We turn that around. We start from how
-analysts actually cover a name, on the sell side and the buy side, make those the groups, and put
-companies into them afterwards.
+---
 
-    Industrials > Transportation > Trucking > Brokers
-    Industrials > Transportation > Trucking > LTL Carriers
-    Industrials > Transportation > Trucking > TL Carriers
-    Industrials > Transportation > Trucking > 3PL
+# Part 4: making it fast enough to use
 
-Why this is worth something. An LTL carrier and a TL carrier both sell freight movement, so a
-scheme based on products puts them together. But they have different cost structures, different
-cycles, different questions and different analysts. You cannot work that out from the financials.
-Nobody can rebuild it from public data. It is judgement, built up over time, and it is ours.
+## Never list the whole storage folder (2026-09-13)
 
-That also changes the licensing position. GICS is licensed, so we cannot use it. SIC is not a
-research map. A classification we write ourselves, we own. That makes it worth something on its own,
-and it needs a question in `legal-questions.md`: what do we own here, and what protects it.
+The first real upload to cloud storage (27M filings, 125M facts, statements for 46,000 companies)
+exposed what the layout cost. Listing a folder takes about a second per thousand files. The
+statements folder alone is millions of files. And the site listed it at startup, every ten minutes,
+and on every request.
 
-**Two changes from Mbarek, both accepted.**
+Startup never finished. The live site showed no data at all.
 
-*Depth varies.* Four levels fits Transportation. It will not fit everywhere. Some areas need two,
-some need five. So we store a tree with a parent pointer, not four fixed columns. Otherwise every
-awkward case means changing the table.
+```mermaid
+flowchart TD
+    B["<b>Before</b><br/>Ask the storage<br/>'what is in this folder?'"] --> B2["Millions of files.<br/>One second per thousand.<br/>Startup never finishes."]
+    A["<b>After</b><br/>Ask only for<br/>this one company's folder"] --> A2["A few files.<br/>Page loads in seconds."]
+    style B2 fill:#ffebee,stroke:#c62828
+    style A2 fill:#e8f5e9,stroke:#2e7d32
+```
 
-*One main group, plus other memberships.* A diversified transport company belongs in both TL and
-brokerage. An analyst needs to tell a focused operator apart from a big company with a small arm. So
-a membership records whether it is the main one, and how big the exposure is.
+**The rule: we never list a per-company folder as a whole.** Checking something exists is one
+request. A company's data is read from that company's own folder. The small tables that cover
+everybody are copied locally. Summaries of the whole collection answer from those local copies, and
+say so.
 
-**The tables.**
+Measured against the live site afterwards: startup about two minutes, search 0.3 seconds, a company
+page 4 to 8 seconds cold, under 0.1 seconds on a repeat visit.
 
-| Table | Holds |
-|---|---|
-| `classification` | node id, parent id, level, name, definition sentence, other names for search |
-| `company_classification` | cik to node, main or not, exposure, who assigned it and when |
-| `companies` | unchanged. SIC stays exactly as the SEC gives it |
+## The site must answer "are you alive?" before it reads any data (2026-09-13)
 
-The definition sentence matters. It is how someone reviews an assignment later, and it forces "3PL"
-to mean one thing instead of covering brokerage, warehousing and anything else logistics-shaped.
+The next deploy still never came up. Two reasons.
 
-This is layer 2, the Disclosure Unifying Layer: held underneath, never shown instead of the
-company's own words, and editable as data rather than code. It replaces the old line in the data
-plan that said to use SIC as a fallback.
+Opening a table reads the footer of every file in it, about a second each over cloud storage, and
+startup opened 126 files plus another 278 before it would accept a single request. Then it counted
+some rows while holding the only lock, so the platform's "are you alive?" check waited behind it and
+gave up.
 
-**Transportation first.** Write the groups, write a definition sentence for each, put in a few dozen
-companies we know. The obvious test is whether the expected peers come back. The better test: write
-down the companies that are hard to place *before* placing them, then see if the structure handles
-them. Any scheme handles the easy cases.
+**The rules now.** The site opens no large table at startup. Warm-up happens on its own connection,
+in the background, and until it finishes the table simply reads as empty. The "are you alive?" check
+never waits on data: it gives the lock one second and otherwise answers "busy".
 
-**Two warnings.** Do not merge this with the coverage tiers. Tiers measure whether our data is
-complete. This helps people navigate. One field doing both does neither well. And we can help assign
-companies, but the groups and the hard calls are human, and someone has to keep reviewing them as
-companies change.
+The other cost was per file rather than per table. Our database asks the storage for a file's size
+and date about seven times per file, and each one was a separate request. A company's seventy files
+took 84 seconds. We now remember folder listings for a minute, which answers those from information
+we already fetched. The same seventy files: **7.8 seconds cold, 1 second warm.**
 
-## Coverage beyond the US is a source problem, one region at a time (2026-09-14)
+## Next.js 15 silently swallowed one navigation in four (2026-09-13)
 
-We are gathering a company list for the US, Canada and Europe, with AUS/NZ later.
+Measured against a real build: clicking a link that had not been prefetched did nothing 20 to 30% of
+the time. Pressing Enter on a link, a touch, or a click before the hover prefetch landed. The request
+completed, the page loaded, and then the screen never changed and no error appeared. Hovering first
+always worked.
 
-Our data is SEC only. So today "Europe" and "Canada" means the 2,020 foreign companies that file
-with the SEC (forms 20-F and 40-F), 1,363 of them listed. Real coverage of those countries means a
-new source for each one, not a longer list.
+This is a known bug in the framework, and the code path that causes it does not exist in the next
+version.
 
-The order is not the obvious one:
+It was also making our automated browser tests fail at random, and it affected real keyboard and
+touch users. So we upgraded rather than loosening the tests.
 
-- **Europe is easiest.** European annual reports are filed as inline XBRL, the same format our
-  filing reader already handles. So Europe is a question of getting the files, not of reading them.
-- **Canada is harder than it looks.** Filings go through SEDAR+, and Canada never required XBRL
-  widely. So it likely means working with documents, not tagged data.
-- **AUS/NZ looks like Canada**, not like Europe.
+Done the same day: the site runs **Next 16.3.5 on React 19.3**. Two things the upgrade forced,
+worth knowing before anyone goes looking for them: `middleware.ts` is now `proxy.ts`, as the
+framework requires, and `next lint` no longer exists.
 
-Each needs confirming before we promise dates, but the order is unlikely to change.
+Thirty scripted clicks with no prefetch: **zero stalls**, where the old version stalled about one in
+four.
 
-One thing to do now: the list should carry an ID that works across countries, such as ISIN or LEI.
-A ticker does not. We already store LEI where the SEC gives it.
+---
 
-## Three scope calls settled (2026-09-14, evening)
+# Part 5: how a statement gets built
 
-Three questions the step plan had left open were answered directly.
+## A line is a concept plus its breakdown (2026-09-14)
 
-**Exhibits: store everything.** Not only the primary document and not only debt agreements — every
-exhibit, every form, all the way back. Same principle as the primary documents, extended: if we
-point at a filing as evidence, we hold the whole filing rather than the part we happened to want.
-Debt agreements are still fetched first because the debt page needs them, but that is sequencing, not
-scope. This supersedes the "attachments deferred, stored later" half of the 2026-09-14 documents
-decision; the deferral was a scope question, and the scope is now "all of it".
+The builder only took values with no breakdown attached. So if a company reported something *only*
+broken out, and never as a total, that line vanished from the statement completely.
 
-One thing to size before running it, not a decision but a number: every exhibit across 433,717
-filings is several times the ~1.3 TB the primary documents take. Storage is cheap, but the figure
-should be produced and budgeted before the download starts rather than found halfway through.
+Measured: 46,672 lines in one quarter, 6.5% of all lines, across 91% of filings. On NYSE and Nasdaq,
+**32% of filings lost income statement or cash flow lines.** Berkshire Hathaway among them.
 
-**Ownership history: collect all of it.** The full history for all three flows (insiders,
-institutions, beneficial ownership), not a chosen number of years. A person's or a fund's behaviour
-over many years is what makes ownership worth having, so we take the lot rather than draw a line and
-regret it. The collector already supports this through its separate catch-up cursor; it is a matter
-of letting it run against older dates.
+**The rule now.** A line takes the total where the filing reports one. Where the filing reports only
+the parts, each part becomes its own line. Two parts under one tag are two ordered lines, not one.
 
-**Classification: Hicham is doing the groups.** The method was settled earlier (buckets from how
-analysts cover a name, a tree with variable depth, a primary home plus memberships, a definition
-sentence per node, Transportation as the pilot). The groups themselves and the hard placements are
-Hicham's, and he is working on them now. We can suggest placements from the filings; the boundaries
-and the difficult calls wait on him, not on us.
+The company's own label is left exactly as it is. The breakdown sits in its own column, so the
+decision about how to display it stays with the page and nothing is renamed in the data.
 
-## Step 1 built: measure the flat tolerance before changing it (2026-09-14, evening)
+**Checks compare totals only.** Without that guard, Erie Indemnity's Class A earnings per share of
+3.23 could be divided by Class B's 2,542 shares. Same failure as the Citigroup one: a check that does
+not know what it is comparing.
 
-`filings-hub check-tolerance` (in `filings_hub/ingest/check_tolerance.py`) is the first piece of the
-data plan built rather than planned. It reads `statement_checks` and reports how close the passing
-checks sit to the tolerance line, so we learn whether the flat 0.5 % is hiding real breaks before
-committing to the per-line fix (step 9).
+## A reused ticker resolves to whoever owns it now (2026-09-14, evening)
 
-Three choices worth recording:
+Seven symbols were each claimed by two companies, so a lookup could land on a dead one.
 
-- **The band edges come from the real tolerance constants**, imported from `checks.py`, not copied.
-  If the tolerance ever changes, the measurement follows it; it can never quietly drift from the
-  thing it measures.
-- **Two pass regimes are kept apart.** A check on tiny numbers passes on the 1.0 absolute floor, not
-  the relative tolerance, so its relative gap is meaningless. Those are reported separately from the
-  passes the 0.5 % actually governs, so the near-miss share is honest.
-- **EPS is measured on its own 1 % line**, not folded in with the 0.5 % checks.
+Fixed when the data is built, not on every search: one owner per symbol is marked as current, ranked
+by still filing, then most recent, then most filings. A symbol with only one owner is current even if
+that owner is defunct. **We never drop the history.**
 
-It is read-only and tested against controlled rows with known gaps plus the real built lake. The
-verdict is a heuristic to guide a human (near-miss share over 1 % of governed passes -> prioritise
-step 9), not an automated decision. Still to do: run it against the full lake once the current
-rebuild finishes uploading, and read the number.
+Why at build time: the tie-break is the same everywhere a symbol becomes a company. Deciding it once
+keeps every one of those a plain filter that reads the same and cannot drift apart.
 
-## Step 2 built: a reused ticker resolves to its current owner (2026-09-14, evening)
+## The line grouping is a guess, and now says so (2026-09-14, evening)
 
-Seven symbols were each claimed by two companies, so a lookup could land on a delisted one. Fixed at
-build time rather than per query: `mark_current_owner` marks one `is_current` owner per symbol in the
-tickers table, ranked by still-filing, then most recent, then most filings, then a stable CIK. A
-symbol with a single owner is current even when that owner is defunct — we never drop the history.
+The columns that say which line rolls up into which total are a **guess based on position**. The
+SEC's summary files drop the filing's own arithmetic, so we assume each line rolls into the next
+subtotal below it.
 
-Why build-time and not just a smarter query: the tie-break is the same everywhere a symbol becomes a
-company (the exact-ticker redirect, search, the CLI, verify). Marking it once keeps each of those a
-plain filter (`is_current IS NOT FALSE`, or `ORDER BY (is_current IS TRUE) DESC`) that reads the same
-and cannot drift between call sites. The queries use `IS NOT FALSE` / `IS TRUE` so a lake not yet
-rebuilt with the column behaves exactly as before rather than breaking.
+Two things were true and both mattered.
 
-The redundant `companies WHERE ticker = ?` branch in search was removed: `companies.ticker` is copied
-from the company's own `is_primary` tickers row, so the tickers branch already covers it, and keeping
-it would have re-surfaced the dead company that the `is_current` filter is there to hide.
+**There was no check to turn off.** A check built on this guess was never switched on. It would have
+flagged 98.3% of filings. The guessed columns only feed the display. So the job was not "stop running
+the check", it was "stop presenting a guess as a fact".
 
-Migration `0020` adds the column; the serving load carries it. Requires a universe rebuild to take
-effect, which every backfill and daily refresh already does.
+**The guess reaches a person in exactly two places:** the data we hand to the API, and the Excel
+workbook. Both now carry a plain note saying the grouping is worked out from the order lines appear
+in, not from the filing's own arithmetic, and is provisional.
 
-## Step 3 built: the subtotal grouping is labelled a guess, not hidden or overclaimed (2026-09-14, evening)
+Deliberately not done: a new stored column marking which groupings are guesses. Every one of them is a
+guess today, so the marker would say the same thing on every row. It becomes worth adding when real
+arithmetic from the filing starts mixing in with guesses.
 
-The columns that say which line rolls into which total (`parent_concept`, `is_subtotal`) are a
-positional guess: the SEC summary data sets drop the filing's calculation tree, so we assume each
-line rolls into the next subtotal below it. Two things were true and both mattered.
+## One statement, one currency (2026-09-15)
 
-- **There was no check to switch off.** A positional `subtotal_equals_children` was never wired in
-  (it would have flagged 98.3 % of filings); the guessed columns only feed display. So the work was
-  not "stop running the check" but "stop presenting the guess as fact".
-- **The guess reaches a person in two places only:** the grid payload the export/API emits, and the
-  Excel workbook. The web does not read these columns. So both exposure points now carry a plain note
-  that the grouping is inferred from presentation order, not the filing's own arithmetic, and is
-  provisional. `LINE_GROUPING_BASIS` in `grid.py` ships in the payload beside `availability_basis`;
-  the Excel methodology note says the same, whatever the subtotals mode.
+This was found by accident, and it is the only bug in this whole document that a reader could see.
 
-Deliberately not done: no new stored column and no migration. Every parent guess is positional today,
-so a per-row provenance marker buys nothing until step 8 mixes real calculation-tree parents in with
-guesses; adding it now would be schema churn for a uniform state. A guard comment on `assign_parents`
-records that it must never back a pass/fail check until the tree is read from the filing (step 8),
-which is when a subtotal check becomes meaningful.
+A foreign company prints its statements in its home currency, with a US dollar translation beside
+them. The SEC's files carry both. So one line could have two values at the same date, in two
+different currencies.
 
-## Step 4 built: coverage and applicability, company by company (2026-09-14, evening)
+```mermaid
+flowchart TD
+    F["A Chinese company's filing"] --> R["Revenue: 700,000,000 renminbi"]
+    F --> R2["Revenue: 100,000,000 dollars<br/>(the same revenue, translated)"]
+    R --> M["<b>What we stored</b><br/>Revenue 700,000,000 (renminbi)<br/>Cost 80,000,000 (dollars)<br/>Gross profit 620,000,000"]
+    R2 --> M
+    M --> X["Nonsense.<br/>The two lines are<br/>7x apart for no reason."]
+    style X fill:#ffebee,stroke:#c62828
+```
 
-`filings-hub coverage-audit` (`coverage_audit.py`) answers "what should we hold, and where does it
-differ from what we do". It is the fourth and last of the start-now fixes, and the one that finds the
-weaknesses we have not noticed yet, so it earns being built before the filing-download work.
+Measured: in one quarter, 3,502 values had this problem. **All 3,502 differed by currency and none by
+anything else.** Renminbi and dollars was 2,222 of them, then Hong Kong, Singapore, Taiwan, Malaysia,
+yen, peso, rupee. Across 167 filings, about 2% of that quarter's filers.
+
+Three things went wrong, in order of seriousness. The company page showed whichever row happened to
+be read first, line by line, so a renminbi revenue could sit above a dollar cost. A check compared a
+renminbi revenue with a dollar cost and failed for no real reason. And the build produced a different
+answer each time it ran.
+
+**The rule.** A statement is kept in one currency: the one most of its lines use. The dollar breaks a
+tie, then alphabetical order. Share counts and percentages are untouched. A per-share figure follows
+its currency.
+
+**A line that only exists in the translation shows nothing**, rather than showing the wrong currency.
+The translation is not lost: we still hold every value. It just no longer competes for the line.
+
+**Rejected:** keeping both and letting the page choose. The page identifies a line by its name, so the
+second row silently replaced the first. That *was* the bug.
+
+## The currency fix was checked on a real page layout, not just counted (2026-09-15)
+
+Everything that verified the currency fix until then counted rows or counted failing checks. The code
+that lays out what a reader actually sees had never been run against a two-currency filing at all.
+
+So we now build the page twice, before and after a company adds a translated copy of every line, and
+the two must come out identical.
+
+Both directions were rendered and read, not just asserted. With the dollar winning, the statement is
+unchanged line for line. With the home currency winning, which is the dangerous direction because the
+dollar rows are the ones dropped, the statement reads in that currency from top to bottom, every
+figure is exactly the translated one, no line is empty, and the statement still adds up inside itself
+(980 − 525 = 455, 455 − 112 = 343, 343 − 56 = 287).
+
+**What this does not prove:** that a particular real company's page is right. The test filing is one
+we wrote. This shows the code lays out the page correctly, which is a different claim. The honest
+status is "fixed, rebuilt, page layout proven, real page not yet opened".
+
+One thing noticed and deliberately left alone: a per-share line still carries the company's own
+printed label ("in dollars per share") beside a renminbi unit. That is the company's wording, and the
+rule is that the page shows the company's words. The unit beside it is ours, and it is correct.
+
+---
+
+# Part 6: the arithmetic checks
+
+Two days of work. It started with 9.2% of checks failing and ended at 1.7%. **Almost none of the
+original 9.2% was real.** It was our own maths being wrong, not the filings.
+
+```mermaid
+flowchart LR
+    A["<b>9.2%</b><br/>189,322 failing"] --> B["<b>4.1%</b><br/>after the cash and<br/>currency fixes"]
+    B --> C["<b>2.2%</b><br/>after the earnings<br/>per share fixes"]
+    C --> D["<b>1.7%</b><br/>35,328 failing"]
+    style A fill:#ffebee,stroke:#c62828
+    style D fill:#e8f5e9,stroke:#2e7d32
+```
+
+## First, measure whether the tolerance is hiding anything (2026-09-14, evening)
+
+Before changing how close two numbers have to be, find out whether the current setting is letting
+real breaks through.
+
+Three choices worth recording. The measurement **imports the real tolerance rather than copying it**,
+so it can never quietly drift from the thing it measures. Checks on tiny numbers pass on a different
+rule, so they are **reported separately** and do not flatter the result. Earnings per share is
+measured on its own line.
+
+**The answer (same evening): the tolerance is fine.** Of 1,502,846 passes it governs, 99.48% are
+exact and 711 are near misses. So the plan to give every line its own tolerance is **deferred**. Low
+value, and it needs the filing download anyway.
+
+The real signal was elsewhere. About 9% of checks *fail*, and most fail by more than ten times the
+limit. That is not a tolerance question. That is something genuinely not adding up.
+
+## Know which companies we never check at all (2026-09-14, evening)
+
+A tool that answers "what should we hold, and where does it differ from what we do".
 
 Choices worth recording:
 
-- **Tiered, because a gap means different things by tier.** NYSE/Nasdaq, other listed, filing but
-  unlisted, everything else. A gap in the first tier is a bug; a gap in the last is usually a shell
-  that never filed accounts. The report never calls an expected-absence a failure: a company that
-  filed no financial report is not counted as missing statements.
-- **The headline is companies getting zero checks.** A company whose filings never trip an arithmetic
-  check is unverified and nothing said so before. The count is on the report, per tier and in total.
-- **Gaps carry a reason or a flag.** Foreign filer (20-F / 40-F), gone dark, blank-check / SPAC, or
-  "unexplained — investigate". The unexplained ones in the top two tiers are the actionable list.
-- **Aggregated in SQL, not row-by-row in Python**, so it scales to the whole ~900k-company universe;
-  only the bounded sample of unexplained gaps is pulled out. It reads through `Duck` directly with
-  typed empty stand-ins for absent tables, rather than `Database`, so it never drags in the serving
-  views (periods_serving and the rest) it does not need.
+* **Tiered, because a gap means different things in different places.** NYSE and Nasdaq, other
+  listed, filing but unlisted, everything else. A gap in the first tier is a bug. A gap in the last is
+  usually a shell company that never filed accounts. The report never counts an expected absence as a
+  failure.
+* **The headline is companies getting zero checks.** A company whose filings never trip any check is
+  unverified, and nothing said so before.
+* **Every gap carries a reason**: foreign filer, gone dark, blank-cheque company, or "unexplained,
+  investigate". The unexplained ones in the top two tiers are the list to work.
 
-Read-only and internal: it gates what we publish and tells us where to look, never shown to a user.
-Still to do: run it on the full lake and work the gap list.
+## The reader gets twenty real filings to prove itself on (2026-09-15)
 
-## Step 1 result: the flat tolerance is fine; step 9 deferred (2026-09-14, evening)
+Every test of our filing reader used a filing we had written ourselves. So we took 26 awkward real
+ones and made them permanent tests.
 
-`check-tolerance` ran on the full local lake: 2,047,964 checks. Of the 1,502,846 standard passes the
-0.5 % tolerance governs, 99.48 % are exact and 711 (0.05 %) are near misses. That is the answer step 1
-existed to get: the flat tolerance is not waving real breaks through, so **step 9 (a per-line
-tolerance from the filing's own `decimals`) is deferred** — low value now, and it needs the filing
-download (step 6) to have the `decimals` anyway.
+* **Which filings.** The set we already watch, plus the cases it lacked: a bank with fee breakdowns, a
+  company with discontinued operations, a foreign filer, a filing from the first year of tagged data,
+  and small companies with invented labels. Each row says why it is there.
+* **Fetched once, then offline forever.** The build machine cannot reach sec.gov, so the files are
+  fetched on the Mac and committed, compressed. **Rejected:** fetching inside the test. A test that
+  needs the SEC is a test that fails when the SEC is slow.
+* **Report everything, stop at nothing.** The checker runs every stage and records each failure
+  against its stage rather than stopping at the first. That is how twenty filings become a list of
+  things to fix.
+* **Never silent.** One test per filing, plus one test that fails if any filing has no fixture.
+  **Rejected:** skipping when files are missing. That is exactly the silent failure this exists to
+  prevent.
 
-EPS near misses are higher (1.90 % of the 87,271 EPS passes governed by the 1 % rule), but EPS is
-printed to the cent, so a 1 % band on a low share price is a couple of cents of ordinary rounding.
-Noted, not acted on.
+## Four big companies hide their structure inside another file (2026-09-15)
 
-The signal worth chasing is elsewhere: ~8-9 % of checks *fail* (130,402 standard, 58,838 EPS), and
-most standard fails are more than 10x past the line — genuine non-reconciliation, not tolerance. That
-is coverage-audit (step 4) and calculation-tree (step 8) territory, not step 1's.
+The first run over real filings read 20 of 24 cleanly. The four that failed were Microsoft, Prologis,
+Royal Bank of Canada and Toyota. They share one filing agent and one shape: the SEC holds only two
+files for them, and the descriptions of labels, layout and arithmetic are **embedded inside** one of
+those two rather than sitting in separate files. Microsoft's carries 1,103 layout instructions.
 
-## The arithmetic checks compared the raw sign; ~9 % "failures" were mostly false (2026-09-14, evening)
+There was no separate file to fetch. The fetch was right and the reader was blind.
 
-`check-report` said 9.2 % of checks fail (189,240 of 2,047,964), 71.6 % of companies with at least
-one failing check. `check-explain` on the worst offenders (Texas Pacific Land Trust, Entergy, Hecla)
-showed every one was an exact sign inversion — `lhs = -rhs`, 200 % off, the maximum a relative gap
-can be. The data was fine; the checks were wrong.
+**Fixed in the reader, not the fetch.** The reader now asks every document what it carries, and merges
+what it finds. For the twenty filings that keep separate files, nothing changes.
 
-Two causes, both in how the checks picked their inputs, not in the stored numbers:
+**Rejected:** treating a two-file filing as incomplete and skipping it. That would silently drop
+Microsoft.
 
-- **Sign.** Filers record some lines (cost of sales, a liability, occasionally assets) with either
-  sign; XBRL carries a `negating` flag for the ones shown flipped, and the company *page* already uses
-  the flipped-back value (`value_presented`). The checks read the raw `value` and ignored the flag,
-  so `revenue - cost` on a filer who stores cost negative became `revenue - (-cost)` — a sign flip.
-  Texas Pacific: Assets filed as -24,284,031, presented as +24,284,031, and 6,623,235 + 17,660,796 =
-  24,284,031 exactly. The page balanced; only the check failed.
-- **Period.** `ending_cash_cf_equals_bs` (47 % fail, the biggest category) compared the cash-flow
-  statement's cash to the balance sheet's, but cash appears twice on the cash-flow statement
-  (beginning and ending). The check grabbed an arbitrary one via `any_value`, often comparing the
-  beginning balance to the ending.
+## The two causes of the 9.2%, one right and one wrong (2026-09-14 evening, corrected 2026-09-15)
 
-Fix, in both check paths (`_checks_from_staged` and the fallback in `sync_statements.py`): use
-`value_presented` (the sign the filer presents, the same number the page shows) and pick the
-period-END value (`arg_max(value_presented, period_end_rounded)`; in the fallback, the last of the
-ascending-by-period rows). Rejected `abs()`: it would hide real errors and break legitimately
-negative figures (a loss, a decrease in cash, negative equity from an accumulated deficit — where
-`Assets = Liabilities + (negative equity)` is correct and `abs()` would falsely flag it).
+We found two causes. One fix was right. One was wrong and was reverted the next day.
 
-For a normal filing nothing changes (`value_presented == value`, one value per period), so passing
-checks stay passing; only the negated lines and the double-reported instants are corrected. Locked in
-by tests: a negated-but-balanced sheet now passes, cash uses the ending figure, and a real imbalance
-still fails. The true failure rate will be visible after a statements rebuild re-runs the checks.
-**Corrected 2026-09-15: the sign half of this fix was wrong and is reverted; the period half
-stands. See the entry of that date.**
+**Cause 1, the cash check compared the wrong two numbers. This fix was right.**
 
-## Step 5 built: the reader gets its twenty real filings (2026-09-15)
+Cash appears twice on a cash flow statement: at the start of the year and at the end. Our check
+grabbed whichever it happened to find.
 
-Every test of the XBRL reader used a filing we wrote ourselves. Step 5 is the fix: about twenty
-awkward real filings, read by the real pipeline, kept as tests that cannot break silently.
+```mermaid
+flowchart LR
+    CF["Cash flow statement"] --> S["Cash at start of year<br/>1,000"]
+    CF --> E["Cash at end of year<br/>1,400"]
+    BS["Balance sheet<br/>Cash: 1,400"] --> Q{"compare"}
+    S -.->|"what we did"| Q
+    E -->|"what we should do"| Q
+    style S fill:#ffebee,stroke:#c62828
+    style E fill:#e8f5e9,stroke:#2e7d32
+```
 
-- **Which filings.** `filings_hub/data/reader_set.csv`, 26 rows. We did not invent a second list: it
-  is the golden set the acceptance criteria already watch, plus the five kinds of case step 5 names
-  that the golden set lacked (the fee-income bank the fixture was modelled on, a
-  discontinued-operations filer, a 20-F filer, a first-year-of-XBRL filing, small companies with
-  invented labels). Each row says why it is there. The two micro-caps are given by CIK, taken from
-  our own check report, because a micro-cap's ticker is not stable.
-- **Resolved offline.** A row becomes a filing from our own `tickers` and `filings` tables — the
-  current owner of a reused ticker (step 2), the latest XBRL filing of that form — never a guess or a
-  lookup on the SEC. `year` picks a filing from a given year, for the 2010 one.
-- **Fetched where the SEC is reachable.** The build environment's network policy does not allow
-  sec.gov, so `filings-hub reader-fetch` runs on the Mac once; the five XBRL files per filing are
-  committed gzipped (about a tenth of their size) with a manifest, marked binary for git. After that
-  nothing needs the network. Rejected: fetching inside the test — a test that needs the SEC is a test
-  that fails when the SEC is slow.
-- **Report everything, stop at nothing.** `reader-check` runs every stage (labels, presentation,
-  calculation, definition, roles, one presentation tree per statement, the instance) and records each
-  failure against its stage, plus the warnings the reader tolerates (a presentation cycle it broke),
-  rather than raising at the first. That is how twenty filings become a list of what to fix.
-- **Never silent.** One test per fixture, and one test that fails if any filing in the set has no
-  fixture. Rejected: skipping when fixtures are absent — that is exactly the silent failure the step
-  exists to prevent. Until the Mac fetch is committed that test is a *strict expected failure*: it
-  still runs and must fail, so the gap shows in every run, and the moment the fixtures land it
-  becomes a hard failure until the marker is removed. Nothing is skipped and nothing is quiet.
+Taking the later-dated figure removed the problem almost entirely. **99,102 failures fell to zero.**
 
-## Four filers keep their linkbases inside the schema; the reader now reads both places (2026-09-15)
+**Cause 2, the sign. This fix was wrong.**
 
-The first run of the reader over real filings (step 5) read 20 of 24 cleanly. The four that failed —
-Microsoft, Prologis, Royal Bank of Canada, Toyota — share one filing agent and one shape: EDGAR holds
-only the schema and the instance for them, and the schema is 2 to 7 MB because the label,
-presentation, calculation and definition linkbases are embedded in it (Microsoft's carries 1,103
-presentation arcs). There is no `_lab.xml` to fetch; the fetch was right and the reader was blind.
+Companies sometimes record a cost as a negative number, and the filing carries a flag saying "show
+this flipped". The page already used the flipped version. The checks used the raw one.
 
-- **Fix in the reader, not the fetch.** `xbrl.linkbases_in(schema)` returns whatever linkbases a
-  document carries, and `read_linkbases(schema, files...)` merges the schema's with the separate
-  files', files on top. The parsers already walked the whole document, so a schema reads like any
-  other file; the change is to *ask* it. For the twenty filings that keep files the schema
-  contributes nothing and nothing changes — locked in by the same fixtures.
-- **`FileSet` keeps describing files.** `is_complete` and `missing` stay truthful about what EDGAR
-  holds; completeness of *content* is `read_linkbases`' job. The harness reports both: which files
-  were missing, and which linkbases were found in the schema, so the two-file shape is visible
-  rather than alarming.
-- **Rejected:** treating a two-file filing as incomplete and skipping it. That would silently drop
-  Microsoft.
-- The two skipped rows were list mistakes, not reader ones: `BRK.B` is stored under another spelling
-  and ExxonMobil changed CIK on re-incorporation, so the ticker resolved to the old company with no
-  recent 10-K. Both are now given by CIK, as the micro-caps already were.
+So we made the checks use the flipped one too. That was backwards. Our checks are *written* for the
+raw value: costs positive, cash flow items signed. Feeding them the display version inverted every
+line a company shows in brackets. A cost shown as (cost) became a negative cost, so revenue *minus*
+cost started *adding*.
 
-## The sign half of the check fix was wrong; the period half was right (2026-09-15)
+| Check | Before the wrong fix | After it |
+|---|---|---|
+| Income after tax | 13,480 | **72,443** |
+| Gross profit | 4,802 | **17,058** |
+| Net income agrees across statements | 806 | **2,585** |
 
-The rebuild re-ran the checks with both halves of the 2026-09-14 fix, and the report split them:
+About 60,000 new failures, created to cure roughly 800 real oddities. Reverted the same day.
+
+**What the 800 are.** Companies that tagged a line with the wrong sign. Texas Pacific Land Trust
+filed its total assets as −24,284,031 and shows it as +24,284,031, and its parts add up exactly
+(6,623,235 + 17,660,796 = 24,284,031). The page balanced. Only the check failed.
+
+These are genuine anomalies in the filings and our check is right to flag them. They stay flagged.
+They are 0.04% of all checks.
+
+**The lesson, and it is the important part of this entry.** The diagnosis came from the list of worst
+offenders, where sign flips dominate **because a flip is the largest error possible, not the most
+common one**. The query that measured the pattern across *all* failures came second and contradicted
+it. It should have come first.
+
+## Changing a check no longer costs a full rebuild (2026-09-15)
+
+Three full rebuilds in two days, 46 minutes each, all for changes to the checks alone.
+
+The checks are worked out from the same rows the statements table already holds. So they can be
+recomputed from what we already stored, without rebuilding anything. **46 minutes becomes 6.**
+
+```mermaid
+flowchart LR
+    R["<b>Rebuild</b><br/>re-read everything<br/>from the SEC files"] --> T1["46 minutes"]
+    C["<b>Recheck</b><br/>re-do the sums on rows<br/>we already stored"] --> T2["6 minutes"]
+    style T1 fill:#ffebee,stroke:#c62828
+    style T2 fill:#e8f5e9,stroke:#2e7d32
+```
+
+Held in place by two tests: one runs it on a built collection and requires the checks to come out
+**identical, row for row**. The other changes the pass rule and requires every verdict to move while
+every number stays. It recomputes. It does not copy.
+
+Deliberately not refreshed: the pass or fail flag stored on each statement row, because refreshing
+that means rewriting the statements table, which is the expensive part. It catches up on the next
+real build, and the command says so.
+
+**Proven on the real data:** after the currency fix, rebuilding one quarter the slow way gave the
+identical result, to the row.
+
+## After the cash and currency fixes: 4.1% (2026-09-15)
 
 | Check | Before | After |
 |---|---|---|
-| Ending cash agrees, cash flow = balance sheet | 99,102 | 455 |
-| Income after tax | 13,480 | 72,443 |
-| Gross profit | 4,802 | 17,058 |
-| Operating income | 3,451 | 6,646 |
-| Net income agrees, income statement = cash flow | 806 | 2,585 |
-
-- **Period-end: right.** Picking the latest-dated value (`arg_max` on `period_end_rounded`) removed
-  the beginning-versus-ending cash mix-up almost entirely, as the pre-rebuild simulation predicted
-  (98.3 % of a 3,000 sample). It stays.
-- **Presented sign: wrong, reverted.** `checks.py` is written for the value as filed — costs
-  positive, cash-flow activities signed — and says so. Feeding it the page sign inverted every line a
-  filer shows negated: a cost shown as (cost) became a negative cost, so `revenue - cost` added
-  instead of subtracting; a tax shown as (tax) likewise; and net income, *one fact* shown plain on
-  the income statement and negated on the cash-flow statement, compared unequal to itself
-  (`364,000,000 vs -364,000,000`). About 60,000 new failures to cure ~800 real sign oddities.
-- **What the ~800 are.** Filers who tagged a line with the wrong sign (Texas Pacific's negative
-  Assets). They are anomalies in the filings and the checks are right to flag them; a global rule to
-  hide them is exactly what just misfired. They stay flagged, and they are 0.04 % of checks.
-- **The honest number, expected after the revert:** about 90,000 failures, ~4.4 %, dominated by EPS
-  (~58,000) and income after tax (~13,000), which are the next two to diagnose from real rows.
-- **Lesson kept.** The diagnosis came from the worst-offender list, where sign flips dominate
-  because a flip is the largest *possible* error, not the most *common* one. The query that measured
-  the pattern across all failures came second and contradicted it; it should have come first.
-
-## A check change no longer costs a rebuild: `recheck` (2026-09-15)
-
-Three full rebuilds in two days for checks-only changes, about 46 minutes each. The checks are
-computed at build time from the staged rows, and the statements table holds exactly those rows, so
-they can be recomputed from the lake: one pass to pull the rows a check can read, then the same
-`_checks_from_staged` per quarter and per provisional filing, written under the builders' own file
-names so a later quarter rebuild still supersedes them.
-
-Locked in by a test that runs it on a built lake and requires the checks to come out identical, row
-for row, and another that changes the pass rule and requires every verdict to move while every
-operand stays — it recomputes, it does not copy. Deliberately not refreshed: `checks_passed` on the
-statement rows, which would mean rewriting the statements table, the expensive part, for an
-internal loop. `check-report` reads `statement_checks` and is current at once; the published pass
-rate catches up on the next build, and the command says so.
-
-**Proven on the real lake (2026-09-15):** after the currency fix, rebuilding one quarter the slow way and
-re-running the report gave the identical result to `recheck`'s, to the row (84,008 of 2,063,641, every
-per-check line equal). The earlier 14-row drift was the currency ties, and is gone.
-
-## Two currencies on one line: a statement is kept in its reporting currency (2026-09-15)
-
-Found by the one-quarter proof of `recheck`: the recomputed checks differed from the build's on
-about forty verdicts. The cause was upstream. In one quarter, 3,502 check inputs had two different
-values on the same line at the same date, and the SEC's number table can only do that with two
-*units*: a foreign filer prints its statements in its home currency with a "convenience
-translation" into dollars beside them, and the data sets carry both (net income in HK$ and in US$,
-7.8x apart; cash in renminbi and dollars, 7.0x; cost of revenue in yen and dollars, 159x).
-Measured on the lake: all 3,502 differed by unit and none by anything else — renminbi/dollar 2,222,
-then Hong Kong, Singapore, Taiwan, Malaysia, yen, peso, rupee, and the per-share variants — across
-167 filings in the quarter, about 2 % of its filers.
-
-Left in, three things went wrong, in order of seriousness: the company page showed whichever row was
-scanned first, line by line, so a renminbi revenue could sit above a dollar cost; a check compared a
-renminbi revenue with a dollar cost and failed for no real reason; and the build was non-deterministic
-on those filings, which is why `recheck` and a rebuild disagreed.
-
-- **The rule.** A statement is kept in one currency: the one most of its lines are reported in, by
-  distinct tags, then rows; the dollar, then alphabetical order, break a tie. Non-monetary units
-  (shares, pure) are untouched and a per-share unit follows its currency prefix. Defined once, in the
-  FSDS staging (`currency` CTE) and the same rule in the provisional path (`reporting_currency`), so
-  the page and the checks inherit the same answer.
-- **A line reported only in the translation shows nothing**, rather than the wrong currency. The
-  translation itself is not lost: the facts table holds every unit; it just no longer competes for
-  the statement line.
-- **Rejected:** keeping both rows and letting the page choose. The grid keys a line by concept and
-  label, so the second row silently overwrote the first — that *was* the bug.
-- **Consequence.** This changes the statements table, not just the checks, so it needs one full
-  `statements --all` rebuild; `recheck` cannot apply it. After that rebuild, `recheck` and the build
-  should agree to the row, which the one-quarter proof will show.
-
-## After the currency fix: 4.1 %, and two checks are effectively solved (2026-09-15)
-
-`recheck` on the rebuilt lake, six and a half minutes: 84,008 of 2,063,641 checks fail (4.1 %), 41.4 %
-of companies with at least one failing check. Per check, before and after keeping each statement in
-its reporting currency:
-
-| Check | Before | After |
-|---|---|---|
-| Ending cash agrees, cash flow = balance sheet | 434 | 0 |
-| Net income agrees, income statement = cash flow | 807 | 1 |
+| Ending cash agrees, cash flow to balance sheet | 434 | **0** |
+| Net income agrees, income statement to cash flow | 807 | **1** |
 | Balance sheet balances | 1,403 | 322 |
 | Net change in cash | 7,048 | 5,585 |
 | Income after tax | 13,347 | 12,134 |
 | Gross profit | 4,787 | 3,900 |
 | Operating income | 3,425 | 2,854 |
-| EPS, basic and diluted | 59,666 | 58,926 |
+| Earnings per share | 59,666 | 58,926 |
 
-Every remaining ending-cash failure and all but one same-fact net-income failure were currency
-mixing; so were three-quarters of the balance-sheet failures. The worst-offender list is now the
-~800 genuine filer sign oddities and nothing else. What is left is EPS, 70 % of the remainder, then
-income after tax; both to be diagnosed from the pattern across all their failures before anything
-is changed.
+Every remaining ending-cash failure, and all but one net-income failure, was currency mixing. So were
+three-quarters of the balance sheet failures.
 
-The journey, for the record: 9.2 % with two false causes (an arbitrary cash instant, and two
-currencies on one line) and one wrong fix on the way (the presented sign, reverted); 4.1 % with the
-checks reading the value as filed, the period-end instant, and one currency per statement.
+What is left is earnings per share, 70% of the remainder.
 
-## EPS is per share of the parent's earnings, not the consolidated total (2026-09-15)
+## Earnings per share was using the wrong profit (2026-09-15)
 
-The pattern across all 58,926 EPS failures, measured before anything was changed: 41,549 of them,
-70 %, used `ProfitLoss` as the numerator, and that numerator failed 41.8 % of the time against 5 to
-7 % for every other. `ProfitLoss` is the consolidated profit *including* the minority shareholders'
-share of subsidiaries; `NetIncomeLoss` is the portion that belongs to the parent's own shareholders,
-which is what earnings per share is per share of. The check listed `ProfitLoss` first, so a company
-with subsidiaries (which reports both) was checked on the wrong line, off by exactly the minority's
-share — the 50 % "other" and 29 % "within 5 %" buckets of the ratio table, together.
+Measured across **all** 58,926 failures before changing anything: 41,549 of them, 70%, used the
+group's total profit as the top number. That top number failed 41.8% of the time. Every other choice
+failed 5 to 7%.
 
-- **Fix.** For EPS the preference is reversed: `NetIncomeLoss`, then the IFRS owners-of-parent line,
-  then `ProfitLoss` only when that is all the filer reports — and then the minority's share is taken
-  back out when it is tagged. The tax identity keeps `ProfitLoss` first, correctly: pretax income
-  minus tax *is* the consolidated total. Locked in by tests for both directions.
-- **Expected.** Up to ~40,000 of the 58,926 EPS failures clear. The rest are different, smaller
-  causes on other numerators (share counts filed in thousands, ~5,000; a year-to-date numerator
-  against a quarterly EPS, ~3,000; a handful of sign and zero cases), to be measured again from what
-  remains.
-- **Method note.** This one was diagnosed from the distribution across every failure first, with the
-  numerator table pointing at one line; no fix was written until the pattern was measured.
-- **Result (same day, via `recheck`, six minutes):** 50,796 of 2,063,641 checks fail, 2.5 %, from 4.1 %.
-  EPS fell by 33,212: diluted 30,750 → 15,010, basic 28,176 → 10,704. Diluted now fails 40 % more
-  often than basic, so what remains has a diluted-specific component to measure next; income after
-  tax (12,134) is the second-largest bucket.
+The group's total includes the minority shareholders' slice of subsidiaries. Earnings per share is
+per share of **the parent's** shareholders.
 
-## EPS with an inferred numerator is an approximate check, and says so (2026-09-15)
+```mermaid
+flowchart TD
+    G["Group profit: $100m"] --> P["Parent's share: $80m<br/>÷ 40m shares = <b>$2.00</b> ✓"]
+    G --> M["Minority's share: $20m<br/>not the shareholder's"]
+    G --> W["Whole $100m<br/>÷ 40m shares = <b>$2.50</b> ✗"]
+    style P fill:#e8f5e9,stroke:#2e7d32
+    style W fill:#ffebee,stroke:#c62828
+```
 
-After the numerator fixes, 25,700 EPS failures remained and 70 % of them were "unexplained": the
-computed figure 1 to 20 % away from the reported one. Measured across all of them: only 21 % showed
-any adjustment on the income statement that could account for the gap. Fifteen rows looked at in
-full settled it. Profitable companies came out 1 to 6 % *above* the reported EPS, with net income
-present, no minority share, no share classes, no discontinued operations: the fingerprint of the
-two-class method, where earnings allocated to unvested shares with dividend rights (routinely 1 to
-4 %) come out before EPS is computed. Loss-making small companies came out *below*: preferred
-dividends and accretion added to the loss. Both adjustments live in the EPS note, not on the face of
-the income statement, so a check that reads the statement cannot see them. Neither is a bug in the
-check nor an error by the filer.
+**Result: 33,212 failures cleared.** Diluted fell from 30,750 to 15,010, basic from 28,176 to 10,704.
 
-- **The rule.** When the company tagged its own EPS numerator (earnings available to common), the
-  check is exact: 1 % or one cent, and a failure is real. When it did not, net income stands in for
-  the numerator and the check is *approximate*: named `eps_basic_approx` / `eps_diluted_approx`,
-  tolerance 5 %, labelled as approximate wherever it appears. Five percent covers the two-class
-  allocation and small preferred dividends and still catches a wrong share count, a scale, a sign
-  or a period; a gap past it is genuinely unverifiable from the statement and stays listed.
-- **Rejected: loosening the EPS tolerance.** It would have hidden real errors on the two-thirds of
-  filings whose numerator we do have. The split keeps the exact check exact.
-- **Rejected: skipping EPS when the numerator is inferred.** 317,000 such checks, 94 % passing, are
-  real evidence of consistency and the only EPS coverage for most small filers.
-- **The tolerance tool** (step 1) measures the exact tolerances only; the approximate check is a
-  design choice, not a measurement, and is excluded from it.
-- **Result (via `recheck`):** 45,310 of 2,063,641 checks fail, 2.2 %, from 2.4 %. EPS 25,463 → 20,228:
-  approximate basic 6,734 and diluted 8,292 (half of those are share counts filed in thousands, a
-  filer anomaly); exact basic 1,689 and diluted 3,513. Exact diluted fails 9 % against basic's 4 %:
-  where a company tags a basic available-to-common line but no diluted one, the basic figure stands
-  in, and under the if-converted method the diluted numerator adds preferred dividends back. A
-  smaller bucket, queued behind income after tax (10,015 unexplained), the largest that remains.
+**Method note, and it is why this one worked.** This was diagnosed from the pattern across every
+failure first. No fix was written until the pattern was measured.
 
-## The tax identity compares to consolidated continuing income, not the parent's portion (2026-09-15)
+## When we have to guess the top number, the check says "approximate" (2026-09-15)
 
-Income after tax was the largest remaining bucket, 12,134 failures, 10,015 of them unexplained.
-Measured by the line the check compared against: `IncomeLossFromContinuingOperations` ran 23,159
-times and failed 26.0 %; every other line failed 1.6 to 6.7 %. Half of all the failures came from that
-one line. It is continuing income *attributable to the parent*, after the minority's share comes
-out; pretax income minus tax is the consolidated figure, minority included. The check listed the
-parent's line first. Three of fifteen sampled rows proved it to the dollar: pretax minus tax equalled
-`ProfitLoss` exactly and the parent's line was short by precisely the minority's share.
+25,700 failures remained and 70% had no obvious pattern: our figure was 1 to 20% away from theirs.
 
-- **Fix.** The consolidated continuing line first (`...IncludingPortionAttributableToNoncontrolling-
-  Interest`, then the IFRS one), the parent's line last, and when the parent's line is all the filer
-  gave, the minority's share is added back if tagged. The mirror of the EPS rule: EPS needs the
-  parent's portion, the tax identity needs the consolidated total.
-- **Seen and deferred.** Two of fifteen rows were filers whose `ProfitLoss` equals continuing
-  income although they tag discontinued operations separately: a filer's mis-tag, to be labelled.
-  About half of the failures use the pretax concept whose name says equity-method income is
-  excluded; that bucket overlaps this one and is re-measured after the fix.
-- **Result (via `recheck`):** income after tax 12,134 → 8,682; 41,858 of 2,063,641 checks fail, 2.0 %,
-  from 9.2 % at the start; 36.6 % of companies with any failing check, from 71.6 %.
+Measured across all of them, only 21% showed anything on the income statement that could explain the
+gap. Fifteen filings read in full settled it.
 
-## The tax identity stops trusting tag names (2026-09-15)
+Profitable companies came out 1 to 6% **above** the reported figure. Loss-making small companies came
+out **below**. Two different, completely legitimate adjustments:
 
-`check-dig income_after_tax` on the rebuilt checks corrected the previous entry on two counts.
+| Who | What they take out first | Where it is disclosed |
+|---|---|---|
+| Profitable companies | Earnings promised to unvested shares that earn dividends, routinely 1 to 4% | The notes at the back |
+| Loss-making small companies | Preferred dividends, added to the loss | The notes at the back |
 
-- **The minority bridge was wrong 69 % of the time.** `IncomeLossFromContinuingOperations + minority`
-  ran 1,538 times and failed 1,067. QVC showed why: its `IncomeLossFromContinuingOperations` is
-  already the consolidated figure, equal to `ProfitLoss` to the dollar, so adding the minority's share
-  broke it — while other filers use the same tag for the parent's portion, short by exactly that
-  share. One tag, both meanings.
-- **The equity-method pretax tag is used against its name.** Six of eight sampled filings on
-  `...BeforeIncomeTaxesMinorityInterestAndIncomeLossFromEquityMethodInvestments` closed exactly
-  *without* the add-back (CHS: 419,878 + 4,091 = 423,969 = ProfitLoss; United Security; Susser;
-  Donegal; City National; QVC). The name says the subtotal excludes equity-method income; most filers
-  tag a subtotal that includes it. The add-back that trusted the name double-counted.
+Both live in the notes, not on the face of the income statement. **A check that reads the statement
+cannot see them.** Neither is a bug in our check, and neither is an error by the company.
 
-**The rule now.** A tag's name is not evidence of how a filer used it. The check asks whether pretax
-minus tax equals *any* legitimate after-tax line the filing offers — the consolidated continuing line,
-the IFRS one, the plain continuing line as it is, the plain line plus the minority's share, then the
-bottom line less discontinued operations — with and without the equity-method add-back, in that
-preference order, and records which held. A wrong tax figure or a wrong bottom line still fails every
-candidate; only the ambiguity of the tags is absorbed. A failure is reported against the preferred
-pair. Rejected: keeping one reading per tag — the data says there is no such thing.
+**The rule.** When the company tagged its own top number, the check is exact: 1%, or one cent, and a
+failure is real. When it did not, net income stands in and the check is **approximate**: tolerance
+5%, and labelled approximate everywhere it appears.
 
-What the sample also showed and the check leaves alone: a REIT whose joint-venture loss is tagged
-under a concept we do not watch (Hines); a filer whose minority share carries the inverted sign
-(Odyssey); a foreign filer whose pretax figure is on the parent's basis (iKang). Filer tagging
-oddities, to stay on the named list.
+* **Rejected: just loosening the tolerance for everyone.** That would hide real errors on the filings
+  where we *do* have the company's own number.
+* **Rejected: skipping the check when we have to guess.** 317,000 such checks, 94% of them passing,
+  are real evidence of consistency, and they are the only coverage most small companies get.
+
+## The tax check had the same problem, in the opposite direction (2026-09-15)
+
+Income after tax was now the biggest bucket: 12,134 failures.
+
+Measured by which line the check compared against: one line ran 23,159 times and failed **26%**. Every
+other line failed 1.6 to 6.7%. Half of all the failures came from that one line.
+
+It was continuing income **attributable to the parent**, after the minority's slice comes out. But
+profit before tax minus tax is the **consolidated** figure, minority included. Three of fifteen
+sampled filings proved it to the dollar.
+
+Fixed by preferring the consolidated line. **12,134 failures fell to 8,682.**
+
+## A tag's name is not evidence of how a company used it (2026-09-15)
+
+Digging into what remained corrected the previous entry on two counts, and this is the most useful
+thing we learned all week.
+
+**The minority bridge was wrong 69% of the time.** Adding the minority's share to the parent's line
+ran 1,538 times and failed 1,067. QVC showed why: *their* version of that tag is already the
+consolidated figure, equal to the group total to the dollar. So adding the minority's share broke it.
+Other companies use the same tag for the parent's portion. **One tag, both meanings.**
+
+**A tag is used against its own name.** Six of eight sampled filings using a tag whose name says
+"excluding income from equity-method investments" closed exactly *without* that adjustment. CHS to
+the dollar: 419,878 + 4,091 = 423,969, which is the group total. Also United Security, Susser,
+Donegal, City National and QVC. The name says the subtotal excludes it. Most companies tag a subtotal
+that includes it.
+
+```mermaid
+flowchart TD
+    N["A tag named<br/>'...ExcludingEquityMethodIncome'"]
+    N --> A["What the name promises:<br/>the figure excludes it"]
+    N --> B["What most filers actually tag:<br/>a figure that includes it"]
+    A --> C["<b>The rule: do not trust the name.</b><br/>Try every arithmetically legitimate<br/>reading and record which one held."]
+    B --> C
+    style C fill:#fff4e5,stroke:#e65100
+```
+
+**The rule now.** The check asks whether profit before tax minus tax equals **any** legitimate
+after-tax line the filing offers, in a stated order of preference, and records which one held. A
+wrong tax figure or a wrong bottom line still matches none of them. Only the ambiguity of the tags is
+absorbed.
+
+**Rejected:** picking one meaning per tag. The data says there is no such thing.
+
+## The exchange-rate effect sits outside the total, not inside it (2026-09-15)
+
+A tag whose name says the exchange-rate effect is included in it failed 19.2% of the time. Its
+sibling tag failed 0.6%.
+
+Seven of fifteen sampled filings were one pattern, exact to the dollar: the three activities add up to
+the stated total, and adding the exchange-rate effect **misses by exactly that effect**. Companies
+show it on its own line underneath the subtotal, in both US and international accounting.
+
+Both readings are now tried, the one the tag's name promises first. A company that does include it
+still passes on its own reading. A total that matches neither still fails.
+
+**2,252 failures cleared**, against an estimate of about 2,200 from the sample.
+
+## Three smaller gaps in the tax check (2026-09-15)
+
+* **The domestic line is not the total.** A tag for domestic pretax income failed 6.6%, three times
+  any other. It is the domestic half. The foreign half is its own tag and the two add up. Both
+  readings are now offered, because some companies tag the whole thing under the domestic name.
+* **The bottom line stands as a candidate on its own.** China Jo-Jo's pretax figure already carries
+  the discontinued result, so the plain bottom line closed to the dollar while "bottom line minus
+  discontinued" missed by 644,308.
+* **Both bottom-line tags are offered.** Texas Capital tagged one of them after preferred dividends
+  and the other as the consolidated total. Only the first one found was tried before.
+
+**The trade-off, stated plainly.** Every candidate we add makes the check more permissive. The tax
+check now has up to eight possible right-hand readings.
+
+That is deliberate. Every candidate is an arithmetically legitimate reading of the filing. A wrong tax
+figure or a wrong bottom line still matches none of them. And the alternative, one fixed reading,
+produced thousands of failures that were our misreading rather than the company's error. A test holds
+the line: a filing whose tax figure is genuinely wrong still fails.
+
+**Known and deferred.** Two of fifteen sampled filings close to the dollar once equity-method income
+is added, but they tag it only on the cash flow statement, and the income statement check only sees
+income statement values. Worth perhaps 500 failures. It needs the check to read across statements,
+which both build paths would have to pass through, so it waits rather than being bolted on.
+
+## All four fixes measured: 1.7% (2026-09-15)
+
+**9.2% to 1.7%.** Companies with at least one failing check: 71.6% to 33.0%.
+
+| Bug | Failures cleared | Did a reader ever see it? |
+|---|---|---|
+| Cash compared the start of the year to the end of it | 99,102, to zero | No |
+| Home currency and dollar translation both kept | about 2% of filers | **Yes** |
+| Earnings per share used the group's profit | 41,549 | No |
+| The exchange-rate effect counted twice | 2,252 | No |
+
+What remains, 35,328:
+
+```mermaid
+flowchart TD
+    ALL["35,328 still failing"] --> O["<b>about 24,000</b><br/>no pattern yet<br/>ours to investigate"]
+    ALL --> T["<b>about 7,700</b><br/>the filing itself is wrong<br/>named, deliberately not repaired"]
+    ALL --> J["<b>the rest</b><br/>rounding and period questions"]
+    style O fill:#fff4e5,stroke:#e65100
+    style T fill:#e8f5e9,stroke:#2e7d32
+    style J fill:#e3f2fd,stroke:#1565c0
+```
+
+**The two checks that never moved:** gross profit (3,900) and operating income (2,854). Nothing fixed
+so far touches them. They are next, and they may need the filing's own declared arithmetic rather than
+another round of tuning.
 
 ## Where the remaining gaps sit in the plan (2026-09-15)
 
-Four gaps named after two days on the checks, mapped to the steps that already hold them:
+Four gaps named after two days on the checks, and where each already lives:
 
-- **Tuning our formula where the filing declares its own arithmetic** → **step 8**. Gross profit,
-  operating income and part of income after tax fail because our formula guesses how a company adds
-  up its statement. Each tuning round returns less. Step 8 replaces the guess with the filing's own
-  calculation tree, and those failures go by construction. Blocked on step 7.
-- **Everything still comes from the summary files** → **part 2, steps 6 and 7**. The foundation. Step 7
-  makes the summaries a second opinion rather than the only source; the currency bug was invisible
-  precisely because nothing independent could contradict them.
-- **No one has looked at a page since the data changed** → **new step 8b**, because steps.md had no
-  rule for it. Tests and check counts are necessary and neither shows what a user sees. The currency
-  fix owes the first one.
-- **What "100 % correct" means** → already in **step 8's "done when"**, written before this work
-  started: the target is not zero failures, it is that every remaining failure is worth opening. Now
-  sharpened with the mechanism: no failure caused by us, every other one named with a reason in
-  `check-report --csv`, and "unexplained" the only count that should be shrinking.
+| The gap | Where it belongs |
+|---|---|
+| Our formula guesses how a company adds up its statement | **Step 8.** Each round of tuning returns less. Step 8 replaces the guess with the filing's own arithmetic, and these failures go by construction. |
+| Everything still comes from the summary files | **Steps 6 and 7.** The currency bug was invisible precisely because nothing independent could contradict them. |
+| Nobody has looked at a page since the data changed | **New step 8b**, because the plan had no rule for it. Tests and counts are necessary and neither shows what a user sees. |
+| What "100% correct" actually means | Already written, now sharpened: **no failure caused by us**, every other one named with a reason, and "unexplained" the only count that should be shrinking. |
 
-## The exchange-rate effect sits outside the stated net change in cash (2026-09-15)
+---
 
-`check-dig net_change_in_cash`: the IFRS `IncreaseDecreaseInCashAndCashEquivalents`, whose name says
-the exchange-rate effect is inside it, failed 19.2 % of the time against 0.6 % for its
-before-the-effect sibling. Seven of fifteen sampled filings were one pattern, exact to the dollar:
-the three activities sum to the stated net change, and adding the effect misses by exactly the
-effect. Spark Networks -273, Valspar -23,495, Vale -4,792, TDCX 259,330, and three more. Filers show
-the effect on its own line underneath the subtotal, in US GAAP and IFRS alike.
+# Part 7: what we are waiting on
 
-Both readings are now tried, the one the tag's name promises first. A filer who does include the
-effect still passes on its own reading; a total that matches neither still fails.
+## Market data is parked until a lawyer answers (2026-09-14)
 
-## Three smaller gaps in the tax identity (2026-09-15)
+Hicham asked for end-of-day prices and market value.
 
-The same dig, after the previous fix took income after tax from 12,134 failures to 4,815 and every
-main line to 1.2-3.4 % (the minority bridge went from 69 % failing to 0 of 123):
+The data side is nearly solved already. Share counts are in our data from the filings, including the
+split by class that market value needs for companies with more than one (Alphabet: Class A 5,824m,
+Class B 836m, Class C 5,456m, adding to the reported 12,116m). Only the price is missing, and a price
+feed is about 20 euros a month for the whole world.
 
-- **The domestic pretax line is not the total.** `...BeforeIncomeTaxesDomestic` failed 6.6 %, three
-  times any other pretax line. It is the domestic component; the foreign half is its own tag and the
-  two sum to pretax income. Both readings are offered, because a filer may tag the whole under the
-  domestic name.
-- **The bottom line stands as a candidate beside the bottom line less discontinued operations.**
-  China Jo-Jo's pretax figure already carries the discontinued result, so `ProfitLoss` as it stands
-  closed to the dollar while `ProfitLoss - discontinued` missed by 644,308.
-- **Both bottom-line tags are offered.** Texas Capital tagged `ProfitLoss` after preferred dividends
-  (40,104) and `NetIncomeLoss` as the consolidated total (42,542); the identity closes on the second.
-  Only the first tag found was tried before.
+**None of that is the deciding factor.** The deciding factor is whether the seller's agreement lets us
+show their price to a paying subscriber. That is a question for a lawyer.
 
-**The trade-off, stated plainly.** Each candidate makes the check more permissive, and the identity
-now has up to eight right-hand candidates against two or three left-hand readings. That is deliberate:
-every candidate is an arithmetically legitimate reading of the filing, a wrong tax figure or bottom
-line still matches none of them, and the alternative — one fixed reading — produced thousands of
-failures that were our misreading rather than the filer's error. A test holds the line: a filing whose
-tax figure is wrong still fails.
+So the whole workstream is parked. No seller engaged, no key obtained, no price data enters our
+storage until the legal question is answered.
 
-**Known and deferred.** Two of fifteen sampled filings (9F, American Vanguard) close to the dollar
-once the equity-method income is added, but tag it only on the cash-flow statement, not the income
-statement, and the income-statement check sees only income-statement values. Worth perhaps 500
-failures; it needs the check to read across statements, which both build paths would have to pass
-through, so it waits rather than being bolted on.
+Two things settled on the way, which stand whatever the lawyer says:
 
-## Foreign filers get their own step, in Part 3 rather than "go wider" (2026-09-15)
+* **We buy prices only, never financial statements.** Sellers compile statements by scraping
+  announcements, news feeds and company websites. That is a copy of a copy. It is the same reason we
+  turned down a FactSet login. If a seller's number and the filing disagree, the filing is right, and
+  we would have no way to show which is which. **Filings we own end to end. Prices we rent, because we
+  cannot add anything to a closing price.**
+* **Building a price feed ourselves is a licensing project, not an engineering one.** The code is a
+  file a day. The hard parts are the exchange agreements, which are what the seller actually sells,
+  and adjusting for splits and dividends, which is where the bugs live. At 20 euros a month the
+  arithmetic is not close.
 
-Hicham's observation: foreign companies file a full annual report and no quarterly one; their interim
-figures arrive on a 6-K as a press release, which is a document rather than labelled numbers. (The
-form is 6-K, not 8-K — 8-K is the domestic one; today's digs show 6-K filings from Spark Networks,
-Founder Group, Vale and TDCX.)
+Also noted for the lawyer: the UK still has the EU database right and the US has no equivalent. So
+extracting data from someone else's compilation is a **bigger** risk here than it would be in the US.
+That makes scraping worse for a UK company, not better.
 
-**Placed in Part 3** — "finish the checks, then tell users what changed" — not Part 8, "go wider".
-Part 8 is about holding *more* companies; this is about the ones we already hold being thinner than
-they look, which is the same family as late filers (step 13) and restatements (step 14): a gap is
-fine, a hidden gap is not.
+## Business-email-only sign-up is built and switched off
 
-**It exposes a bug in step 13.** That step flags a company when more than five months pass between
-quarterly reports. A foreign filer never files one, so every one of them would read as permanently
-overdue. The late rule has to know the filer type first.
+The sign-up form can reject Gmail, Outlook, Yahoo and similar with "please enter a valid business
+email address", the way AlphaSense does. It is built and tested, and it is **off by default**, because
+the owner's own address is a Gmail one and is needed for testing.
 
-**Ordered so the unknown is resolved first.** We do not know how many foreign filers we hold, how
-stale each is, or how many 6-Ks we are sitting on, and nothing here can be sized until we do — so the
-count comes first, as a report over data we already hold, alongside the coverage audit from step 4.
-Then the honest label on the page. Only then a decision on extracting numbers from the press
-releases, which is a project of step 25's kind and should not start on a guess.
+**Revisit once the domain name is bought.** Then turn it on in the server's settings and the form
+starts refusing free-mail addresses.
 
-**The rule that must hold if we ever do extract them:** a figure from a press release is never
-presented as carrying the weight of an audited annual report.
+## Also waiting on the domain name
 
-## The currency fix, carried through the page and not only the table (2026-09-15)
-
-Everything that verified the currency fix until now counted rows or counted failing checks. The code
-that lays out what a reader actually sees — the grid — had never been run against a two-currency
-filing at all. So the page is now built before and after a filer adds a translated copy of every line,
-and the two must be identical: same lines, same values, one currency throughout.
-
-Both directions were rendered and read rather than only asserted. With the dollar winning, the
-statement is unchanged line for line. With the home currency winning — the dangerous direction, where
-the dollar rows are the ones dropped — the statement reads in that currency throughout, each figure
-exactly the translated one, no line emptied, and the statement still adds up inside itself
-(980 - 525 = 455, 455 - 112 = 343, 343 - 56 = 287).
-
-What this does not prove: that a particular company's page on the real lake is right. The fixture is
-synthetic, so this shows the code lays the page out correctly, which is a different claim. The honest
-status stays "fixed, rebuilt, page path proven, real page not yet opened".
-
-One thing seen while reading it and deliberately left alone: a per-share line still carries the
-company's own printed label ("in dollars per share") beside a renminbi unit. That is the filer's
-wording, and the rule is that a page shows the company's own words; the unit beside it is ours and is
-correct.
-
-## All four fixes measured: 1.7 % (2026-09-15)
-
-The exchange-rate fix applied and measured, closing the set. `net_change_in_cash` 5,585 to 3,333, a
-fall of 2,252 against an estimate of about 2,200 from the sampled filings; income after tax 4,815 to
-4,404 on the same commit's three tag-candidate gaps. Total 37,991 to 35,328, **1.7 %** of 2,063,641
-checks, and 33.0 % of companies carry any failing check.
-
-The whole arc: **9.2 % to 1.7 %**, and 71.6 % to 33.0 % of companies. Four bugs, each measured
-before and after:
-
-| Bug | Failures cleared | Reached the page? |
-|---|---|---|
-| Cash compared the start-of-year figure to the end-of-year one | 99,102 (to zero) | No |
-| Foreign filers' home currency and dollar translation both kept | ~2 % of filers | **Yes** |
-| EPS used the group's profit instead of the parent's share | 41,549 | No |
-| The exchange-rate effect counted twice | 2,252 | No |
-
-What remains, 35,328: about 24,000 unexplained and ours to investigate, about 7,700 filer tagging
-errors named and deliberately not repaired, and the rest tolerance and period questions. The two
-untouched checks, gross profit (3,900) and operating income (2,854), have not moved through any of
-this because nothing fixed so far touches them; they are next, and may need the filing's own declared
-arithmetic (step 8) rather than another tuning round.
-
-## Whose figure a check takes: the counterparty decides (2026-09-15)
-
-Two checks use the two profit figures a group reports, and they take different ones. Earnings per
-share takes the parent's share; pretax minus tax takes the consolidated total. Both confirmed by
-Hicham — but the reasoning we had written down was wrong, and is worth fixing, because the wrong
-version does not generalise.
-
-We had described them as opposite preferences, as though EPS were an exception to the tax identity.
-They are not. They face different counterparties:
-
-- **Tax faces the state**, which taxes the entity as a whole and does not care who owns which
-  subsidiary. Every term in "pretax minus tax equals after-tax" is therefore the group's.
-- **A share faces its holder**, whose claim is on the parent alone. The minority's share of a
-  subsidiary is not theirs, so EPS divides the parent's portion.
-
-Ask who the number answers to and the right figure follows. That is the rule to apply to the next
-check of this shape. "EPS is the reverse of the tax one" is not a rule, it is a coincidence of two
-answers.
-
-No code changed — the checks already did this. The comments in `filings_hub/ingest/checks.py` and
-the explanation in `docs/what-to-double-check.md` did not.
+* Sign-up and sign-in emails need an email relay and a public web address. Until then the pages say
+  email is not configured, and visitors keep their choices in their own browser.
+* Accounts need a read-write storage key. The read-only one cannot store users.
