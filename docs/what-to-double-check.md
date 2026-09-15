@@ -15,15 +15,13 @@ Almost none of that 9.2% was real. It was our checking code being wrong, not the
 
 Four real bugs, now fixed:
 
-| | What was wrong | Did anyone reading the site see it? |
+| | What was wrong | |
 |---|---|---|
-| 1 | The cash check compared cash at the *start* of the year against cash at the *end* | to be checked |
-| 2 | For foreign companies we kept both currencies, so one statement could mix them | **Yes** |
-| 3 | Earnings per share used the whole group's profit instead of the parent's share | to be checked |
-| 4 | Where a company lists the currency effect on cash separately, we counted it twice | to be checked |
+| 1 | The cash check compared cash at the *start* of the year against cash at the *end* | 
+| 2 | For foreign companies we kept both currencies, so one statement could mix them | 
+| 3 | Earnings per share used the whole group's profit instead of the parent's share | 
+| 4 | Where a company lists the currency effect on cash separately, we counted it twice | 
 
-Only **number 2** ever changed a number a reader could see. That is why it is the one thing below
-that needs a real person to go and look.
 
 ---
 
