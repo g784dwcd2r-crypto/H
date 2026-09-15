@@ -865,3 +865,22 @@ check nor an error by the filer.
   where a company tags a basic available-to-common line but no diluted one, the basic figure stands
   in, and under the if-converted method the diluted numerator adds preferred dividends back. A
   smaller bucket, queued behind income after tax (10,015 unexplained), the largest that remains.
+
+## The tax identity compares to consolidated continuing income, not the parent's portion (2026-09-15)
+
+Income after tax was the largest remaining bucket, 12,134 failures, 10,015 of them unexplained.
+Measured by the line the check compared against: `IncomeLossFromContinuingOperations` ran 23,159
+times and failed 26.0 %; every other line failed 1.6 to 6.7 %. Half of all the failures came from that
+one line. It is continuing income *attributable to the parent*, after the minority's share comes
+out; pretax income minus tax is the consolidated figure, minority included. The check listed the
+parent's line first. Three of fifteen sampled rows proved it to the dollar: pretax minus tax equalled
+`ProfitLoss` exactly and the parent's line was short by precisely the minority's share.
+
+- **Fix.** The consolidated continuing line first (`...IncludingPortionAttributableToNoncontrolling-
+  Interest`, then the IFRS one), the parent's line last, and when the parent's line is all the filer
+  gave, the minority's share is added back if tagged. The mirror of the EPS rule: EPS needs the
+  parent's portion, the tax identity needs the consolidated total.
+- **Seen and deferred.** Two of fifteen rows were filers whose `ProfitLoss` equals continuing
+  income although they tag discontinued operations separately: a filer's mis-tag, to be labelled.
+  About half of the failures use the pretax concept whose name says equity-method income is
+  excluded; that bucket overlaps this one and is re-measured after the fix.

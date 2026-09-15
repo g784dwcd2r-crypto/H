@@ -88,11 +88,15 @@ PRETAX_CONCEPTS = (
     "IncomeLossFromContinuingOperationsBeforeIncomeTaxesDomestic",
 )
 TAX_CONCEPTS = ("IncomeTaxExpenseBenefit", "IncomeTaxExpenseContinuingOperations")
-# Income from continuing operations as its own line. Preferred right-hand side for the tax identity.
+# Income from continuing operations as its own line: what pretax income minus tax equals. The
+# consolidated figure first, because pretax income is consolidated (the minority's share is in it).
+# The plain `IncomeLossFromContinuingOperations` is the PARENT's portion, after the minority's share
+# comes out; listed first it failed 26 % of the time, short by exactly that share. It comes last, and
+# the minority's share is added back when the filer tagged it.
 CONTINUING_ONLY_CONCEPTS = (
-    "IncomeLossFromContinuingOperations",
     "IncomeLossFromContinuingOperationsIncludingPortionAttributableToNoncontrollingInterest",
-    "ProfitLossFromContinuingOperations",  # ifrs-full
+    "ProfitLossFromContinuingOperations",  # ifrs-full, consolidated
+    "IncomeLossFromContinuingOperations",  # attributable to the parent
 )
 # Bottom-line income: continuing plus discontinued operations. ProfitLoss first: it is the
 # consolidated total, including the minority's share, which is what pretax income minus tax equals.
@@ -338,7 +342,11 @@ def _check_income_after_tax(v: dict[str, float]) -> list[CheckResult]:
         lhs += eq[1]  # the subtotal's own name says it is excluded
         parts.append(f"+ {eq[0]}")
     if cont := _first(v, CONTINUING_ONLY_CONCEPTS):
-        return [_result("IS", "income_after_tax", lhs, cont[1], " ".join(parts) + f" = {cont[0]}")]
+        rhs, rhs_name = cont[1], cont[0]
+        if cont[0] == "IncomeLossFromContinuingOperations" and (nci := _first(v, NONCONTROLLING_INCOME_CONCEPTS)):
+            # the parent's portion is all the filer gave: put the minority's share back
+            rhs, rhs_name = cont[1] + nci[1], f"{cont[0]} + {nci[0]}"
+        return [_result("IS", "income_after_tax", lhs, rhs, " ".join(parts) + f" = {rhs_name}")]
     total = _first(v, TOTAL_INCOME_CONCEPTS)
     if not total:
         return []

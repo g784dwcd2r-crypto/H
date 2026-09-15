@@ -342,3 +342,26 @@ def test_eps_is_exact_with_the_companys_numerator_and_approximate_without_it():
     assert "eps_basic_approx" not in names(C.check_income_statement(tagged))
     # past 5 %, the approximate check still fails: a wrong share count is not an allocation
     assert not one(C.check_income_statement({**inferred, "EarningsPerShareBasic": 9.0}), "eps_basic_approx").passed
+
+
+def test_the_tax_identity_compares_to_consolidated_continuing_income_not_the_parents_portion():
+    """Pretax income minus tax is consolidated: the minority's share is still in it. The plain
+    IncomeLossFromContinuingOperations is the parent's portion after that share comes out."""
+    v = {
+        "IncomeLossFromContinuingOperationsBeforeIncomeTaxesExtraordinaryItemsNoncontrollingInterest": 100.0,
+        "IncomeTaxExpenseBenefit": 20.0,
+        "IncomeLossFromContinuingOperationsIncludingPortionAttributableToNoncontrollingInterest": 80.0,
+        "IncomeLossFromContinuingOperations": 70.0,  # the parent's, after a 10 minority share
+        "NetIncomeLossAttributableToNoncontrollingInterest": 10.0,
+    }
+    r = one(C.check_income_statement(v), "income_after_tax")
+    assert r.passed and r.rhs == 80.0 and r.detail.endswith("IncludingPortionAttributableToNoncontrollingInterest")
+    # only the parent's line tagged: the minority's share is put back
+    del v["IncomeLossFromContinuingOperationsIncludingPortionAttributableToNoncontrollingInterest"]
+    r = one(C.check_income_statement(v), "income_after_tax")
+    assert r.passed and r.rhs == 80.0
+    assert r.detail.endswith("= IncomeLossFromContinuingOperations + NetIncomeLossAttributableToNoncontrollingInterest")
+    # the parent's line and no minority tagged: compared as it is, and the gap shows honestly
+    del v["NetIncomeLossAttributableToNoncontrollingInterest"]
+    r = one(C.check_income_statement(v), "income_after_tax")
+    assert not r.passed and r.rhs == 70.0
