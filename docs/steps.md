@@ -395,7 +395,7 @@ again silently.
 
 **Size.** About a day. A few hundred downloads.
 
-**✅ Built (2026-09-15); ▢ the twenty are being fetched.** Three pieces, all in
+**✅ Done (2026-09-15).** Three pieces, all in
 `filings_hub/testing/real_filings.py`:
 
 - **The list.** `filings_hub/data/reader_set.csv`: 26 filings, each with the reason it is awkward.
@@ -452,10 +452,10 @@ flowchart LR
     style M fill:#e8f5e9,stroke:#2e7d32
 ```
 
-**Done when.** ✅ The list, the fetch and the harness are built and tested. ✅ The fixtures are
-fetched and committed (24 of 26). ✅ `reader-check` reads all 24 cleanly, after the embedded-linkbase
-fix. ▢ `filings-hub reader-fetch --only XOM BRK.B` on the Mac for the last two, then the presence
-test's expected-failure marker comes off, which is the moment they become permanent.
+**Done when.** ✅ The list, the fetch and the harness are built and tested. ✅ All 26 fixtures are
+fetched and committed (13 MB gzipped). ✅ `reader-check` reads all 26 cleanly, after the
+embedded-linkbase fix. ✅ The presence test is live: the 26 are permanent, and the suite goes red the
+moment any of them is removed or stops reading.
 
 ## Step 6. Download and keep every filing
 

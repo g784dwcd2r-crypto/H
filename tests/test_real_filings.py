@@ -278,13 +278,8 @@ def test_every_real_filing_reads_cleanly(fixture: Path):
     )
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="the real filings are fetched on a machine that reaches EDGAR (filings-hub reader-fetch); "
-    "strict, so this flips to a hard failure the moment the fixtures land and the marker must come off",
-)
 def test_real_filing_fixtures_are_present():
-    """The step's guarantee: the twenty cannot quietly stop being tested. Red until they are fetched."""
+    """The step's guarantee: the twenty-six cannot quietly stop being tested."""
     have = {p.name for p in rf.fixture_dirs(FIXTURES)}
     missing = [r["key"] for r in rf.load_reader_set() if r["key"] not in have]
     assert not missing, (
