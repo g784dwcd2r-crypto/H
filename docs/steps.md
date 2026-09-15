@@ -433,10 +433,29 @@ flowchart LR
     style REPAIR fill:#fff4e5,stroke:#e65100
 ```
 
-**Done when.** ✅ The list, the fetch and the harness are built and tested against the synthetic
-filing. ▢ `filings-hub reader-fetch` has run on the Mac and the fixtures are committed. ▢
-`reader-check` reads all 26 cleanly, with whatever the reader needed fixed to get there. ▢ The
-presence test is green, which is the moment they become permanent.
+**What the real filings found (2026-09-15).** The fetch brought back 24 of 26 (12 MB gzipped). Twenty
+read cleanly first time, including the 2010 Coca-Cola filing from before the inline format. Four came
+back with only two files — Microsoft, Prologis, Royal Bank of Canada, Toyota, all through the same
+filing agent — and the reader built no statement lines for them. Not a fetch fault: those filings
+keep all four linkbases *inside the schema file* rather than as separate files, so there is nothing
+else on the SEC's site to fetch. The reader now reads a schema for embedded linkbases as well as for
+its role definitions, and merges them with whatever separate files exist; for the twenty that keep
+files, the schema adds nothing and nothing changes. The two skips were the list's fault (a dotted
+ticker; a company that changed CIK) and are now given by CIK.
+
+```mermaid
+flowchart LR
+    F["Most filings<br/>schema points at four files:<br/>_lab _pre _cal _def"] --> R["The reader"]
+    E["Some filing agents<br/>schema CONTAINS the four,<br/>no separate files exist"] --> R
+    R --> M["Read both places,<br/>files on top.<br/>Same statements either way"]
+    style E fill:#fff4e5,stroke:#e65100
+    style M fill:#e8f5e9,stroke:#2e7d32
+```
+
+**Done when.** ✅ The list, the fetch and the harness are built and tested. ✅ The fixtures are
+fetched and committed (24 of 26). ✅ `reader-check` reads all 24 cleanly, after the embedded-linkbase
+fix. ▢ `filings-hub reader-fetch --only XOM BRK.B` on the Mac for the last two, then the presence
+test's expected-failure marker comes off, which is the moment they become permanent.
 
 ## Step 6. Download and keep every filing
 

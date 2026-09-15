@@ -145,3 +145,31 @@ def test_file_set_handles_a_pre_inline_filing_whose_instance_has_no_suffix():
 def test_file_set_reports_what_is_missing_rather_than_guessing():
     found = xbrl.file_set(["ex-991.htm", "form8k.htm"])
     assert not found.is_complete and "instance" in found.missing
+
+
+def test_linkbases_embedded_in_the_schema_are_read():
+    """Microsoft, Prologis, Royal Bank and Toyota keep all four linkbases inside the schema's appinfo;
+    EDGAR holds only the schema and the instance for them. The schema is read like any other file."""
+    schema = fx.embedded_schema()
+    assert xbrl.parse_role_definitions(schema)  # still a schema: the role definitions are intact
+    found = xbrl.linkbases_in(schema)
+    assert found.presentation == xbrl.parse_presentation(fx.PRESENTATION)
+    assert found.calculation == xbrl.parse_calculation(fx.CALCULATION)
+    assert found.labels == xbrl.parse_labels(fx.LABELS)
+    assert found.present == ("labels", "presentation", "calculation")
+    # a schema that only points at files carries nothing
+    assert xbrl.linkbases_in(fx.SCHEMA).present == ()
+
+
+def test_read_linkbases_takes_files_and_schema_together_with_files_on_top():
+    from_files = xbrl.read_linkbases(fx.SCHEMA, labels=fx.LABELS, presentation=fx.PRESENTATION)
+    from_schema = xbrl.read_linkbases(fx.embedded_schema())
+    assert from_files.presentation == from_schema.presentation
+    assert from_files.labels == from_schema.labels
+    # both at once: arcs add up, and on the same concept and role the separate file's words win
+    rev = "us-gaap:RevenueFromContractWithCustomerExcludingAssessedTax"
+    override = fx.LABELS.replace(b">Fee income<", b">Fee income, restated<", 1)
+    both = xbrl.read_linkbases(fx.embedded_schema(), labels=override, presentation=fx.PRESENTATION)
+    assert len(both.presentation) == 2 * len(from_files.presentation)
+    assert both.labels[rev]["label"] == "Fee income, restated"
+    assert xbrl.read_linkbases(None).present == ()

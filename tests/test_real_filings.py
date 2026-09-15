@@ -291,3 +291,16 @@ def test_real_filing_fixtures_are_present():
         f"{len(missing)} of {len(rf.load_reader_set())} real filings have no fixture under {FIXTURES}: "
         f"{', '.join(missing)}. Run `filings-hub reader-fetch` on a machine that reaches EDGAR and commit the result."
     )
+
+
+def test_harness_reads_a_filing_whose_linkbases_live_in_the_schema():
+    """Two files on EDGAR, four linkbases embedded: what the fetch found for MSFT, PLD, RY and TM."""
+    files = {"schema": fx.embedded_schema(), "instance": _b(fx.INSTANCE)}
+    rep = rf.read_filing(files, key="MSFT-shaped")
+    assert rep.ok, rep.errors
+    assert rep.missing == ("labels", "presentation", "calculation", "definition")  # the files, truthfully
+    assert rep.embedded == ("labels", "presentation", "calculation")  # where they actually were
+    assert rep.lines > 0 and rep.calc_arcs > 0
+    assert all(s.unlabelled == 0 for s in rep.statements)
+    text = rf.format_report([rep])
+    assert "in schema" in text and "labels, presentation, calculation" in text

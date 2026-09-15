@@ -676,3 +676,26 @@ awkward real filings, read by the real pipeline, kept as tests that cannot break
   exists to prevent. Until the Mac fetch is committed that test is a *strict expected failure*: it
   still runs and must fail, so the gap shows in every run, and the moment the fixtures land it
   becomes a hard failure until the marker is removed. Nothing is skipped and nothing is quiet.
+
+## Four filers keep their linkbases inside the schema; the reader now reads both places (2026-09-15)
+
+The first run of the reader over real filings (step 5) read 20 of 24 cleanly. The four that failed —
+Microsoft, Prologis, Royal Bank of Canada, Toyota — share one filing agent and one shape: EDGAR holds
+only the schema and the instance for them, and the schema is 2 to 7 MB because the label,
+presentation, calculation and definition linkbases are embedded in it (Microsoft's carries 1,103
+presentation arcs). There is no `_lab.xml` to fetch; the fetch was right and the reader was blind.
+
+- **Fix in the reader, not the fetch.** `xbrl.linkbases_in(schema)` returns whatever linkbases a
+  document carries, and `read_linkbases(schema, files...)` merges the schema's with the separate
+  files', files on top. The parsers already walked the whole document, so a schema reads like any
+  other file; the change is to *ask* it. For the twenty filings that keep files the schema
+  contributes nothing and nothing changes — locked in by the same fixtures.
+- **`FileSet` keeps describing files.** `is_complete` and `missing` stay truthful about what EDGAR
+  holds; completeness of *content* is `read_linkbases`' job. The harness reports both: which files
+  were missing, and which linkbases were found in the schema, so the two-file shape is visible
+  rather than alarming.
+- **Rejected:** treating a two-file filing as incomplete and skipping it. That would silently drop
+  Microsoft.
+- The two skipped rows were list mistakes, not reader ones: `BRK.B` is stored under another spelling
+  and ExxonMobil changed CIK on re-incorporation, so the ticker resolved to the old company with no
+  recent 10-K. Both are now given by CIK, as the micro-caps already were.

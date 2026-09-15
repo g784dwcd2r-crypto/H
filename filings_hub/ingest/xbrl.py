@@ -27,7 +27,7 @@ import io
 import logging
 from collections import defaultdict
 from collections.abc import Iterator
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from xml.etree import ElementTree as ET
 
 log = logging.getLogger(__name__)
@@ -231,6 +231,64 @@ def parse_calculation(data: bytes) -> tuple[Arc, ...]:
 def parse_definition(data: bytes) -> tuple[Arc, ...]:
     """The `_def` linkbase: which axes apply to which lines, and which members are allowed."""
     return _arcs(data, "definitionLink", "definitionArc")
+
+
+@dataclass(frozen=True, slots=True)
+class Linkbases:
+    """The four linkbases of one filing, wherever the filing keeps them."""
+
+    labels: dict[str, dict[str, str]] = field(default_factory=dict)
+    presentation: tuple[Arc, ...] = ()
+    calculation: tuple[Arc, ...] = ()
+    definition: tuple[Arc, ...] = ()
+
+    @property
+    def present(self) -> tuple[str, ...]:
+        return tuple(n for n in ("labels", "presentation", "calculation", "definition") if getattr(self, n))
+
+
+def linkbases_in(data: bytes) -> Linkbases:
+    """Every linkbase one document carries.
+
+    A `_pre.xml` carries one kind. A schema usually carries none, only the `linkbaseRef`s that point
+    at the four files. But some filer agents embed all four inside the schema's appinfo instead
+    (Microsoft, Prologis, Royal Bank of Canada and Toyota in the reader set): no `_lab.xml` exists on
+    EDGAR, and the filing is complete with two files. The parsers walk the whole document, so the
+    schema is read for links like any other file and this returns what it holds."""
+    return Linkbases(parse_labels(data), parse_presentation(data), parse_calculation(data), parse_definition(data))
+
+
+def merge_linkbases(first: Linkbases, second: Linkbases) -> Linkbases:
+    """Both sets together. On the same concept and label role, `second` wins."""
+    labels = {concept: dict(roles) for concept, roles in first.labels.items()}
+    for concept, roles in second.labels.items():
+        labels.setdefault(concept, {}).update(roles)
+    return Linkbases(
+        labels=labels,
+        presentation=first.presentation + second.presentation,
+        calculation=first.calculation + second.calculation,
+        definition=first.definition + second.definition,
+    )
+
+
+def read_linkbases(
+    schema: bytes | None,
+    labels: bytes | None = None,
+    presentation: bytes | None = None,
+    calculation: bytes | None = None,
+    definition: bytes | None = None,
+) -> Linkbases:
+    """The filing's four linkbases from the separate files and the schema together: what the schema
+    embeds first, then the separate files on top. For a filing that keeps them in files the schema
+    contributes nothing and this is the four parsers; for one that embeds them it is the only way
+    to get a presentation at all."""
+    from_files = Linkbases(
+        labels=parse_labels(labels) if labels else {},
+        presentation=parse_presentation(presentation) if presentation else (),
+        calculation=parse_calculation(calculation) if calculation else (),
+        definition=parse_definition(definition) if definition else (),
+    )
+    return merge_linkbases(linkbases_in(schema) if schema else Linkbases(), from_files)
 
 
 def parse_labels(data: bytes) -> dict[str, dict[str, str]]:
@@ -490,7 +548,11 @@ class FileSet:
     `..._pre.xml`, and the instance is `..._htm.xml` for an inline filing (EDGAR extracts it from
     the document so the facts can be read without the presentation HTML) or `....xml` for the older
     style. Matching on the suffix rather than on a guessed company prefix means a filing that names
-    its files unusually still resolves."""
+    its files unusually still resolves.
+
+    Some filings have only the schema and the instance because the four linkbases are embedded in
+    the schema; `is_complete` and `missing` describe the files, and `read_linkbases` finds the
+    content wherever it is."""
 
     instance: str | None = None
     schema: str | None = None
@@ -527,9 +589,9 @@ def file_set(filenames: list[str]) -> FileSet:
     candidates: list[str] = []
     for name in filenames:
         lower = name.lower()
-        for suffix, field in _LINKBASE_SUFFIXES.items():
+        for suffix, role in _LINKBASE_SUFFIXES.items():
             if lower.endswith(suffix):
-                found.setdefault(field, name)
+                found.setdefault(role, name)
                 break
         else:
             if lower.endswith(".xsd"):

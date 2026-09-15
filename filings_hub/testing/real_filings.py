@@ -37,8 +37,6 @@ DATA_DIR = Path(__file__).resolve().parent.parent / "data"
 READER_SET_CSV = DATA_DIR / "reader_set.csv"
 MANIFEST = "manifest.json"
 FILE_ROLES = ("instance", "schema", "labels", "presentation", "calculation", "definition")
-# Enough to build a statement, mirroring FileSet.is_complete: the facts, the order, and the words.
-REQUIRED_ROLES = ("instance", "presentation", "labels")
 FORMS = ("10-K", "10-Q", "20-F", "40-F")
 
 
@@ -180,8 +178,9 @@ class ReaderReport:
 
     key: str
     accession: str | None
-    complete: bool = False
-    missing: tuple[str, ...] = ()
+    complete: bool = False  # the words, the order and the facts are available, from files or the schema
+    missing: tuple[str, ...] = ()  # separate files the filing did not have
+    embedded: tuple[str, ...] = ()  # linkbases found inside the schema instead
     roles: int = 0
     statements: list[StatementReport] = field(default_factory=list)
     facts: int = 0
@@ -199,8 +198,8 @@ class ReaderReport:
 
     @property
     def ok(self) -> bool:
-        """Read cleanly: nothing raised, the three files a statement needs were there, at least one
-        statement came out with lines on it, and the instance carried facts."""
+        """Read cleanly: nothing raised, the words and the order were found (in files or in the
+        schema), at least one statement came out with lines on it, and the instance carried facts."""
         return not self.errors and self.complete and self.lines > 0 and self.facts > 0
 
 
@@ -228,7 +227,6 @@ def read_filing(files: dict[str, bytes], key: str = "", accession: str | None = 
     """Run the whole reader pipeline over one filing's files and report, never raise."""
     rep = ReaderReport(key=key, accession=accession)
     rep.missing = tuple(r for r in FILE_ROLES if r not in files)
-    rep.complete = all(r in files for r in REQUIRED_ROLES)
     capture = _WarningCapture()
     xbrl.log.addHandler(capture)
     try:
@@ -241,13 +239,31 @@ def read_filing(files: dict[str, bytes], key: str = "", accession: str | None = 
         cal = (
             _call(rep, "calculation", xbrl.parse_calculation, files["calculation"]) if "calculation" in files else None
         ) or ()
-        if "definition" in files:
-            _call(rep, "definition", xbrl.parse_definition, files["definition"])
+        dfn = (
+            _call(rep, "definition", xbrl.parse_definition, files["definition"]) if "definition" in files else None
+        ) or ()
         defs = (_call(rep, "schema", xbrl.parse_role_definitions, files["schema"]) if "schema" in files else None) or {}
+        # a schema may embed the linkbases instead of pointing at files: read both, files on top
+        embedded = (
+            _call(rep, "schema: embedded linkbases", xbrl.linkbases_in, files["schema"]) if "schema" in files else None
+        ) or xbrl.Linkbases()
+        lb = xbrl.merge_linkbases(embedded, xbrl.Linkbases(labels, pre, cal, dfn))
+        rep.embedded = embedded.present
+        rep.complete = "instance" in files and bool(lb.presentation) and bool(lb.labels)
         rep.roles = len(defs)
-        rep.calc_arcs = len(cal)
+        rep.calc_arcs = len(lb.calculation)
         for role in xbrl.statement_roles(defs):
-            lines = _call(rep, f"presentation tree: {role.title}", xbrl.presentation_tree, pre, role.role, labels) or []
+            lines = (
+                _call(
+                    rep,
+                    f"presentation tree: {role.title}",
+                    xbrl.presentation_tree,
+                    lb.presentation,
+                    role.role,
+                    lb.labels,
+                )
+                or []
+            )
             rep.statements.append(
                 StatementReport(role.kind, role.title, len(lines), sum(1 for ln in lines if ln.label is None))
             )
@@ -267,11 +283,15 @@ def read_filing(files: dict[str, bytes], key: str = "", accession: str | None = 
 
 
 def format_report(reports: list[ReaderReport]) -> str:
-    out = [f"  {'key':<10} {'accession':<22} {'result':<7} {'stmts':>5} {'lines':>6} {'facts':>7} {'dims':>6}  missing"]
+    out = [
+        f"  {'key':<10} {'accession':<22} {'result':<7} {'stmts':>5} {'lines':>6} {'facts':>7} {'dims':>6}  "
+        f"{'files missing':<32} in schema"
+    ]
     for r in reports:
         out.append(
             f"  {r.key:<10} {(r.accession or ''):<22} {'OK' if r.ok else 'BROKEN':<7} "
-            f"{len(r.statements):>5} {r.lines:>6} {r.facts:>7} {r.dimensioned:>6}  {', '.join(r.missing) or '-'}"
+            f"{len(r.statements):>5} {r.lines:>6} {r.facts:>7} {r.dimensioned:>6}  "
+            f"{(', '.join(r.missing) or '-'):<32} {', '.join(r.embedded) or '-'}"
         )
     broken = [r for r in reports if r.errors or r.warnings or not r.ok]
     if broken:
@@ -282,7 +302,13 @@ def format_report(reports: list[ReaderReport]) -> str:
             for w in r.warnings:
                 out.append(f"  {r.key}: warning: {w}")
             if not r.errors and not r.ok:
-                why = "no statement lines" if r.lines == 0 else "no facts" if r.facts == 0 else "incomplete file set"
+                why = (
+                    "no statement lines"
+                    if r.lines == 0
+                    else "no facts"
+                    if r.facts == 0
+                    else "no presentation or labels in the files or the schema"
+                )
                 out.append(f"  {r.key}: {why}")
     clean = sum(1 for r in reports if r.ok)
     out += ["", f"{clean} of {len(reports)} filings read cleanly"]

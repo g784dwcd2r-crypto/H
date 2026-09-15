@@ -143,3 +143,25 @@ INSTANCE = b"""<?xml version="1.0" encoding="UTF-8"?>
   <us-gaap:OtherAssets contextRef="Missing" unitRef="usd" decimals="-3">1000</us-gaap:OtherAssets>
 </xbrl>
 """
+
+
+def _link_block(linkbase: bytes, tag: str) -> bytes:
+    """One `<link:{tag}>...</link:{tag}>` element cut out of a linkbase, with the xlink namespace
+    declared on it so it stands alone inside a schema."""
+    start = linkbase.index(f"<link:{tag}".encode())
+    end = linkbase.index(f"</link:{tag}>".encode()) + len(f"</link:{tag}>")
+    opening = f"<link:{tag}".encode()
+    return linkbase[start:end].replace(opening, opening + b' xmlns:xlink="http://www.w3.org/1999/xlink"', 1)
+
+
+def embedded_schema() -> bytes:
+    """The same filing as SCHEMA, but with the presentation, calculation and label linkbases embedded
+    in the schema's appinfo rather than in separate files: the shape Microsoft, Prologis, Royal Bank
+    of Canada and Toyota file in, where EDGAR holds only the schema and the instance."""
+    blocks = (
+        _link_block(PRESENTATION, "presentationLink"),
+        _link_block(CALCULATION, "calculationLink"),
+        _link_block(LABELS, "labelLink"),
+    )
+    assert b"</xs:appinfo>" in SCHEMA
+    return SCHEMA.replace(b"</xs:appinfo>", b"".join(blocks) + b"</xs:appinfo>", 1)
